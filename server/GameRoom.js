@@ -12,7 +12,7 @@ const PHASES = {
 };
 
 const DEFAULT_CONFIG = {
-  minBetLandlord: 10,
+  minBetLandlord: 1, // overwritten at game start to farmer count
   minBetFarmer: 1,
   interestRate: 0.1,
   complaintFee: 5,
@@ -66,6 +66,9 @@ export class GameRoom {
 
     if (!landlord) return { error: '缺少地主' };
     if (farmers.length === 0) return { error: '缺少农民' };
+
+    // minBetLandlord = number of farmers
+    this.config.minBetLandlord = farmers.length;
 
     const landlordStart = this.config.landlordStartBalance;
     landlord.balance = landlordStart;
@@ -322,6 +325,16 @@ export class GameRoom {
   getStateFor(playerId) {
     const player = this.players[playerId];
     const isBankruptFarmer = player?.bankrupt && player?.role === 'farmer';
+
+    // Compute forceAllIn for this player
+    let forceAllIn = false;
+    let allInAmount = null;
+    if (player && ['landlord', 'farmer'].includes(player.role) && !player.bankrupt) {
+      const min = player.role === 'landlord' ? this.config.minBetLandlord : this.config.minBetFarmer;
+      forceAllIn = player.role === 'landlord' ? player.balance <= min + 1 : player.balance <= min;
+      if (forceAllIn) allInAmount = player.balance;
+    }
+
     return {
       roomId: this.roomId,
       phase: this.phase,
@@ -335,6 +348,8 @@ export class GameRoom {
       history: this.history.slice(-10),
       isBankruptSpectator: isBankruptFarmer,
       skipVotes: [...this.skipVotes],
+      forceAllIn,
+      allInAmount,
     };
   }
 

@@ -6,15 +6,7 @@ export function flipCoin() {
 
 /**
  * Settle one round given bets and coin result.
- * Returns { balanceDeltas, events }
- *
- * @param {object} params
- * @param {'heads'|'tails'} params.coinResult
- * @param {object} params.bets - { playerId: amount }
- * @param {object} params.balances - { playerId: currentBalance }
- * @param {string} params.landlordId
- * @param {string[]} params.farmerIds  (only active/non-bankrupt)
- * @param {object} params.config
+ * Returns { deltas, events } — all amounts are integers (Math.ceil applied).
  */
 export function settle({ coinResult, bets, balances, landlordId, farmerIds, config }) {
   const deltas = {};
@@ -24,10 +16,9 @@ export function settle({ coinResult, bets, balances, landlordId, farmerIds, conf
   const totalFarmerBet = farmerIds.reduce((s, id) => s + (bets[id] ?? config.minBetFarmer), 0);
 
   if (coinResult === 'heads') {
-    // Landlord wins
-    const needed = landlordBet * 2; // landlord wants back 2× his bet
+    // Landlord wins — wants back 2× his bet from farmers
+    const needed = landlordBet * 2;
     if (totalFarmerBet >= needed) {
-      // Normal win
       deltas[landlordId] = (deltas[landlordId] ?? 0) + needed;
       farmerIds.forEach(id => {
         const fb = bets[id] ?? config.minBetFarmer;
@@ -35,26 +26,25 @@ export function settle({ coinResult, bets, balances, landlordId, farmerIds, conf
       });
       events.push({ type: 'landlord_wins', landlordGain: needed });
     } else {
-      // Farmers can't cover — each farmer pays double the shortfall proportionally
+      // Farmers can't cover — each pays double their proportional shortfall
       const shortfall = needed - totalFarmerBet;
       farmerIds.forEach(id => {
         const fb = bets[id] ?? config.minBetFarmer;
         const proportion = totalFarmerBet > 0 ? fb / totalFarmerBet : 1 / farmerIds.length;
-        const extraOwed = shortfall * proportion * 2;
+        const extraOwed = Math.ceil(shortfall * proportion * 2);
         const totalOwed = fb + extraOwed;
         const canPay = Math.max(0, balances[id] - config.minBetFarmer);
         const actualPay = Math.min(totalOwed, canPay + fb);
         deltas[id] = (deltas[id] ?? 0) - actualPay;
       });
 
-      // Collect what farmers actually paid
       const actualCollected = farmerIds.reduce((s, id) => s + Math.abs(deltas[id] ?? 0), 0);
 
-      // If farmers still can't cover fully, landlord takes half of remaining balance from each farmer
+      // Landlord takes half of each farmer's remaining excess balance
       farmerIds.forEach(id => {
         const remaining = (balances[id] ?? 0) + (deltas[id] ?? 0);
         if (remaining > config.minBetFarmer) {
-          const grab = (remaining - config.minBetFarmer) / 2;
+          const grab = Math.ceil((remaining - config.minBetFarmer) / 2);
           deltas[id] = (deltas[id] ?? 0) - grab;
           deltas[landlordId] = (deltas[landlordId] ?? 0) + grab;
         }
@@ -64,17 +54,16 @@ export function settle({ coinResult, bets, balances, landlordId, farmerIds, conf
       events.push({ type: 'landlord_wins_partial', shortfall });
     }
   } else {
-    // Farmers win — split pot by contribution ratio
+    // Farmers win — pot split proportionally (ceil to avoid fractions)
     const pot = landlordBet + totalFarmerBet;
     deltas[landlordId] = (deltas[landlordId] ?? 0) - landlordBet;
     farmerIds.forEach(id => {
       const fb = bets[id] ?? config.minBetFarmer;
       deltas[id] = (deltas[id] ?? 0) - fb;
     });
-    // Default: distribute pot proportional to farmer contribution
     farmerIds.forEach(id => {
       const fb = bets[id] ?? config.minBetFarmer;
-      const share = totalFarmerBet > 0 ? (fb / totalFarmerBet) * pot : pot / farmerIds.length;
+      const share = Math.ceil(totalFarmerBet > 0 ? (fb / totalFarmerBet) * pot : pot / farmerIds.length);
       deltas[id] = (deltas[id] ?? 0) + share;
     });
     events.push({ type: 'farmers_win', pot });
@@ -84,14 +73,13 @@ export function settle({ coinResult, bets, balances, landlordId, farmerIds, conf
 }
 
 /**
- * Apply interest to outstanding loans.
- * Returns list of { playerId, interestCharged }
+ * Apply interest to outstanding loans. Interest is ceiled to integer.
  */
 export function accrueInterest(loans, config) {
   const charges = [];
   for (const loan of loans) {
     if (loan.remainingRounds > 0) {
-      const interest = loan.principal * config.interestRate;
+      const interest = Math.ceil(loan.principal * config.interestRate);
       charges.push({ loanId: loan.id, playerId: loan.borrowerId, interest });
       loan.remainingRounds--;
       loan.totalOwed = (loan.totalOwed ?? loan.principal) + interest;
@@ -104,8 +92,24 @@ export function isBankrupt(balance, config) {
   return balance <= 0;
 }
 
+/**
+ * Validate a bet amount.
+ * Special rule: if balance is at or near the minimum, force all-in.
+ * Returns { valid, reason?, forceAllIn?, allInAmount? }
+ */
 export function validateBet(amount, balance, config, role) {
   const min = role === 'landlord' ? config.minBetLandlord : config.minBetFarmer;
+
+  // Force all-in when balance leaves no room for a normal bet
+  const forceAllIn = role === 'landlord' ? balance <= min + 1 : balance <= min;
+
+  if (forceAllIn) {
+    if (amount !== balance) {
+      return { valid: false, reason: `当前只能全押 ¥${balance}`, forceAllIn: true, allInAmount: balance };
+    }
+    return { valid: true, forceAllIn: true, allInAmount: balance };
+  }
+
   const max = balance - min;
   if (amount < min) return { valid: false, reason: `最小下注额为 ${min}` };
   if (amount > max) return { valid: false, reason: `必须保留至少 ${min} 的底仓` };

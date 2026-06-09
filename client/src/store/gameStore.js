@@ -35,6 +35,23 @@ export const useGameStore = create((set, get) => ({
     set({ ws, roomId });
   },
 
+  leaveRoom: () => {
+    const ws = get().ws;
+    if (ws) { try { ws.close(); } catch {} }
+    set({
+      ws: null,
+      connected: false,
+      roomId: null,
+      playerId: null,
+      gameState: null,
+      chatMessages: [],
+      bankruptChat: [],
+      pendingLoanRequests: [],
+      skipVotes: [],
+      error: null,
+    });
+  },
+
   handleMessage: (msg) => {
     const { type } = msg;
 
@@ -42,6 +59,10 @@ export const useGameStore = create((set, get) => ({
       set({ playerId: msg.playerId, gameState: msg.state, skipVotes: msg.state?.skipVotes ?? [] });
     } else if (type === 'state_update') {
       set({ gameState: msg.state, skipVotes: msg.state?.skipVotes ?? [] });
+    } else if (type === 'bet_placed') {
+      // Refresh state so my own bet status and others' masked status update
+      const ws = get().ws;
+      if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'get_state' }));
     } else if (type === 'negotiation_skip_votes') {
       set({ skipVotes: msg.votes ?? [] });
     } else if (type === 'negotiation_start') {
@@ -61,7 +82,7 @@ export const useGameStore = create((set, get) => ({
     } else if (type === 'error') {
       set({ error: msg.message });
     }
-    // All state-changing events also trigger a get_state request
+    // State-changing events trigger full refresh
     const ws = get().ws;
     if (ws && ws.readyState === WebSocket.OPEN && ['settlement', 'game_started', 'loan_granted', 'loan_forgiven'].includes(type)) {
       ws.send(JSON.stringify({ type: 'get_state' }));

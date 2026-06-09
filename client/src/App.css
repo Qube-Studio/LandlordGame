@@ -83,6 +83,7 @@ body {
   border: 1px solid var(--border); border-radius: 8px;
   margin-bottom: 16px;
 }
+.leave-btn { margin-left: auto; border-color: var(--danger); color: var(--danger); }
 .room-id { font-family: monospace; font-size: 18px; font-weight: 700; }
 .phase-badge { background: var(--primary); color: #fff; border-radius: 20px; padding: 3px 12px; font-size: 12px; }
 .round-badge { color: var(--muted); font-size: 13px; }
@@ -100,6 +101,9 @@ body {
 /* ── Betting ── */
 .betting-panel h3 { margin-bottom: 12px; }
 .already-bet { color: var(--success); font-size: 15px; padding: 8px 0; }
+.bet-info { color: var(--muted); font-size: 13px; margin-bottom: 10px; }
+.force-allin { display: flex; align-items: center; gap: 12px; padding: 8px 0; }
+.allin-hint { color: var(--warn); font-size: 13px; }
 .bet-input-row { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
 .bet-status { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
 .bet-badge { border-radius: 4px; padding: 3px 10px; font-size: 12px; }

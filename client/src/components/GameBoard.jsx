@@ -10,6 +10,7 @@ export default function GameBoard() {
   const playerId = useGameStore(s => s.playerId);
   const skipVotes = useGameStore(s => s.skipVotes);
   const send = useGameStore(s => s.send);
+  const leaveRoom = useGameStore(s => s.leaveRoom);
   const error = useGameStore(s => s.error);
 
   if (!state) return <div className="loading">连接中…</div>;
@@ -35,6 +36,7 @@ export default function GameBoard() {
         <span className="room-id">房间 {roomId}</span>
         <span className="phase-badge">{phaseLabel(phase)}</span>
         {!isLobby && !isEnded && <span className="round-badge">第 {round} 回合</span>}
+        <button className="btn small leave-btn" onClick={leaveRoom}>退出房间</button>
       </header>
 
       {error && <div className="error">{error}</div>}

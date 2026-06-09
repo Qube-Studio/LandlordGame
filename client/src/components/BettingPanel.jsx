@@ -8,7 +8,7 @@ export default function BettingPanel() {
   const [betAmount, setBetAmount] = useState('');
 
   if (!state) return null;
-  const { phase, players, bets, config, myBalance } = state;
+  const { phase, players, bets, config, myBalance, forceAllIn, allInAmount } = state;
   const myPlayer = players.find(p => p.id === playerId);
 
   if (!myPlayer || !['landlord', 'farmer'].includes(myPlayer.role)) return null;
@@ -19,9 +19,7 @@ export default function BettingPanel() {
   const maxBet = myBalance - minBet;
   const alreadyBet = bets?.[playerId] !== undefined;
 
-  const placeBet = () => {
-    const amount = Number(betAmount);
-    if (amount < minBet || amount > maxBet) return;
+  const placeBet = (amount) => {
     send({ type: 'place_bet', amount });
     setBetAmount('');
   };
@@ -29,11 +27,23 @@ export default function BettingPanel() {
   return (
     <div className="card betting-panel">
       <h3>下注阶段 — 第 {state.round} 回合</h3>
+      <div className="bet-info">
+        余额: <strong>¥{myBalance}</strong>
+        &nbsp;·&nbsp;最小下注: <strong>¥{minBet}</strong>
+        {!forceAllIn && <>&nbsp;·&nbsp;最大下注: <strong>¥{maxBet}</strong></>}
+      </div>
+
       {alreadyBet ? (
         <div className="already-bet">✅ 已下注，等待其他玩家…</div>
+      ) : forceAllIn ? (
+        <div className="force-allin">
+          <span className="allin-hint">⚠️ 余额不足，只能全押</span>
+          <button className="btn primary" onClick={() => placeBet(allInAmount)}>
+            全押 ¥{allInAmount}
+          </button>
+        </div>
       ) : (
         <div className="bet-input-row">
-          <span>余额: ¥{myBalance?.toFixed(1)}</span>
           <input
             type="number"
             className="input small"
@@ -44,16 +54,17 @@ export default function BettingPanel() {
             value={betAmount}
             onChange={e => setBetAmount(e.target.value)}
           />
-          <button className="btn primary" onClick={placeBet}
-            disabled={Number(betAmount) < minBet || Number(betAmount) > maxBet}>
+          <button className="btn primary" onClick={() => placeBet(Number(betAmount))}
+            disabled={Number(betAmount) < minBet || Number(betAmount) > maxBet || !betAmount}>
             确认下注
           </button>
         </div>
       )}
+
       <div className="bet-status">
         {players.filter(p => ['landlord', 'farmer'].includes(p.role) && !p.bankrupt).map(p => (
           <span key={p.id} className={`bet-badge ${bets?.[p.id] !== undefined ? 'placed' : 'waiting'}`}>
-            {p.name}: {bets?.[p.id] !== undefined ? '已下注' : '等待中'}
+            {p.name}: {bets?.[p.id] !== undefined ? '✅ 已下注' : '⏳ 等待中'}
           </span>
         ))}
       </div>
