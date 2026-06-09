@@ -15,9 +15,15 @@ export default function Lobby() {
 
   const createRoom = async () => {
     if (!name.trim()) return;
-    const res = await fetch('/api/rooms', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
-    const data = await res.json();
-    connect(data.roomId, name.trim());
+    try {
+      const res = await fetch('/api/rooms', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+      if (!res.ok) throw new Error(`服务器错误 ${res.status}`);
+      const data = await res.json();
+      if (!data.roomId) throw new Error('未获取到房间号');
+      connect(data.roomId, name.trim());
+    } catch (e) {
+      useGameStore.setState({ error: e.message });
+    }
   };
 
   const joinRoom = () => {

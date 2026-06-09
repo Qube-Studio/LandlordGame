@@ -15,7 +15,7 @@ export const useGameStore = create((set, get) => ({
   setConnected: (v) => set({ connected: v }),
 
   connect: (roomId, playerName) => {
-    const wsUrl = `ws://${window.location.host}`;
+    const wsUrl = `ws://${window.location.host}/ws`;
     const ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
