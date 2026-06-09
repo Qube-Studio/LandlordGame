@@ -1,11 +1,14 @@
+import { useState } from 'react';
 import { useGameStore } from '../store/gameStore';
 import PlayerList from './PlayerList';
 import BettingPanel from './BettingPanel';
 import BankPanel from './BankPanel';
 import ChatBox from './ChatBox';
 import RoundHistory from './RoundHistory';
+import FundHistory from './FundHistory';
 
 export default function GameBoard() {
+  const [showFundHistory, setShowFundHistory] = useState(false);
   const state = useGameStore(s => s.gameState);
   const playerId = useGameStore(s => s.playerId);
   const skipVotes = useGameStore(s => s.skipVotes);
@@ -15,7 +18,7 @@ export default function GameBoard() {
 
   if (!state) return <div className="loading">连接中…</div>;
 
-  const { phase, round, players, roomId } = state;
+  const { phase, round, players, roomId, roomName } = state;
   const myPlayer = players.find(p => p.id === playerId);
   const isLobby = phase === 'LOBBY';
   const isEnded = phase === 'ENDED';
@@ -33,9 +36,17 @@ export default function GameBoard() {
   return (
     <div className="game-board">
       <header className="game-header">
-        <span className="room-id">房间 {roomId}</span>
+        <div>
+          <span className="room-id">{roomName ?? roomId}</span>
+          <span style={{ color: 'var(--muted)', fontSize: 12, marginLeft: 8 }}>#{roomId}</span>
+        </div>
         <span className="phase-badge">{phaseLabel(phase)}</span>
         {!isLobby && !isEnded && <span className="round-badge">第 {round} 回合</span>}
+        {state.myBalanceHistory?.length > 0 && (
+          <button className="btn small" onClick={() => setShowFundHistory(v => !v)}>
+            {showFundHistory ? '收起历史' : '资金历史'}
+          </button>
+        )}
         <button className="btn small leave-btn" onClick={leaveRoom}>退出房间</button>
       </header>
 
@@ -86,6 +97,8 @@ export default function GameBoard() {
           )}
         </div>
       )}
+
+      {showFundHistory && <FundHistory />}
 
       <div className="board-grid">
         <div className="board-left">

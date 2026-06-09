@@ -22,8 +22,9 @@ const DEFAULT_CONFIG = {
 };
 
 export class GameRoom {
-  constructor(roomId, config = {}) {
+  constructor(roomId, roomName = '未命名房间', config = {}) {
     this.roomId = roomId;
+    this.roomName = roomName;
     this.config = { ...DEFAULT_CONFIG, ...config };
     this.phase = PHASES.LOBBY;
     this.players = {}; // { id: { id, name, role, balance, bankrupt, ws } }
@@ -31,7 +32,8 @@ export class GameRoom {
     this.bets = {};    // { playerId: amount } per round
     this.round = 0;
     this.history = []; // round results
-    this.negotiationProposals = {}; // { proposerId: { distribution: { id: amount } } }
+    this.balanceSnapshots = []; // { round, balances: {playerId: balance} }
+    this.negotiationProposals = {};
     this.negotiationTimer = null;
     this.skipVotes = new Set();
   }
@@ -169,6 +171,11 @@ export class GameRoom {
       newlyBankrupt,
     };
     this.history.push(roundResult);
+
+    // Record balance snapshot for fund history
+    const snapshot = { round: this.round, balances: {} };
+    Object.values(this.players).forEach(p => { snapshot.balances[p.id] = p.balance; });
+    this.balanceSnapshots.push(snapshot);
 
     this.broadcast({ type: 'settlement', roundResult });
 
@@ -335,8 +342,19 @@ export class GameRoom {
       if (forceAllIn) allInAmount = player.balance;
     }
 
+    // Build per-player balance history
+    const myBalanceHistory = this.balanceSnapshots.map((snap, i) => {
+      const prevBalance = i === 0 ? null : this.balanceSnapshots[i - 1].balances[playerId];
+      const balance = snap.balances[playerId] ?? null;
+      const delta = prevBalance !== null && balance !== null ? balance - prevBalance : null;
+      const roundResult = this.history.find(h => h.round === snap.round);
+      const event = roundResult?.events?.[0]?.type ?? '';
+      return { round: snap.round, balance, delta, event };
+    });
+
     return {
       roomId: this.roomId,
+      roomName: this.roomName,
       phase: this.phase,
       round: this.round,
       config: this.config,
@@ -350,6 +368,7 @@ export class GameRoom {
       skipVotes: [...this.skipVotes],
       forceAllIn,
       allInAmount,
+      myBalanceHistory,
     };
   }
 

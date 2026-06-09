@@ -10,20 +10,32 @@ app.use(express.json());
 const server = createServer(app);
 const wss = new WebSocketServer({ server });
 
-const rooms = {}; // roomId -> GameRoom
+const rooms = {};  // roomId -> GameRoom
+const users = new Set(); // registered usernames
+
+// REST: register username
+app.post('/api/users/register', (req, res) => {
+  const { username } = req.body ?? {};
+  if (!username || !username.trim()) return res.status(400).json({ error: '用户名不能为空' });
+  const name = username.trim();
+  if (users.has(name)) return res.status(409).json({ error: '用户名已被注册' });
+  users.add(name);
+  res.status(201).json({ username: name });
+});
 
 // REST: create room
 app.post('/api/rooms', (req, res) => {
   const roomId = uuid().slice(0, 6).toUpperCase();
-  const config = req.body.config ?? {};
-  rooms[roomId] = new GameRoom(roomId, config);
-  res.json({ roomId });
+  const { roomName, config } = req.body ?? {};
+  rooms[roomId] = new GameRoom(roomId, roomName ?? '未命名房间', config ?? {});
+  res.json({ roomId, roomName: rooms[roomId].roomName });
 });
 
 // REST: list rooms (lobby)
 app.get('/api/rooms', (req, res) => {
   const list = Object.values(rooms).map(r => ({
     roomId: r.roomId,
+    roomName: r.roomName,
     phase: r.phase,
     playerCount: Object.keys(r.players).length,
   }));
@@ -35,7 +47,7 @@ wss.on('connection', (ws) => {
     let msg;
     try { msg = JSON.parse(raw); } catch { return; }
 
-    const { type, roomId, playerId } = msg;
+    const { type, roomId } = msg;
 
     if (type === 'join_room') {
       const room = rooms[roomId];

@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 
+const STORAGE_KEY = 'landlord_username';
+
 export const useGameStore = create((set, get) => ({
   ws: null,
   connected: false,
@@ -11,9 +13,18 @@ export const useGameStore = create((set, get) => ({
   pendingLoanRequests: [],
   skipVotes: [],
   error: null,
+  // Persisted across page reloads
+  username: localStorage.getItem(STORAGE_KEY) ?? null,
 
-  setWs: (ws) => set({ ws }),
-  setConnected: (v) => set({ connected: v }),
+  setUsername: (name) => {
+    localStorage.setItem(STORAGE_KEY, name);
+    set({ username: name });
+  },
+
+  logout: () => {
+    localStorage.removeItem(STORAGE_KEY);
+    set({ username: null, error: null });
+  },
 
   connect: (roomId, playerName) => {
     const wsUrl = `ws://${window.location.host}/ws`;
@@ -49,6 +60,7 @@ export const useGameStore = create((set, get) => ({
       pendingLoanRequests: [],
       skipVotes: [],
       error: null,
+      // username intentionally kept
     });
   },
 
@@ -60,7 +72,6 @@ export const useGameStore = create((set, get) => ({
     } else if (type === 'state_update') {
       set({ gameState: msg.state, skipVotes: msg.state?.skipVotes ?? [] });
     } else if (type === 'bet_placed') {
-      // Refresh state so my own bet status and others' masked status update
       const ws = get().ws;
       if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'get_state' }));
     } else if (type === 'negotiation_skip_votes') {
@@ -82,7 +93,6 @@ export const useGameStore = create((set, get) => ({
     } else if (type === 'error') {
       set({ error: msg.message });
     }
-    // State-changing events trigger full refresh
     const ws = get().ws;
     if (ws && ws.readyState === WebSocket.OPEN && ['settlement', 'game_started', 'loan_granted', 'loan_forgiven'].includes(type)) {
       ws.send(JSON.stringify({ type: 'get_state' }));

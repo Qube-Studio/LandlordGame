@@ -1,12 +1,15 @@
 import { useGameStore } from './store/gameStore';
+import Login from './components/Login';
 import Lobby from './components/Lobby';
 import GameBoard from './components/GameBoard';
 import './App.css';
 
 export default function App() {
+  const username = useGameStore(s => s.username);
   const roomId = useGameStore(s => s.roomId);
   const playerId = useGameStore(s => s.playerId);
 
+  if (!username) return <Login />;
   if (!roomId || !playerId) return <Lobby />;
   return <GameBoard />;
 }

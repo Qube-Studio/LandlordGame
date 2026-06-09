@@ -34,7 +34,7 @@ export default function BettingPanel() {
       </div>
 
       {alreadyBet ? (
-        <div className="already-bet">✅ 已下注，等待其他玩家…</div>
+        <div className="already-bet">✅ 已下注 ¥{bets?.[playerId]}，等待其他玩家…</div>
       ) : forceAllIn ? (
         <div className="force-allin">
           <span className="allin-hint">⚠️ 余额不足，只能全押</span>
