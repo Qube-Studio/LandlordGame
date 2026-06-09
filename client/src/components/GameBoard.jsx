@@ -8,6 +8,7 @@ import RoundHistory from './RoundHistory';
 export default function GameBoard() {
   const state = useGameStore(s => s.gameState);
   const playerId = useGameStore(s => s.playerId);
+  const skipVotes = useGameStore(s => s.skipVotes);
   const send = useGameStore(s => s.send);
   const error = useGameStore(s => s.error);
 
@@ -23,6 +24,10 @@ export default function GameBoard() {
     && players.some(p => p.role === 'farmer');
 
   const isSpectator = myPlayer?.bankrupt;
+
+  const activeFarmers = players.filter(p => p.role === 'farmer' && !p.bankrupt);
+  const isFarmerActive = myPlayer?.role === 'farmer' && !myPlayer?.bankrupt;
+  const myVoted = skipVotes.includes(playerId);
 
   return (
     <div className="game-board">
@@ -54,16 +59,29 @@ export default function GameBoard() {
       {isEnded && (
         <div className="card ended">
           <h2>游戏结束</h2>
-          <p>胜者: {state.history.at(-1) ? '—' : '—'}</p>
         </div>
       )}
 
       {phase === 'NEGOTIATION' && (
         <div className="card negotiation-banner">
-          🤝 协商阶段 — 农民可协商分配本轮收益
-          <button className="btn small" onClick={() => send({ type: 'skip_negotiation' })}>
-            跳过协商
-          </button>
+          <div className="negotiation-title">🤝 协商阶段 — 农民可协商分配本轮收益</div>
+
+          <div className="skip-votes">
+            {activeFarmers.map(p => (
+              <span key={p.id} className={`skip-badge ${skipVotes.includes(p.id) ? 'agreed' : 'pending'}`}>
+                {p.name}: {skipVotes.includes(p.id) ? '✅ 同意跳过' : '⏳ 判断中'}
+              </span>
+            ))}
+          </div>
+
+          {isFarmerActive && !myVoted && (
+            <button className="btn small" onClick={() => send({ type: 'skip_negotiation_vote' })}>
+              同意跳过协商
+            </button>
+          )}
+          {isFarmerActive && myVoted && (
+            <span className="muted">已投票同意跳过，等待其他农民…</span>
+          )}
         </div>
       )}
 

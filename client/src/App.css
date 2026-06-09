@@ -138,7 +138,14 @@ body {
 
 /* ── Misc ── */
 .spectator-banner { background: #1a1020; border: 1px solid #4a2060; border-radius: 8px; padding: 10px 16px; color: #c084fc; margin-bottom: 12px; }
-.negotiation-banner { display: flex; align-items: center; justify-content: space-between; color: var(--warn); }
+.negotiation-banner { color: var(--warn); }
+.negotiation-title { margin-bottom: 10px; font-weight: 600; }
+.skip-votes { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.skip-badge { border-radius: 4px; padding: 3px 10px; font-size: 12px; }
+.skip-badge.agreed { background: #152d1e; color: var(--success); }
+.skip-badge.pending { background: #2a2010; color: var(--muted); }
+.bet-done { color: var(--success); font-size: 13px; }
+.bet-wait { color: var(--muted); font-size: 13px; }
 .error { background: #2d1515; border: 1px solid var(--danger); color: var(--danger); border-radius: 6px; padding: 10px 14px; margin-bottom: 12px; }
 .loading { text-align: center; padding: 60px; color: var(--muted); }
 .muted { color: var(--muted); }

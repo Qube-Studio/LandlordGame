@@ -16,8 +16,7 @@ const DEFAULT_CONFIG = {
   minBetFarmer: 1,
   interestRate: 0.1,
   complaintFee: 5,
-  landlordStartBalance: 200,
-  farmerStartBalance: 100,
+  landlordStartBalance: 21,
   bankStartBalance: 500,
   negotiationSeconds: 30,
 };
@@ -34,19 +33,20 @@ export class GameRoom {
     this.history = []; // round results
     this.negotiationProposals = {}; // { proposerId: { distribution: { id: amount } } }
     this.negotiationTimer = null;
+    this.skipVotes = new Set();
   }
 
   addPlayer(ws, name) {
     const id = uuid();
     this.players[id] = { id, name, role: null, balance: 0, bankrupt: false, ws };
-    this.broadcast({ type: 'player_joined', player: this._publicPlayer(id) });
     ws.playerId = id;
+    this._broadcastState();
     return id;
   }
 
   removePlayer(id) {
     delete this.players[id];
-    this.broadcast({ type: 'player_left', playerId: id });
+    this._broadcastState();
   }
 
   assignRole(playerId, role) {
@@ -55,7 +55,7 @@ export class GameRoom {
     if (role === 'landlord' && taken) return { error: '地主已被占用' };
     if (role === 'bank' && taken) return { error: '银行已被占用' };
     this.players[playerId].role = role;
-    this.broadcast({ type: 'role_assigned', playerId, role });
+    this._broadcastState();
     return { ok: true };
   }
 
@@ -67,8 +67,12 @@ export class GameRoom {
     if (!landlord) return { error: '缺少地主' };
     if (farmers.length === 0) return { error: '缺少农民' };
 
-    landlord.balance = this.config.landlordStartBalance;
-    farmers.forEach(p => { p.balance = this.config.farmerStartBalance; });
+    const landlordStart = this.config.landlordStartBalance;
+    landlord.balance = landlordStart;
+
+    const farmerStart = Math.ceil(landlordStart * 0.8 / farmers.length);
+    farmers.forEach(p => { p.balance = farmerStart; });
+
     if (bank) bank.balance = this.config.bankStartBalance;
 
     this.phase = PHASES.BETTING;
@@ -175,7 +179,8 @@ export class GameRoom {
     // Start negotiation phase
     this.phase = PHASES.NEGOTIATION;
     this.negotiationProposals = {};
-    this.broadcast({ type: 'negotiation_start', seconds: this.config.negotiationSeconds });
+    this.skipVotes = new Set();
+    this.broadcast({ type: 'negotiation_start', seconds: this.config.negotiationSeconds, skipVotes: [] });
     this.negotiationTimer = setTimeout(() => this._endNegotiation(), this.config.negotiationSeconds * 1000);
   }
 
@@ -187,10 +192,26 @@ export class GameRoom {
   }
 
   acceptNegotiation(playerId, proposerId) {
-    // Simplified: if proposer + all affected accept, apply
     const proposal = this.negotiationProposals[proposerId];
     if (!proposal) return { error: '提案不存在' };
     this.broadcast({ type: 'negotiation_accepted', playerId, proposerId });
+    return { ok: true };
+  }
+
+  voteSkipNegotiation(playerId) {
+    if (this.phase !== PHASES.NEGOTIATION) return { error: '不在协商阶段' };
+    const player = this.players[playerId];
+    if (!player || player.role !== 'farmer' || player.bankrupt) return { error: '只有活跃农民可投票' };
+
+    this.skipVotes.add(playerId);
+    const votes = [...this.skipVotes];
+    this.broadcast({ type: 'negotiation_skip_votes', votes });
+
+    const activeFarmers = this._getByRole('farmer').filter(p => !p.bankrupt);
+    if (activeFarmers.every(p => this.skipVotes.has(p.id))) {
+      clearTimeout(this.negotiationTimer);
+      this._endNegotiation();
+    }
     return { ok: true };
   }
 
@@ -199,13 +220,9 @@ export class GameRoom {
     this.phase = PHASES.BETTING;
     this.round++;
     this.bets = {};
+    this.skipVotes = new Set();
     this.broadcast({ type: 'round_start', round: this.round });
     this._broadcastState();
-  }
-
-  skipNegotiation() {
-    clearTimeout(this.negotiationTimer);
-    this._endNegotiation();
   }
 
   // Bank actions
@@ -213,9 +230,6 @@ export class GameRoom {
     if (this.phase === PHASES.LOBBY || this.phase === PHASES.ENDED) return { error: '游戏未进行中' };
     const borrower = this.players[borrowerId];
     if (!borrower) return { error: '玩家不存在' };
-    if (this.loans.some(l => !l.forgiven && l.borrowerId === borrowerId && l.remainingRounds > 0)) {
-      // Allow multiple loans for simplicity
-    }
     const loanRequest = { id: uuid(), borrowerId, amount, repayRounds, status: 'pending' };
     this.broadcast({ type: 'loan_requested', loanRequest });
     return { ok: true, loanRequestId: loanRequest.id };
@@ -225,15 +239,12 @@ export class GameRoom {
     const bank = this._getByRole('bank');
     if (!bank || bank.id !== bankPlayerId) return { error: '只有银行玩家可操作' };
 
-    // If complaint was filed (complaintPaid), bank MUST approve
     if (!approved && !complaintPaid) {
       this.broadcast({ type: 'loan_rejected', loanRequestId });
       return { ok: true };
     }
 
     if (complaintPaid) {
-      // Deduct complaint fee from requester, give to bank
-      // Find the requester from broadcast context — simplified: stored in pending
       this.broadcast({ type: 'complaint_filed', loanRequestId });
     }
 
@@ -290,7 +301,6 @@ export class GameRoom {
     const loan = this.loans.find(l => l.id === loanId);
     if (!loan) return { error: '贷款不存在' };
     loan.forgiven = true;
-    // Borrower can no longer take new loans
     if (this.players[loan.borrowerId]) {
       this.players[loan.borrowerId].loanBanned = true;
     }
@@ -302,7 +312,6 @@ export class GameRoom {
     const player = this.players[playerId];
     if (!player) return;
     const isBankruptFarmer = player.bankrupt && player.role === 'farmer';
-    // Bankrupt farmers can only send to other bankrupt farmers
     if (isBankruptFarmer) {
       this._sendToBankruptFarmers({ type: 'chat', from: playerId, name: player.name, message, channel: 'bankrupt' });
     } else {
@@ -325,6 +334,7 @@ export class GameRoom {
       loans: this.loans.filter(l => !l.forgiven),
       history: this.history.slice(-10),
       isBankruptSpectator: isBankruptFarmer,
+      skipVotes: [...this.skipVotes],
     };
   }
 

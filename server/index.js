@@ -92,8 +92,9 @@ wss.on('connection', (ws) => {
         ws.send(JSON.stringify({ type: 'negotiate_propose_result', ...result }));
         break;
       }
-      case 'skip_negotiation': {
-        room.skipNegotiation();
+      case 'skip_negotiation_vote': {
+        const result = room.voteSkipNegotiation(pid);
+        ws.send(JSON.stringify({ type: 'skip_negotiation_vote_result', ...result }));
         break;
       }
       case 'chat': {

@@ -13,6 +13,7 @@ export default function PlayerList() {
 
   const myPlayer = players.find(p => p.id === playerId);
   const needsRole = !myPlayer?.role;
+  const isBetting = phase === 'BETTING';
 
   return (
     <div className="player-list card">
@@ -33,18 +34,37 @@ export default function PlayerList() {
 
       <table className="player-table">
         <thead>
-          <tr><th>名字</th><th>角色</th><th>余额</th><th>本轮</th><th>状态</th></tr>
+          <tr>
+            <th>名字</th>
+            <th>角色</th>
+            <th>余额</th>
+            <th>{isBetting ? '下注状态' : '本轮下注'}</th>
+            <th>状态</th>
+          </tr>
         </thead>
         <tbody>
-          {players.map(p => (
-            <tr key={p.id} className={p.id === playerId ? 'me' : ''}>
-              <td>{p.name}{p.id === playerId ? ' (我)' : ''}</td>
-              <td style={{ color: ROLE_COLOR[p.role] }}>{ROLE_LABEL[p.role ?? null]}</td>
-              <td>{p.bankrupt ? '—' : `¥${p.balance?.toFixed(1)}`}</td>
-              <td>{bets?.[p.id] !== undefined ? (typeof bets[p.id] === 'number' ? `¥${bets[p.id]}` : bets[p.id]) : '—'}</td>
-              <td>{p.bankrupt ? '💀 破产' : '✓'}</td>
-            </tr>
-          ))}
+          {players.map(p => {
+            const hasBet = bets?.[p.id] !== undefined;
+            const betDisplay = isBetting
+              ? (hasBet
+                  ? <span className="bet-done">✅ 已下注</span>
+                  : (['landlord', 'farmer'].includes(p.role) && !p.bankrupt
+                      ? <span className="bet-wait">⏳ 待下注</span>
+                      : '—'))
+              : (hasBet
+                  ? (typeof bets[p.id] === 'number' ? `¥${bets[p.id]}` : bets[p.id])
+                  : '—');
+
+            return (
+              <tr key={p.id} className={p.id === playerId ? 'me' : ''}>
+                <td>{p.name}{p.id === playerId ? ' (我)' : ''}</td>
+                <td style={{ color: ROLE_COLOR[p.role] }}>{ROLE_LABEL[p.role ?? null]}</td>
+                <td>{p.bankrupt ? '—' : `¥${p.balance?.toFixed(1)}`}</td>
+                <td>{betDisplay}</td>
+                <td>{p.bankrupt ? '💀 破产' : '✓'}</td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>

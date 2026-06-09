@@ -9,6 +9,7 @@ export const useGameStore = create((set, get) => ({
   chatMessages: [],
   bankruptChat: [],
   pendingLoanRequests: [],
+  skipVotes: [],
   error: null,
 
   setWs: (ws) => set({ ws }),
@@ -38,9 +39,13 @@ export const useGameStore = create((set, get) => ({
     const { type } = msg;
 
     if (type === 'joined') {
-      set({ playerId: msg.playerId, gameState: msg.state });
+      set({ playerId: msg.playerId, gameState: msg.state, skipVotes: msg.state?.skipVotes ?? [] });
     } else if (type === 'state_update') {
-      set({ gameState: msg.state });
+      set({ gameState: msg.state, skipVotes: msg.state?.skipVotes ?? [] });
+    } else if (type === 'negotiation_skip_votes') {
+      set({ skipVotes: msg.votes ?? [] });
+    } else if (type === 'negotiation_start') {
+      set({ skipVotes: [] });
     } else if (type === 'chat') {
       if (msg.channel === 'public') {
         set(s => ({ chatMessages: [...s.chatMessages.slice(-99), msg] }));
