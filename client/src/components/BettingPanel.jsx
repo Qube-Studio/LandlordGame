@@ -1,11 +1,10 @@
-import { useState } from 'react';
 import { useGameStore } from '../store/gameStore';
+import MoneyCardSelector from './MoneyCardSelector';
 
 export default function BettingPanel() {
   const state = useGameStore(s => s.gameState);
   const playerId = useGameStore(s => s.playerId);
   const send = useGameStore(s => s.send);
-  const [betAmount, setBetAmount] = useState('');
 
   if (!state) return null;
   const { phase, players, bets, config, myBalance, forceAllIn, allInAmount } = state;
@@ -21,7 +20,6 @@ export default function BettingPanel() {
 
   const placeBet = (amount) => {
     send({ type: 'place_bet', amount });
-    setBetAmount('');
   };
 
   return (
@@ -43,22 +41,7 @@ export default function BettingPanel() {
           </button>
         </div>
       ) : (
-        <div className="bet-input-row">
-          <input
-            type="number"
-            className="input small"
-            min={minBet}
-            max={maxBet}
-            step="1"
-            placeholder={`${minBet}~${maxBet}`}
-            value={betAmount}
-            onChange={e => setBetAmount(e.target.value)}
-          />
-          <button className="btn primary" onClick={() => placeBet(Number(betAmount))}
-            disabled={Number(betAmount) < minBet || Number(betAmount) > maxBet || !betAmount}>
-            确认下注
-          </button>
-        </div>
+        <MoneyCardSelector minBet={minBet} maxBet={maxBet} onConfirm={placeBet} />
       )}
     </div>
   );

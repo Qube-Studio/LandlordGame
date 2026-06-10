@@ -15,7 +15,7 @@ export default function BalanceBar() {
         <div className="balance-amount balance-amount--bankrupt">💀 已破产</div>
       ) : (
         <div className="balance-amount">
-          {myBalance}<span className="balance-unit">$</span>
+          <span className="balance-unit">$</span>{myBalance}
         </div>
       )}
     </div>
