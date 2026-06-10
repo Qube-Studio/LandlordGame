@@ -12,6 +12,9 @@ export const useGameStore = create((set, get) => ({
   bankruptChat: [],
   pendingLoanRequests: [],
   skipVotes: [],
+  revealedBets: null,
+  coinResult: null,
+  lastRoundResult: null,
   error: null,
   // Persisted across page reloads
   username: localStorage.getItem(STORAGE_KEY) ?? null,
@@ -59,6 +62,9 @@ export const useGameStore = create((set, get) => ({
       bankruptChat: [],
       pendingLoanRequests: [],
       skipVotes: [],
+      revealedBets: null,
+      coinResult: null,
+      lastRoundResult: null,
       error: null,
       // username intentionally kept
     });
@@ -78,6 +84,14 @@ export const useGameStore = create((set, get) => ({
       set({ skipVotes: msg.votes ?? [] });
     } else if (type === 'negotiation_start') {
       set({ skipVotes: [] });
+    } else if (type === 'bets_revealed') {
+      set({ revealedBets: msg.bets });
+    } else if (type === 'coin_flipped') {
+      set({ coinResult: msg.coinResult });
+    } else if (type === 'settlement') {
+      set({ lastRoundResult: msg.roundResult });
+    } else if (type === 'round_start') {
+      set({ revealedBets: null, coinResult: null, lastRoundResult: null });
     } else if (type === 'chat') {
       if (msg.channel === 'public') {
         set(s => ({ chatMessages: [...s.chatMessages.slice(-99), msg] }));

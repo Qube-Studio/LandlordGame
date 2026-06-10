@@ -88,15 +88,51 @@ body {
 .phase-badge { background: var(--primary); color: #fff; border-radius: 20px; padding: 3px 12px; font-size: 12px; }
 .round-badge { color: var(--muted); font-size: 13px; }
 
-.board-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-@media (max-width: 768px) { .board-grid { grid-template-columns: 1fr; } }
+.main-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; align-items: start; }
+.main-left, .main-right { display: flex; flex-direction: column; gap: 16px; }
+@media (max-width: 768px) {
+  .main-grid { grid-template-columns: 1fr; }
+  .main-left { order: 1; }
+  .main-right { order: 2; }
+}
 
 /* ── Players ── */
-.player-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-.player-table th, .player-table td { padding: 6px 8px; text-align: left; border-bottom: 1px solid var(--border); }
-.player-table th { color: var(--muted); font-size: 12px; }
-.player-table tr.me td { background: #1e2035; }
 .role-select { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+.player-card-list { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.player-card {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 8px 10px; background: #1e2035;
+  border: 1px solid var(--border); border-radius: 8px;
+}
+.player-card.me { border-color: var(--primary); }
+.status-dot {
+  display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+  margin-right: 8px;
+}
+.status-dot--active { background: var(--success); }
+.status-dot--waiting { background: var(--warn); }
+.status-dot--bankrupt { background: var(--muted); }
+.status-dot--pending { background: var(--muted); opacity: 0.5; }
+
+/* ── Balance / HP bar ── */
+.hp-bar {
+  position: relative; height: 18px; background: #0f1117;
+  border: 1px solid var(--border); border-radius: 9px; overflow: hidden;
+}
+.hp-bar-fill { height: 100%; transition: width 0.3s, background 0.3s; }
+.hp-bar-fill--high { background: var(--success); }
+.hp-bar-fill--mid { background: var(--warn); }
+.hp-bar-fill--low { background: var(--danger); }
+.hp-bar-label {
+  position: absolute; inset: 0; display: flex; align-items: center;
+  justify-content: center; font-size: 11px; font-weight: 600;
+}
+
+/* ── Game table ── */
+.game-table { min-height: 160px; }
+
+/* ── Action panel ── */
+.action-panel-divider { border-top: 1px solid var(--border); margin: 12px 0; }
 
 /* ── Betting ── */
 .betting-panel h3 { margin-bottom: 12px; }

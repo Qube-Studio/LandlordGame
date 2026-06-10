@@ -1,17 +1,15 @@
-import { useState } from 'react';
 import { useGameStore } from '../store/gameStore';
+import GameTable from './GameTable';
+import ActionPanel from './ActionPanel';
+import BalanceBar from './BalanceBar';
 import PlayerList from './PlayerList';
-import BettingPanel from './BettingPanel';
-import BankPanel from './BankPanel';
 import ChatBox from './ChatBox';
 import RoundHistory from './RoundHistory';
 import FundHistory from './FundHistory';
 
 export default function GameBoard() {
-  const [showFundHistory, setShowFundHistory] = useState(false);
   const state = useGameStore(s => s.gameState);
   const playerId = useGameStore(s => s.playerId);
-  const skipVotes = useGameStore(s => s.skipVotes);
   const send = useGameStore(s => s.send);
   const leaveRoom = useGameStore(s => s.leaveRoom);
   const error = useGameStore(s => s.error);
@@ -29,10 +27,6 @@ export default function GameBoard() {
 
   const isSpectator = myPlayer?.bankrupt;
 
-  const activeFarmers = players.filter(p => p.role === 'farmer' && !p.bankrupt);
-  const isFarmerActive = myPlayer?.role === 'farmer' && !myPlayer?.bankrupt;
-  const myVoted = skipVotes.includes(playerId);
-
   return (
     <div className="game-board">
       <header className="game-header">
@@ -42,11 +36,6 @@ export default function GameBoard() {
         </div>
         <span className="phase-badge">{phaseLabel(phase)}</span>
         {!isLobby && !isEnded && <span className="round-badge">第 {round} 回合</span>}
-        {state.myBalanceHistory?.length > 0 && (
-          <button className="btn small" onClick={() => setShowFundHistory(v => !v)}>
-            {showFundHistory ? '收起历史' : '资金历史'}
-          </button>
-        )}
         <button className="btn small leave-btn" onClick={leaveRoom}>退出房间</button>
       </header>
 
@@ -75,40 +64,17 @@ export default function GameBoard() {
         </div>
       )}
 
-      {phase === 'NEGOTIATION' && (
-        <div className="card negotiation-banner">
-          <div className="negotiation-title">🤝 协商阶段 — 农民可协商分配本轮收益</div>
-
-          <div className="skip-votes">
-            {activeFarmers.map(p => (
-              <span key={p.id} className={`skip-badge ${skipVotes.includes(p.id) ? 'agreed' : 'pending'}`}>
-                {p.name}: {skipVotes.includes(p.id) ? '✅ 同意跳过' : '⏳ 判断中'}
-              </span>
-            ))}
-          </div>
-
-          {isFarmerActive && !myVoted && (
-            <button className="btn small" onClick={() => send({ type: 'skip_negotiation_vote' })}>
-              同意跳过协商
-            </button>
-          )}
-          {isFarmerActive && myVoted && (
-            <span className="muted">已投票同意跳过，等待其他农民…</span>
-          )}
-        </div>
-      )}
-
-      {showFundHistory && <FundHistory />}
-
-      <div className="board-grid">
-        <div className="board-left">
-          <PlayerList />
-          <BettingPanel />
-          <BankPanel />
-        </div>
-        <div className="board-right">
-          <RoundHistory />
+      <div className="main-grid">
+        <div className="main-left">
+          <GameTable />
+          <ActionPanel />
           <ChatBox />
+        </div>
+        <div className="main-right">
+          <BalanceBar />
+          <PlayerList />
+          <RoundHistory />
+          <FundHistory />
         </div>
       </div>
     </div>

@@ -110,6 +110,7 @@ export class GameRoom {
     this.phase = PHASES.REVEAL;
     // Now broadcast actual bet amounts
     this.broadcast({ type: 'bets_revealed', bets: this.bets });
+    this._broadcastState();
     setTimeout(() => this._doFlip(), 2000);
   }
 
@@ -117,6 +118,7 @@ export class GameRoom {
     this.phase = PHASES.FLIP;
     const coinResult = flipCoin();
     this.broadcast({ type: 'coin_flipped', coinResult });
+    this._broadcastState();
     setTimeout(() => this._doSettlement(coinResult), 1500);
   }
 

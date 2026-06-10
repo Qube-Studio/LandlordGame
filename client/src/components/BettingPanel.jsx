@@ -25,7 +25,7 @@ export default function BettingPanel() {
   };
 
   return (
-    <div className="card betting-panel">
+    <div className="betting-panel">
       <h3>下注阶段 — 第 {state.round} 回合</h3>
       <div className="bet-info">
         余额: <strong>¥{myBalance}</strong>
@@ -60,14 +60,6 @@ export default function BettingPanel() {
           </button>
         </div>
       )}
-
-      <div className="bet-status">
-        {players.filter(p => ['landlord', 'farmer'].includes(p.role) && !p.bankrupt).map(p => (
-          <span key={p.id} className={`bet-badge ${bets?.[p.id] !== undefined ? 'placed' : 'waiting'}`}>
-            {p.name}: {bets?.[p.id] !== undefined ? '✅ 已下注' : '⏳ 等待中'}
-          </span>
-        ))}
-      </div>
     </div>
   );
 }

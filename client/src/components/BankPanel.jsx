@@ -33,7 +33,7 @@ export default function BankPanel() {
   };
 
   return (
-    <div className="card bank-panel">
+    <div className="bank-panel">
       <h3>银行系统</h3>
 
       {/* Active player: request loan */}
