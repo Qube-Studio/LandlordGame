@@ -73,7 +73,7 @@ export default function GameBoard() {
         </div>
       )}
 
-      <div className={`main-grid ${isLobby || isEnded ? 'main-grid--compact' : ''}`}>
+      <div className="main-grid">
         <div className="gt-table">
           <GameTable />
         </div>
@@ -82,17 +82,18 @@ export default function GameBoard() {
           <FundHistory />
           <RoundHistory />
         </div>
-        <div className="gt-chat">
-          <ChatBox />
-        </div>
         {!isLobby && !isEnded && (
           <div className="gt-decisions">
             <ActionPanel />
           </div>
         )}
-        <div className="gt-balance">
-          <BalanceBar />
-        </div>
+      </div>
+
+      <div className="floating-chat">
+        <ChatBox />
+      </div>
+      <div className="floating-balance">
+        <BalanceBar />
       </div>
     </div>
   );

@@ -76,7 +76,7 @@ body {
 .room-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--border); }
 
 /* ── Game Board ── */
-.game-board { max-width: 1200px; margin: 0 auto; padding: 16px; }
+.game-board { max-width: 1200px; margin: 0 auto; padding: 16px; padding-bottom: 90px; }
 .game-header {
   display: flex; align-items: center; gap: 12px;
   padding: 12px 16px; background: var(--surface);
@@ -90,40 +90,33 @@ body {
 
 .main-grid {
   display: grid;
-  grid-template-columns: 1fr 2.4fr 1fr;
+  grid-template-columns: 2.4fr 1fr;
   grid-template-areas:
-    "table table players"
-    "chat decisions balance";
+    "table players"
+    "decisions players";
   gap: 16px;
   align-items: start;
 }
-.gt-table { grid-area: table; }
-.gt-players { grid-area: players; display: flex; flex-direction: column; gap: 16px; }
-.gt-chat { grid-area: chat; }
-.gt-decisions { grid-area: decisions; }
-.gt-balance { grid-area: balance; }
-.main-grid--compact {
-  grid-template-areas:
-    "table table players"
-    "chat chat balance";
-}
+.gt-table { grid-area: table; min-width: 0; }
+.gt-players { grid-area: players; min-width: 0; display: flex; flex-direction: column; gap: 16px; }
+.gt-decisions { grid-area: decisions; min-width: 0; }
 @media (max-width: 768px) {
   .main-grid {
     grid-template-columns: 1fr;
     grid-template-areas:
       "table"
       "decisions"
-      "balance"
-      "players"
-      "chat";
+      "players";
   }
-  .main-grid--compact {
-    grid-template-areas:
-      "table"
-      "balance"
-      "players"
-      "chat";
-  }
+}
+
+/* ── Floating overlays ── */
+.floating-chat {
+  position: fixed; left: 16px; bottom: 16px; z-index: 50;
+  width: min(320px, calc(100vw - 32px));
+}
+.floating-balance {
+  position: fixed; right: 16px; bottom: 16px; z-index: 50;
 }
 
 /* ── Players ── */
@@ -158,13 +151,16 @@ body {
 /* ── Balance display ── */
 .balance-display {
   display: flex; align-items: center; justify-content: center;
-  height: 100%; min-height: 60px;
-  background: var(--surface); border: 1px solid var(--border);
-  border-radius: 10px; padding: 16px;
 }
-.balance-amount { font-size: 40px; font-weight: 800; font-family: monospace; letter-spacing: 1px; }
-.balance-unit { font-size: 22px; color: var(--muted); margin-left: 4px; }
-.balance-amount--bankrupt { font-size: 18px; font-weight: 600; color: var(--muted); }
+.balance-amount {
+  font-size: 40px; font-weight: 800; font-family: monospace; letter-spacing: 1px;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.7);
+}
+.balance-unit { font-size: 22px; color: var(--muted); margin-left: 4px; text-shadow: 0 1px 6px rgba(0, 0, 0, 0.7); }
+.balance-amount--bankrupt {
+  font-size: 18px; font-weight: 600; color: var(--muted);
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.7);
+}
 
 /* ── Game table ── */
 .game-table { min-height: 320px; }
