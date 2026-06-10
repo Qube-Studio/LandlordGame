@@ -102,6 +102,11 @@ body {
 .gt-chat { grid-area: chat; }
 .gt-decisions { grid-area: decisions; }
 .gt-balance { grid-area: balance; }
+.main-grid--compact {
+  grid-template-areas:
+    "table table players"
+    "chat chat balance";
+}
 @media (max-width: 768px) {
   .main-grid {
     grid-template-columns: 1fr;
@@ -112,10 +117,28 @@ body {
       "players"
       "chat";
   }
+  .main-grid--compact {
+    grid-template-areas:
+      "table"
+      "balance"
+      "players"
+      "chat";
+  }
 }
 
 /* ── Players ── */
 .role-select { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+.role-btn-active { background: #252840; border-width: 2px; font-weight: 600; }
+
+/* ── Lobby roster ── */
+.lobby-roster { display: flex; flex-direction: column; gap: 6px; margin: 12px 0; }
+.lobby-roster-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 6px 10px; background: #1e2035;
+  border: 1px solid var(--border); border-radius: 6px; font-size: 13px;
+}
+.ready-badge { color: var(--muted); font-size: 12px; }
+.ready-badge.ready { color: var(--success); }
 .player-card-list { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
 .player-card {
   display: flex; justify-content: space-between; align-items: center;

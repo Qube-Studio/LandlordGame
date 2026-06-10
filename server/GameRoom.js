@@ -35,38 +35,61 @@ export class GameRoom {
     this.negotiationProposals = {};
     this.negotiationTimer = null;
     this.skipVotes = new Set();
+    this.hostId = null;
   }
 
   addPlayer(ws, name) {
     const id = uuid();
-    this.players[id] = { id, name, role: null, balance: 0, bankrupt: false, ws };
+    this.players[id] = { id, name, role: null, ready: false, balance: 0, bankrupt: false, ws };
     ws.playerId = id;
+    if (this.hostId === null) this.hostId = id;
     this._broadcastState();
     return id;
   }
 
   removePlayer(id) {
     delete this.players[id];
+    if (this.hostId === id) {
+      this.hostId = Object.keys(this.players)[0] ?? null;
+    }
     this._broadcastState();
   }
 
   assignRole(playerId, role) {
+    if (this.phase !== PHASES.LOBBY) return { error: '游戏已开始，无法切换角色' };
     if (!['landlord', 'farmer', 'bank'].includes(role)) return { error: '无效角色' };
+    const player = this.players[playerId];
     const taken = Object.values(this.players).find(p => p.role === role && p.id !== playerId);
     if (role === 'landlord' && taken) return { error: '地主已被占用' };
     if (role === 'bank' && taken) return { error: '银行已被占用' };
-    this.players[playerId].role = role;
+    if (player.role !== role) {
+      player.role = role;
+      player.ready = false;
+    }
     this._broadcastState();
     return { ok: true };
   }
 
-  startGame() {
+  setReady(playerId, ready) {
+    if (this.phase !== PHASES.LOBBY) return { error: '游戏已开始' };
+    const player = this.players[playerId];
+    if (!player) return { error: '玩家不存在' };
+    if (!player.role) return { error: '请先选择角色' };
+    player.ready = !!ready;
+    this._broadcastState();
+    return { ok: true };
+  }
+
+  startGame(playerId) {
+    if (playerId !== this.hostId) return { error: '只有房主可以开始游戏' };
+
     const landlord = this._getByRole('landlord');
     const farmers = this._getByRole('farmer');
     const bank = this._getByRole('bank');
 
     if (!landlord) return { error: '缺少地主' };
     if (farmers.length === 0) return { error: '缺少农民' };
+    if (Object.values(this.players).some(p => !p.ready)) return { error: '还有玩家未准备' };
 
     // minBetLandlord = number of farmers
     this.config.minBetLandlord = farmers.length;
@@ -358,6 +381,7 @@ export class GameRoom {
       roomName: this.roomName,
       phase: this.phase,
       round: this.round,
+      hostId: this.hostId,
       config: this.config,
       players: Object.values(this.players).map(p => this._publicPlayer(p.id, playerId, isBankruptFarmer)),
       myBalance: player?.balance,
@@ -384,7 +408,7 @@ export class GameRoom {
   _publicPlayer(id, viewerId, revealAll) {
     const p = this.players[id];
     const balance = (id === viewerId || revealAll) ? p.balance : null;
-    return { id: p.id, name: p.name, role: p.role, balance, bankrupt: p.bankrupt, loanBanned: p.loanBanned };
+    return { id: p.id, name: p.name, role: p.role, ready: p.ready, balance, bankrupt: p.bankrupt, loanBanned: p.loanBanned };
   }
 
   _getByRole(role) {

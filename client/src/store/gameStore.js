@@ -106,6 +106,8 @@ export const useGameStore = create((set, get) => ({
       }));
     } else if (type === 'error') {
       set({ error: msg.message });
+    } else if (type.endsWith('_result') && msg.error) {
+      set({ error: msg.error });
     }
     const ws = get().ws;
     if (ws && ws.readyState === WebSocket.OPEN && ['settlement', 'game_started', 'loan_granted', 'loan_forgiven'].includes(type)) {

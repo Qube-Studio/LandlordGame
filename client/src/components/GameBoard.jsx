@@ -16,14 +16,23 @@ export default function GameBoard() {
 
   if (!state) return <div className="loading">连接中…</div>;
 
-  const { phase, round, players, roomId, roomName } = state;
+  const { phase, round, players, roomId, roomName, hostId } = state;
   const myPlayer = players.find(p => p.id === playerId);
   const isLobby = phase === 'LOBBY';
   const isEnded = phase === 'ENDED';
+  const isHost = playerId === hostId;
 
-  const canStart = isLobby
-    && players.some(p => p.role === 'landlord')
-    && players.some(p => p.role === 'farmer');
+  const hasLandlord = players.some(p => p.role === 'landlord');
+  const hasFarmer = players.some(p => p.role === 'farmer');
+  const allReady = players.every(p => p.role && p.ready);
+  const canStart = isLobby && isHost && hasLandlord && hasFarmer && allReady;
+
+  let lobbyHint = '等待玩家就位…（至少需要地主 + 1名农民）';
+  if (hasLandlord && hasFarmer) {
+    if (!allReady) lobbyHint = '等待所有玩家准备…';
+    else if (!isHost) lobbyHint = '所有玩家已准备，等待房主开始游戏…';
+    else lobbyHint = '所有玩家已准备就绪';
+  }
 
   const isSpectator = myPlayer?.bankrupt;
 
@@ -49,7 +58,7 @@ export default function GameBoard() {
 
       {isLobby && (
         <div className="card lobby-actions">
-          <p>等待玩家就位…（至少需要地主 + 1名农民）</p>
+          <p>{lobbyHint}</p>
           {canStart && (
             <button className="btn primary large" onClick={() => send({ type: 'start_game' })}>
               开始游戏
@@ -64,7 +73,7 @@ export default function GameBoard() {
         </div>
       )}
 
-      <div className="main-grid">
+      <div className={`main-grid ${isLobby || isEnded ? 'main-grid--compact' : ''}`}>
         <div className="gt-table">
           <GameTable />
         </div>
@@ -76,9 +85,11 @@ export default function GameBoard() {
         <div className="gt-chat">
           <ChatBox />
         </div>
-        <div className="gt-decisions">
-          <ActionPanel />
-        </div>
+        {!isLobby && !isEnded && (
+          <div className="gt-decisions">
+            <ActionPanel />
+          </div>
+        )}
         <div className="gt-balance">
           <BalanceBar />
         </div>

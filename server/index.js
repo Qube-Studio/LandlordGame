@@ -69,8 +69,13 @@ wss.on('connection', (ws) => {
         room._broadcastState();
         break;
       }
+      case 'set_ready': {
+        const result = room.setReady(pid, msg.ready);
+        ws.send(JSON.stringify({ type: 'set_ready_result', ...result }));
+        break;
+      }
       case 'start_game': {
-        const result = room.startGame();
+        const result = room.startGame(pid);
         ws.send(JSON.stringify({ type: 'start_game_result', ...result }));
         break;
       }

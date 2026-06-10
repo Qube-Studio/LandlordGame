@@ -1,24 +1,66 @@
 import { useGameStore } from '../store/gameStore';
+import { ROLE_LABEL, ROLE_COLOR } from '../roleLabels';
 
 const COIN_LABEL = { heads: '正面 👑 (地主方向)', tails: '反面 🌾 (农民方向)' };
+const ROLE_OPTIONS = ['landlord', 'farmer', 'bank'];
 
 export default function GameTable() {
   const state = useGameStore(s => s.gameState);
   const playerId = useGameStore(s => s.playerId);
+  const send = useGameStore(s => s.send);
   const revealedBets = useGameStore(s => s.revealedBets);
   const coinResult = useGameStore(s => s.coinResult);
   const lastRoundResult = useGameStore(s => s.lastRoundResult);
 
   if (!state) return null;
-  const { phase, players, bets } = state;
+  const { phase, players, bets, hostId } = state;
 
   const activePlayers = players.filter(p => ['landlord', 'farmer'].includes(p.role) && !p.bankrupt);
 
   if (phase === 'LOBBY') {
+    const myPlayer = players.find(p => p.id === playerId);
     return (
       <div className="card game-table">
-        <h3>牌桌</h3>
-        <p className="muted">等待游戏开始…</p>
+        <h3>牌桌 — 选择角色并准备</h3>
+        <div className="role-select">
+          <span>我的角色：</span>
+          {ROLE_OPTIONS.map(role => {
+            const takenBy = players.find(p => p.role === role && p.id !== playerId);
+            const disabled = role !== 'farmer' && !!takenBy;
+            return (
+              <button
+                key={role}
+                className={`btn small ${myPlayer?.role === role ? 'role-btn-active' : ''}`}
+                style={{ borderColor: ROLE_COLOR[role] }}
+                disabled={disabled}
+                onClick={() => send({ type: 'assign_role', role })}
+              >
+                {ROLE_LABEL[role]}{disabled ? `（${takenBy.name}）` : ''}
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="lobby-roster">
+          {players.map(p => (
+            <div key={p.id} className="lobby-roster-row">
+              <span>{p.name}{p.id === playerId ? ' (我)' : ''}{p.id === hostId ? ' 👑' : ''}</span>
+              <span style={{ color: ROLE_COLOR[p.role] }}>{ROLE_LABEL[p.role ?? null]}</span>
+              <span className={`ready-badge ${p.ready ? 'ready' : ''}`}>
+                {p.ready ? '✅ 已准备' : '⏳ 未准备'}
+              </span>
+            </div>
+          ))}
+        </div>
+
+        {myPlayer?.role && (
+          <button
+            className={`btn ${myPlayer.ready ? 'warn' : 'primary'}`}
+            onClick={() => send({ type: 'set_ready', ready: !myPlayer.ready })}
+          >
+            {myPlayer.ready ? '取消准备' : '确认准备'}
+          </button>
+        )}
       </div>
     );
   }
