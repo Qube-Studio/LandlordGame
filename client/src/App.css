@@ -163,7 +163,19 @@ body {
 }
 
 /* ── Game table ── */
-.game-table { min-height: 320px; }
+.game-table { min-height: 320px; background-size: cover; background-position: center; background-repeat: no-repeat; }
+.coin-icon { width: 48px; height: 48px; object-fit: contain; }
+.role-icon { width: 16px; height: 16px; object-fit: contain; vertical-align: middle; margin-right: 4px; }
+.btn-icon { width: 16px; height: 16px; object-fit: contain; vertical-align: middle; margin-right: 4px; }
+
+/* ── Debug bar ── */
+.debug-bar {
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  background: #2a1f0a; border-bottom: 1px solid var(--warn);
+  color: var(--warn); padding: 8px 16px; font-size: 13px;
+  position: sticky; top: 0; z-index: 100;
+}
+.debug-bar select { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 2px 6px; }
 
 /* ── Action panel ── */
 .action-panel-divider { border-top: 1px solid var(--border); margin: 12px 0; }

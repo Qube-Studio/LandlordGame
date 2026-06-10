@@ -1,8 +1,10 @@
 import { useGameStore } from '../store/gameStore';
 import { ROLE_LABEL, ROLE_COLOR } from '../roleLabels';
+import { COIN_ICONS, TABLE_BG } from '../uiAssets';
 
 const COIN_LABEL = { heads: '正面 👑 (地主方向)', tails: '反面 🌾 (农民方向)' };
 const ROLE_OPTIONS = ['landlord', 'farmer', 'bank'];
+const tableBgStyle = TABLE_BG ? { backgroundImage: `url(${TABLE_BG})` } : undefined;
 
 export default function GameTable() {
   const state = useGameStore(s => s.gameState);
@@ -20,7 +22,7 @@ export default function GameTable() {
   if (phase === 'LOBBY') {
     const myPlayer = players.find(p => p.id === playerId);
     return (
-      <div className="card game-table">
+      <div className="card game-table" style={tableBgStyle}>
         <h3>牌桌 — 选择角色并准备</h3>
         <div className="role-select">
           <span>我的角色：</span>
@@ -67,7 +69,7 @@ export default function GameTable() {
 
   if (phase === 'ENDED') {
     return (
-      <div className="card game-table">
+      <div className="card game-table" style={tableBgStyle}>
         <h3>牌桌</h3>
         <p className="muted">游戏已结束</p>
       </div>
@@ -77,7 +79,7 @@ export default function GameTable() {
   if (phase === 'BETTING') {
     const myBet = bets?.[playerId];
     return (
-      <div className="card game-table">
+      <div className="card game-table" style={tableBgStyle}>
         <h3>牌桌 — 下注阶段</h3>
         <div className="bet-info">
           我的下注: <strong>{myBet !== undefined ? `¥${myBet}` : '未下注'}</strong>
@@ -96,10 +98,11 @@ export default function GameTable() {
   if (phase === 'REVEAL' || phase === 'FLIP') {
     const realBets = (typeof bets === 'object' && bets) || revealedBets || {};
     return (
-      <div className="card game-table">
+      <div className="card game-table" style={tableBgStyle}>
         <h3>牌桌 — {phase === 'FLIP' ? '掷硬币' : '揭牌'}</h3>
         {phase === 'FLIP' && coinResult && (
-          <div className="bet-info" style={{ fontSize: 16, marginBottom: 12 }}>
+          <div className="bet-info" style={{ fontSize: 16, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 10 }}>
+            {COIN_ICONS[coinResult] && <img className="coin-icon" src={COIN_ICONS[coinResult]} alt="" />}
             硬币结果: <strong>{COIN_LABEL[coinResult] ?? coinResult}</strong>
           </div>
         )}
@@ -118,7 +121,7 @@ export default function GameTable() {
   const result = lastRoundResult ?? state.history?.[state.history.length - 1];
   if (!result) {
     return (
-      <div className="card game-table">
+      <div className="card game-table" style={tableBgStyle}>
         <h3>牌桌</h3>
         <p className="muted">结算中…</p>
       </div>
@@ -126,9 +129,10 @@ export default function GameTable() {
   }
 
   return (
-    <div className="card game-table">
+    <div className="card game-table" style={tableBgStyle}>
       <h3>牌桌 — 第 {result.round} 回合结果</h3>
-      <div className="bet-info" style={{ fontSize: 16, marginBottom: 12 }}>
+      <div className="bet-info" style={{ fontSize: 16, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 10 }}>
+        {COIN_ICONS[result.coinResult] && <img className="coin-icon" src={COIN_ICONS[result.coinResult]} alt="" />}
         硬币结果: <strong>{COIN_LABEL[result.coinResult] ?? result.coinResult}</strong>
       </div>
       <div style={{ marginBottom: 10 }}>

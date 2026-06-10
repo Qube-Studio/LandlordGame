@@ -1,5 +1,6 @@
 import { useGameStore } from '../store/gameStore';
 import { ROLE_LABEL, ROLE_COLOR } from '../roleLabels';
+import { ROLE_ICONS } from '../uiAssets';
 
 export default function PlayerList() {
   const state = useGameStore(s => s.gameState);
@@ -53,6 +54,7 @@ export default function PlayerList() {
                 <span className={`status-dot ${dot.cls}`} title={dot.label} />
                 <span>{p.name}{p.id === playerId ? ' (我)' : ''}{p.id === hostId ? ' 👑' : ''}</span>
                 <span style={{ color: ROLE_COLOR[p.role], marginLeft: 8, fontSize: 12 }}>
+                  {ROLE_ICONS[p.role] && <img className="role-icon" src={ROLE_ICONS[p.role]} alt="" />}
                   {ROLE_LABEL[p.role ?? null]}
                 </span>
               </div>
