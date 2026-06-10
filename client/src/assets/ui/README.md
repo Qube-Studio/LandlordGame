@@ -5,5 +5,6 @@
 - `coin-heads.*` / `coin-tails.*` — FLIP 阶段硬币正反面图标
 - `icon-landlord.*` / `icon-farmer.*` / `icon-bank.*` — 玩家列表角色图标
 - `table-bg.*` — 牌桌区域背景装饰图
+- `confirm_button_normal.*` / `confirm_button_pressed.*` — 像素下注新场景（`?scene=new` / 调试页“像素下注新场景预览”）的 CONFIRM 按钮默认/按下状态
 
 未提供对应文件时，UI 会回退到现有的 emoji/文字展示，不影响正常使用。

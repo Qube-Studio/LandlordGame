@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useGameStore } from '../store/gameStore';
 import { buildHand } from '../render/moneyCards';
+import { CONFIRM_BUTTON } from '../uiAssets';
 import {
   computeTableShape,
   drawTable,
@@ -165,12 +166,24 @@ function BettingSceneInner({
   containerRef, canvasRef, width, height, myBalance,
   statusText, confirmLabel, total, hand, selected, onToggle, valid, onConfirm, minBet, maxBet,
 }) {
+  const [pressed, setPressed] = useState(false);
+
   useEffect(() => {
     const onKeyDown = (e) => {
-      if ((e.key === 'e' || e.key === 'E') && valid) onConfirm();
+      if (e.key === 'e' || e.key === 'E') {
+        setPressed(true);
+        if (valid) onConfirm();
+      }
+    };
+    const onKeyUp = (e) => {
+      if (e.key === 'e' || e.key === 'E') setPressed(false);
     };
     window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+    };
   }, [valid, onConfirm]);
 
   const balancePos = computeBalancePosition();
@@ -214,11 +227,19 @@ function BettingSceneInner({
 
       <button
         className="scene-confirm-btn"
-        style={{ left: confirmPos.x, bottom: confirmPos.bottom }}
+        style={{
+          left: confirmPos.x,
+          bottom: confirmPos.bottom,
+          backgroundImage: `url(${pressed ? CONFIRM_BUTTON.pressed : CONFIRM_BUTTON.normal})`,
+        }}
         disabled={!valid}
+        aria-label={confirmLabel}
+        onMouseDown={() => setPressed(true)}
+        onMouseUp={() => setPressed(false)}
+        onMouseLeave={() => setPressed(false)}
         onClick={onConfirm}
       >
-        {confirmLabel}
+        <span className="scene-confirm-key">[E]</span>
       </button>
 
       <div className="scene-balance" style={{ right: balancePos.right, bottom: balancePos.bottom }}>

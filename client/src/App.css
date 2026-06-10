@@ -342,19 +342,27 @@ body {
 .scene-confirm-btn {
   position: absolute;
   transform: translateX(-50%);
-  background: transparent;
-  color: #ffffff;
-  border: 2px solid #ffffff;
-  border-radius: 0;
-  font-family: var(--font-pixel);
-  font-size: 12px;
-  letter-spacing: 1px;
-  padding: 12px 22px;
+  width: 280px;
+  height: 67px;
+  background-color: transparent;
+  background-repeat: no-repeat;
+  background-size: 426.67px 426.67px;
+  background-position: -73.33px -213.33px;
+  border: none;
+  padding: 0;
   cursor: pointer;
 }
 .scene-confirm-btn:disabled {
   opacity: 0.35;
   cursor: not-allowed;
+}
+.scene-confirm-key {
+  position: absolute;
+  right: -34px;
+  bottom: 24px;
+  font-family: var(--font-pixel);
+  font-size: 11px;
+  color: #ffffff;
 }
 .scene-balance {
   position: absolute;

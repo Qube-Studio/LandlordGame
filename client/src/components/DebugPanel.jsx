@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useGameStore } from '../store/gameStore';
 import GameBoard from './GameBoard';
+import BettingScene from './BettingScene';
 import { PHASES, PHASE_LABEL, buildMockState, buildMockChat, LAST_ROUND_RESULT } from '../debug/mockData';
 
 const VIEWER_OPTIONS = [
@@ -14,6 +15,7 @@ export default function DebugPanel() {
   const [phase, setPhase] = useState('BETTING');
   const [viewerId, setViewerId] = useState('p-landlord');
   const [coinResult, setCoinResult] = useState('heads');
+  const [pixelScene, setPixelScene] = useState(false);
 
   useEffect(() => {
     const mockState = buildMockState({ phase, viewerId, coinResult });
@@ -59,8 +61,12 @@ export default function DebugPanel() {
             </select>
           </label>
         )}
+        <label>
+          <input type="checkbox" checked={pixelScene} onChange={e => setPixelScene(e.target.checked)} />
+          像素下注新场景预览
+        </label>
       </div>
-      <GameBoard />
+      {pixelScene ? <BettingScene /> : <GameBoard />}
     </div>
   );
 }
