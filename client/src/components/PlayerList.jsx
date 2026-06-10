@@ -59,7 +59,7 @@ export default function PlayerList() {
               <tr key={p.id} className={p.id === playerId ? 'me' : ''}>
                 <td>{p.name}{p.id === playerId ? ' (我)' : ''}</td>
                 <td style={{ color: ROLE_COLOR[p.role] }}>{ROLE_LABEL[p.role ?? null]}</td>
-                <td>{p.bankrupt ? '—' : `¥${p.balance?.toFixed(1)}`}</td>
+                <td>{p.bankrupt ? '—' : (p.balance == null ? '🔒' : `¥${p.balance.toFixed(1)}`)}</td>
                 <td>{betDisplay}</td>
                 <td>{p.bankrupt ? '💀 破产' : '✓'}</td>
               </tr>

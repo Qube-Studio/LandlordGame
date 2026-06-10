@@ -17,7 +17,6 @@ const DEFAULT_CONFIG = {
   interestRate: 0.1,
   complaintFee: 5,
   landlordStartBalance: 21,
-  bankStartBalance: 500,
   negotiationSeconds: 30,
 };
 
@@ -78,7 +77,7 @@ export class GameRoom {
     const farmerStart = Math.ceil(landlordStart * 0.8 / farmers.length);
     farmers.forEach(p => { p.balance = farmerStart; });
 
-    if (bank) bank.balance = this.config.bankStartBalance;
+    if (bank) bank.balance = Math.ceil(landlordStart * 1.5);
 
     this.phase = PHASES.BETTING;
     this.round = 1;
@@ -358,7 +357,7 @@ export class GameRoom {
       phase: this.phase,
       round: this.round,
       config: this.config,
-      players: Object.values(this.players).map(p => this._publicPlayer(p.id)),
+      players: Object.values(this.players).map(p => this._publicPlayer(p.id, playerId, isBankruptFarmer)),
       myBalance: player?.balance,
       myBet: this.phase === PHASES.BETTING ? (this.bets[playerId] !== undefined ? '已下注' : null) : this.bets[playerId],
       bets: this.phase !== PHASES.BETTING ? this.bets : this._maskedBets(playerId),
@@ -380,9 +379,10 @@ export class GameRoom {
     return masked;
   }
 
-  _publicPlayer(id) {
+  _publicPlayer(id, viewerId, revealAll) {
     const p = this.players[id];
-    return { id: p.id, name: p.name, role: p.role, balance: p.balance, bankrupt: p.bankrupt, loanBanned: p.loanBanned };
+    const balance = (id === viewerId || revealAll) ? p.balance : null;
+    return { id: p.id, name: p.name, role: p.role, balance, bankrupt: p.bankrupt, loanBanned: p.loanBanned };
   }
 
   _getByRole(role) {
