@@ -3,6 +3,7 @@ import Login from './components/Login';
 import Lobby from './components/Lobby';
 import GameBoard from './components/GameBoard';
 import DebugPanel from './components/DebugPanel';
+import BettingScene from './components/BettingScene';
 import './App.css';
 
 export default function App() {
@@ -13,5 +14,6 @@ export default function App() {
   if (new URLSearchParams(window.location.search).get('debug') === '1') return <DebugPanel />;
   if (!username) return <Login />;
   if (!roomId || !playerId) return <Lobby />;
+  if (new URLSearchParams(window.location.search).get('scene') === 'new') return <BettingScene />;
   return <GameBoard />;
 }
