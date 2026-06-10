@@ -65,16 +65,22 @@ export default function GameBoard() {
       )}
 
       <div className="main-grid">
-        <div className="main-left">
+        <div className="gt-table">
           <GameTable />
-          <ActionPanel />
+        </div>
+        <div className="gt-players">
+          <PlayerList />
+          <FundHistory />
+          <RoundHistory />
+        </div>
+        <div className="gt-chat">
           <ChatBox />
         </div>
-        <div className="main-right">
+        <div className="gt-decisions">
+          <ActionPanel />
+        </div>
+        <div className="gt-balance">
           <BalanceBar />
-          <PlayerList />
-          <RoundHistory />
-          <FundHistory />
         </div>
       </div>
     </div>
