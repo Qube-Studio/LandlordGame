@@ -6,5 +6,6 @@
 - `icon-landlord.*` / `icon-farmer.*` / `icon-bank.*` — 玩家列表角色图标
 - `table-bg.*` — 牌桌区域背景装饰图
 - `confirm_button_normal.*` / `confirm_button_pressed.*` — 像素下注新场景（`?scene=new` / 调试页“像素下注新场景预览”）的 CONFIRM 按钮默认/按下状态
+- `money_card_1.* / money_card_2.* / money_card_5.* / money_card_10.*` — 像素下注场景手牌面额卡面图片，未提供对应面额时该手牌继续显示数字文字
 
 未提供对应文件时，UI 会回退到现有的 emoji/文字展示，不影响正常使用。

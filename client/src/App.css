@@ -314,6 +314,10 @@ body {
   position: absolute;
   transform-origin: bottom center;
   transition: left 0.15s, top 0.15s, transform 0.1s;
+  touch-action: none;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 .poker-card {
   width: 100%;
@@ -329,11 +333,22 @@ body {
   font-size: 18px;
   cursor: pointer;
   user-select: none;
+  background-size: contain;
+  background-position: center;
+  background-repeat: no-repeat;
   transition: border-color 0.1s, box-shadow 0.1s;
 }
 .poker-card.selected {
   border-color: #ffd54a;
   box-shadow: 0 0 10px rgba(255, 213, 74, 0.6);
+}
+.poker-card.has-face {
+  background-color: transparent;
+  background-size: 100% 100%;
+  border-color: transparent;
+}
+.poker-card.has-face.selected {
+  border-color: #ffd54a;
 }
 .poker-card.shaking {
   animation: card-shake 0.1s linear infinite;

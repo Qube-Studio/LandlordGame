@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useGameStore } from '../store/gameStore';
 import { buildHand, splitDenomination } from '../render/moneyCards';
-import { CONFIRM_BUTTON } from '../uiAssets';
+import { CONFIRM_BUTTON, CARD_FACES } from '../uiAssets';
 import {
   computeTableShape,
   drawTable,
@@ -150,15 +150,18 @@ function BettingSceneWithHand({ containerRef, canvasRef, width, height, myBalanc
   const decomposeCard = (index) => {
     const replacement = splitDenomination(hand[index]);
     if (!replacement) return;
+    const wasSelected = selected.has(index);
 
     setHand(prev => [...prev.slice(0, index), ...replacement, ...prev.slice(index + 1)]);
     setSelected(prev => {
       const next = new Set();
       const shift = replacement.length - 1;
       for (const i of prev) {
-        if (i < index) next.add(i);
-        else if (i > index) next.add(i + shift);
-        else for (let k = 0; k < replacement.length; k++) next.add(index + k);
+        if (i === index) continue;
+        next.add(i < index ? i : i + shift);
+      }
+      if (wasSelected) {
+        for (let k = 0; k < replacement.length; k++) next.add(index + k);
       }
       return next;
     });
@@ -202,7 +205,7 @@ function BettingSceneInner({
   const justDecomposedRef = useRef(false);
 
   const startHold = (i) => {
-    if (!selected.has(i) || !splitDenomination(hand[i])) return;
+    if (!splitDenomination(hand[i])) return;
     setHoldingIndex(i);
     holdTimerRef.current = setTimeout(() => {
       onDecompose(i);
@@ -283,9 +286,13 @@ function BettingSceneInner({
               onMouseUp={cancelHold}
               onMouseLeave={cancelHold}
               onClick={() => handleCardClick(i)}
+              onContextMenu={(e) => e.preventDefault()}
             >
-              <div className={`poker-card ${selected.has(i) ? 'selected' : ''} ${holdingIndex === i ? 'shaking' : ''}`}>
-                {value}
+              <div
+                className={`poker-card ${CARD_FACES[value] ? 'has-face' : ''} ${selected.has(i) ? 'selected' : ''} ${holdingIndex === i ? 'shaking' : ''}`}
+                style={CARD_FACES[value] ? { backgroundImage: `url(${CARD_FACES[value]})` } : undefined}
+              >
+                {!CARD_FACES[value] && value}
               </div>
             </div>
           );
