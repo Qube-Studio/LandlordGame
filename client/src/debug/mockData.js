@@ -56,7 +56,7 @@ export const LAST_ROUND_RESULT = {
   newlyBankrupt: ['p-farmer-b'],
 };
 
-export function buildMockState({ phase, viewerId, coinResult }) {
+export function buildMockState({ phase, viewerId, coinResult, viewerHasBet = false }) {
   const isBankruptSpectator = viewerId === 'p-farmer-b';
 
   const players = BASE_PLAYERS.map(p => ({
@@ -69,9 +69,13 @@ export function buildMockState({ phase, viewerId, coinResult }) {
   if (phase === 'BETTING') {
     bets = {};
     Object.keys(BASE_BETS).forEach(id => {
-      bets[id] = id === viewerId ? BASE_BETS[id] : '已下注';
+      if (id === viewerId) {
+        if (viewerHasBet) bets[id] = BASE_BETS[id];
+      } else {
+        bets[id] = '已下注';
+      }
     });
-    myBet = BASE_BETS[viewerId] !== undefined ? '已下注' : null;
+    myBet = viewerHasBet && BASE_BETS[viewerId] !== undefined ? '已下注' : null;
   } else {
     bets = { ...BASE_BETS };
     myBet = BASE_BETS[viewerId];

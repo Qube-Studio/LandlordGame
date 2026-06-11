@@ -11,3 +11,12 @@ export function buildHand(maxAmount) {
   }
   return cards;
 }
+
+export function splitDenomination(value) {
+  switch (value) {
+    case 10: return [5, 5];
+    case 5: return [1, 1, 1, 1, 1];
+    case 2: return [1, 1];
+    default: return null;
+  }
+}

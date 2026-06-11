@@ -16,9 +16,10 @@ export default function DebugPanel() {
   const [viewerId, setViewerId] = useState('p-landlord');
   const [coinResult, setCoinResult] = useState('heads');
   const [pixelScene, setPixelScene] = useState(false);
+  const [viewerHasBet, setViewerHasBet] = useState(false);
 
   useEffect(() => {
-    const mockState = buildMockState({ phase, viewerId, coinResult });
+    const mockState = buildMockState({ phase, viewerId, coinResult, viewerHasBet });
     const { chatMessages, bankruptChat } = buildMockChat();
     useGameStore.setState({
       username: '调试模式',
@@ -32,9 +33,10 @@ export default function DebugPanel() {
       revealedBets: phase === 'REVEAL' ? mockState.bets : null,
       error: null,
     });
-  }, [phase, viewerId, coinResult]);
+  }, [phase, viewerId, coinResult, viewerHasBet]);
 
   const showCoinToggle = phase === 'FLIP' || phase === 'SETTLEMENT' || phase === 'NEGOTIATION';
+  const showBetToggle = phase === 'BETTING' && ['p-landlord', 'p-farmer-a'].includes(viewerId);
 
   return (
     <div>
@@ -65,6 +67,12 @@ export default function DebugPanel() {
           <input type="checkbox" checked={pixelScene} onChange={e => setPixelScene(e.target.checked)} />
           像素下注新场景预览
         </label>
+        {showBetToggle && (
+          <label>
+            <input type="checkbox" checked={viewerHasBet} onChange={e => setViewerHasBet(e.target.checked)} />
+            模拟已下注
+          </label>
+        )}
       </div>
       {pixelScene ? <BettingScene /> : <GameBoard />}
     </div>

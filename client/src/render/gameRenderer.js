@@ -65,7 +65,7 @@ export function computeBalancePosition() {
 }
 
 export function computeConfirmButtonPosition(containerWidth, containerHeight) {
-  return { x: containerWidth / 2, bottom: containerHeight * 0.42 };
+  return { x: containerWidth / 2, bottom: containerHeight * 0.28 };
 }
 
 export function computeTotalPosition(containerWidth, containerHeight) {

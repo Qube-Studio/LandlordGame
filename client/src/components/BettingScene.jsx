@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useGameStore } from '../store/gameStore';
-import { buildHand } from '../render/moneyCards';
+import { buildHand, splitDenomination } from '../render/moneyCards';
 import { CONFIRM_BUTTON } from '../uiAssets';
 import {
   computeTableShape,
@@ -12,20 +12,20 @@ import {
   CARD_SIZE,
 } from '../render/gameRenderer';
 
-function useContainerSize(ref) {
+function useContainerSize() {
+  const [el, setEl] = useState(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
 
   useEffect(() => {
-    const el = ref.current;
     if (!el) return;
     const update = () => setSize({ width: el.clientWidth, height: el.clientHeight });
     update();
     const observer = new ResizeObserver(update);
     observer.observe(el);
     return () => observer.disconnect();
-  }, [ref]);
+  }, [el]);
 
-  return size;
+  return [setEl, size];
 }
 
 export default function BettingScene() {
@@ -33,9 +33,8 @@ export default function BettingScene() {
   const playerId = useGameStore(s => s.playerId);
   const send = useGameStore(s => s.send);
 
-  const containerRef = useRef(null);
+  const [containerRef, { width, height }] = useContainerSize();
   const canvasRef = useRef(null);
-  const { width, height } = useContainerSize(containerRef);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -56,15 +55,20 @@ export default function BettingScene() {
   if (!myPlayer || !['landlord', 'farmer'].includes(myPlayer.role) || myPlayer.bankrupt || phase !== 'BETTING') {
     return (
       <div className="betting-scene" ref={containerRef}>
-        <canvas ref={canvasRef} />
-        <div className="scene-status-text">
-          {myPlayer?.bankrupt ? '已破产 — 观战中' : phase !== 'BETTING' ? '等待下一回合下注…' : '观战中'}
-        </div>
-        {!myPlayer?.bankrupt && (
-          <div className="scene-balance" style={{ right: balancePos.right, bottom: balancePos.bottom }}>
-            ${myBalance}
+        <div className="scene-layer scene-layer-opponents" />
+        <div className="scene-layer scene-layer-table">
+          <canvas ref={canvasRef} />
+          <div className="scene-status-text">
+            {myPlayer?.bankrupt ? '已破产 — 观战中' : phase !== 'BETTING' ? '等待下一回合下注…' : '观战中'}
           </div>
-        )}
+        </div>
+        <div className="scene-layer scene-layer-hand">
+          {!myPlayer?.bankrupt && (
+            <div className="scene-balance" style={{ right: balancePos.right, bottom: balancePos.bottom }}>
+              ${myBalance}
+            </div>
+          )}
+        </div>
       </div>
     );
   }
@@ -76,10 +80,15 @@ export default function BettingScene() {
   if (alreadyBet) {
     return (
       <div className="betting-scene" ref={containerRef}>
-        <canvas ref={canvasRef} />
-        <div className="scene-status-text">已下注 ¥{bets[playerId]} — 等待其他玩家…</div>
-        <div className="scene-balance" style={{ right: balancePos.right, bottom: balancePos.bottom }}>
-          ${myBalance}
+        <div className="scene-layer scene-layer-opponents" />
+        <div className="scene-layer scene-layer-table">
+          <canvas ref={canvasRef} />
+          <div className="scene-status-text">已下注 ¥{bets[playerId]} — 等待其他玩家…</div>
+        </div>
+        <div className="scene-layer scene-layer-hand">
+          <div className="scene-balance" style={{ right: balancePos.right, bottom: balancePos.bottom }}>
+            ${myBalance}
+          </div>
         </div>
       </div>
     );
@@ -99,6 +108,7 @@ export default function BettingScene() {
         hand={[]}
         selected={new Set()}
         onToggle={() => {}}
+        onDecompose={() => {}}
         valid={true}
         onConfirm={() => send({ type: 'place_bet', amount: allInAmount })}
         minBet={allInAmount}
@@ -122,7 +132,7 @@ export default function BettingScene() {
 }
 
 function BettingSceneWithHand({ containerRef, canvasRef, width, height, myBalance, minBet, maxBet, send }) {
-  const [hand] = useState(() => buildHand(maxBet));
+  const [hand, setHand] = useState(() => buildHand(maxBet));
   const [selected, setSelected] = useState(() => new Set());
 
   const total = [...selected].reduce((sum, i) => sum + hand[i], 0);
@@ -133,6 +143,23 @@ function BettingSceneWithHand({ containerRef, canvasRef, width, height, myBalanc
       const next = new Set(prev);
       if (next.has(i)) next.delete(i);
       else next.add(i);
+      return next;
+    });
+  };
+
+  const decomposeCard = (index) => {
+    const replacement = splitDenomination(hand[index]);
+    if (!replacement) return;
+
+    setHand(prev => [...prev.slice(0, index), ...replacement, ...prev.slice(index + 1)]);
+    setSelected(prev => {
+      const next = new Set();
+      const shift = replacement.length - 1;
+      for (const i of prev) {
+        if (i < index) next.add(i);
+        else if (i > index) next.add(i + shift);
+        else for (let k = 0; k < replacement.length; k++) next.add(index + k);
+      }
       return next;
     });
   };
@@ -154,6 +181,7 @@ function BettingSceneWithHand({ containerRef, canvasRef, width, height, myBalanc
       hand={hand}
       selected={selected}
       onToggle={toggle}
+      onDecompose={decomposeCard}
       valid={valid}
       onConfirm={onConfirm}
       minBet={minBet}
@@ -162,11 +190,39 @@ function BettingSceneWithHand({ containerRef, canvasRef, width, height, myBalanc
   );
 }
 
+const HOLD_DECOMPOSE_MS = 2000;
+
 function BettingSceneInner({
   containerRef, canvasRef, width, height, myBalance,
-  statusText, confirmLabel, total, hand, selected, onToggle, valid, onConfirm, minBet, maxBet,
+  statusText, confirmLabel, total, hand, selected, onToggle, onDecompose, valid, onConfirm, minBet, maxBet,
 }) {
   const [pressed, setPressed] = useState(false);
+  const [holdingIndex, setHoldingIndex] = useState(null);
+  const holdTimerRef = useRef(null);
+  const justDecomposedRef = useRef(false);
+
+  const startHold = (i) => {
+    if (!selected.has(i) || !splitDenomination(hand[i])) return;
+    setHoldingIndex(i);
+    holdTimerRef.current = setTimeout(() => {
+      onDecompose(i);
+      justDecomposedRef.current = true;
+      setHoldingIndex(null);
+    }, HOLD_DECOMPOSE_MS);
+  };
+
+  const cancelHold = () => {
+    clearTimeout(holdTimerRef.current);
+    setHoldingIndex(null);
+  };
+
+  const handleCardClick = (i) => {
+    if (justDecomposedRef.current) {
+      justDecomposedRef.current = false;
+      return;
+    }
+    onToggle(i);
+  };
 
   useEffect(() => {
     const onKeyDown = (e) => {
@@ -195,55 +251,66 @@ function BettingSceneInner({
 
   return (
     <div className="betting-scene" ref={containerRef}>
-      <canvas ref={canvasRef} />
+      <div className="scene-layer scene-layer-opponents" />
 
-      <div className="scene-total" style={{ left: totalPos.x, top: totalPos.y }}>
-        ¥{total} <span className="scene-total-range">(¥{minBet} ~ ¥{maxBet})</span>
+      <div className="scene-layer scene-layer-table">
+        <canvas ref={canvasRef} />
+
+        <div className="scene-total" style={{ left: totalPos.x, top: totalPos.y }}>
+          ¥{total} <span className="scene-total-range">(¥{minBet} ~ ¥{maxBet})</span>
+        </div>
+
+        {statusText && <div className="scene-status-text">{statusText}</div>}
       </div>
 
-      {statusText && <div className="scene-status-text">{statusText}</div>}
+      <div className="scene-layer scene-layer-hand">
+        {hand.map((value, i) => {
+          const pos = handLayout[i];
+          if (!pos) return null;
+          return (
+            <div
+              key={i}
+              className="poker-card-wrapper"
+              style={{
+                left: pos.x,
+                top: pos.y,
+                width: CARD_SIZE.width,
+                height: CARD_SIZE.height,
+                zIndex: pos.zIndex,
+                transform: `rotate(${pos.rotationDeg}deg) translateY(${selected.has(i) ? -16 : 0}px)`,
+              }}
+              onMouseDown={() => startHold(i)}
+              onMouseUp={cancelHold}
+              onMouseLeave={cancelHold}
+              onClick={() => handleCardClick(i)}
+            >
+              <div className={`poker-card ${selected.has(i) ? 'selected' : ''} ${holdingIndex === i ? 'shaking' : ''}`}>
+                {value}
+              </div>
+            </div>
+          );
+        })}
 
-      {hand.map((value, i) => {
-        const pos = handLayout[i];
-        if (!pos) return null;
-        return (
-          <div
-            key={i}
-            className={`poker-card ${selected.has(i) ? 'selected' : ''}`}
-            style={{
-              left: pos.x,
-              top: pos.y,
-              width: CARD_SIZE.width,
-              height: CARD_SIZE.height,
-              zIndex: pos.zIndex,
-              transform: `rotate(${pos.rotationDeg}deg) translateY(${selected.has(i) ? -16 : 0}px)`,
-            }}
-            onClick={() => onToggle(i)}
-          >
-            {value}
-          </div>
-        );
-      })}
+        <button
+          className="scene-confirm-btn"
+          style={{
+            left: confirmPos.x,
+            bottom: confirmPos.bottom,
+            backgroundImage: `url(${pressed ? CONFIRM_BUTTON.pressed : CONFIRM_BUTTON.normal})`,
+          }}
+          disabled={!valid}
+          aria-label={confirmLabel}
+          onMouseDown={() => setPressed(true)}
+          onMouseUp={() => setPressed(false)}
+          onMouseLeave={() => setPressed(false)}
+          onClick={onConfirm}
+        >
+          <span className="scene-confirm-key">[E]</span>
+        </button>
 
-      <button
-        className="scene-confirm-btn"
-        style={{
-          left: confirmPos.x,
-          bottom: confirmPos.bottom,
-          backgroundImage: `url(${pressed ? CONFIRM_BUTTON.pressed : CONFIRM_BUTTON.normal})`,
-        }}
-        disabled={!valid}
-        aria-label={confirmLabel}
-        onMouseDown={() => setPressed(true)}
-        onMouseUp={() => setPressed(false)}
-        onMouseLeave={() => setPressed(false)}
-        onClick={onConfirm}
-      >
-        <span className="scene-confirm-key">[E]</span>
-      </button>
-
-      <div className="scene-balance" style={{ right: balancePos.right, bottom: balancePos.bottom }}>
-        ${myBalance}
+        <div className="scene-balance" style={{ right: balancePos.right, bottom: balancePos.bottom }}>
+          ${myBalance}
+        </div>
       </div>
     </div>
   );
