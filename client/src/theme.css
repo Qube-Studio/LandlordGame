@@ -1,0 +1,54 @@
+/* 全局主题：深黑基调（多层次，不单调）+ 白色 UI + 低饱和金色点缀。
+   所有组件只允许引用这些变量，禁止写死颜色（docs/GAME_SPEC.md §4.5）。 */
+
+:root {
+  --bg-0: #08090d;
+  --bg-1: #0e1118;
+  --bg-2: #161b26;
+  --bg-3: #1f2533;
+  --line: rgba(245, 247, 250, 0.16);
+  --line-strong: rgba(245, 247, 250, 0.45);
+  --ink: #f5f7fa;
+  --ink-dim: #9aa3b2;
+  --ink-faint: #5d6675;
+  --gold: #d8b86a;
+  --gold-dim: #8a7644;
+  --danger: #e36262;
+  --ok: #67c587;
+  --landlord: #d8b86a;
+  --farmer: #7fb88a;
+  --shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+  --radius: 10px;
+  --font: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--font);
+  color: var(--ink);
+  background:
+    radial-gradient(1200px 600px at 70% -10%, rgba(80, 90, 160, 0.14), transparent 60%),
+    radial-gradient(900px 500px at 10% 110%, rgba(120, 80, 150, 0.10), transparent 60%),
+    linear-gradient(180deg, var(--bg-1), var(--bg-0) 70%);
+  background-attachment: fixed;
+  overflow: hidden;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+input, select {
+  font-family: inherit;
+}
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: var(--bg-3); border-radius: 4px; }
+::-webkit-scrollbar-track { background: transparent; }

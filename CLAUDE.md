@@ -4,48 +4,51 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project overview
 
-"地主与农民" (Landlord and Farmer) is a real-time multiplayer "bankruptcy race" game (not an EV-maximization game). Players take asymmetric roles — Landlord (1), Farmers (1+), Bank (0/1) — and each round simultaneously place secret bets, then a coin flip determines the winner. The Bank can issue/forgive loans with interest. A player is bankrupt when balance ≤ 0; the game ends when the Landlord or all Farmers go bankrupt.
+"地主与农民" (Landlord and Farmer) is a real-time multiplayer "bankruptcy race" betting game. Players take asymmetric roles — Landlord (1) vs Farmers (1-4) — and each round secretly bet money cards, a coin flip decides the winner (heads = landlord, tails = farmers), then money is settled/negotiated. A player is bankrupt at balance ≤ 0; the game ends when the landlord or all farmers go bankrupt.
+
+**The authoritative design document is `docs/GAME_SPEC.md`** — all rules, parameters, protocol, and architecture decisions live there. Update the spec first, then the code.
 
 ## Commands
 
 Run from the repo root (npm workspaces: `server`, `client`).
 
-- `npm run dev` — runs server (`node --watch index.js` on port 3001) and client (Vite dev server on port 5173) concurrently
-- `npm run build` — builds the client (`vite build` in `client/`)
-- `npm run lint` — run from `client/`: `cd client && npm run lint` (eslint)
-- No test suite currently exists.
+- `npm run dev` — server (`node --watch index.js`, port 3001) + client (Vite, port 5173) concurrently
+- `npm run build` — builds the client
+- `npm run lint` — run from `client/`: `cd client && npx eslint .`
+- No test suite. The pure logic in `server/logic/` is designed to be unit-testable with plain `node -e` scripts.
 
-The Vite dev server proxies `/api` and `/ws` to `http://localhost:3001` (see `client/vite.config.js`). The client connects via `ws://${window.location.host}/ws` — this path must match the proxy rule.
+Vite proxies `/api` and `/ws` to `http://localhost:3001` (`client/vite.config.js`). The WS path is `/ws` with `?token=` auth.
 
-## Architecture
+## Architecture principles (do not violate)
 
-### Server (`server/`, ESM)
+1. **Server-authoritative**: all rules/settlement/validation run on the server; the client only renders `state` and sends intents. The client must never compute balances or outcomes.
+2. **No hardcoded parameters**: every tunable number lives in `server/config.js` (`DEFAULT_CONFIG`), overridable per room at creation. `getInitialBalance`/`getMinStake` are the reserved extension points for player-count-dynamic values.
+3. **Logic/presentation split**: `server/logic/` is pure functions (no IO); `Room.js` owns the state machine. Client `scene/` (3D) and `ui/` (2D) layers only read stores.
+4. **Data lives server-side**: accounts and game records persist via `server/storage.js` into `server/data/` (gitignored JSON; swap point for a real DB). Client localStorage holds only the auth token.
+5. **All art is SVG via registry**: components get art through `client/src/assets/registry.jsx` `getArt(key)`. To replace art later, change only the registry/svg files.
 
-- `index.js` — Express + `ws` WebSocket server. Holds in-memory `rooms` (roomId → `GameRoom`) and `users` (registered usernames, `Set`). REST: `POST /api/users/register`, `POST /api/rooms`, `GET /api/rooms`. All gameplay happens over a single WebSocket connection per client; `index.js` is a thin message-type switch that dispatches to `GameRoom` methods and sends back `*_result` responses.
-- `GameRoom.js` — the game state machine and source of truth for one room. Phases: `LOBBY → BETTING → REVEAL → FLIP → SETTLEMENT → NEGOTIATION → (loop to BETTING) → ENDED`. Key responsibilities:
-  - Player/role management (`addPlayer`, `assignRole`, roles: `landlord`/`farmer`/`bank`)
-  - Round flow (`placeBet` → `_startReveal` → `_doFlip` → `_doSettlement` → negotiation or game end), driven by `setTimeout` chains
-  - Bank/loan ledger (`requestLoan`, `approveLoan`, `forgiveLoan`, `fileComplaint`)
-  - `getStateFor(playerId)` builds a **per-player view** of state — this is the key privacy boundary:
-    - Other players' balances are hidden (`null`) unless the viewer is a bankrupt farmer (who gets full transparent spectator view via `isBankruptSpectator`)
-    - Bets are masked during `BETTING` (`_maskedBets`) — only the viewer's own bet amount is real; revealed once phase moves past `BETTING`
-    - Computes `forceAllIn`/`allInAmount` (when a player's balance is too low to bet normally) and `myBalanceHistory` (per-round balance deltas for the fund-history UI)
-  - `_broadcastState()` sends each player their own `getStateFor()` view via `state_update` — call this after any mutation that should be visible to clients (it's called on phase transitions including `REVEAL`/`FLIP`, not just `SETTLEMENT`)
-- `GameLogic.js` — pure functions, no I/O, easy to test/reuse: `flipCoin`, `settle` (computes balance deltas + round events from bets/coin result), `accrueInterest`, `isBankrupt`, `validateBet` (enforces min-bet and force-all-in rules). All monetary results use `Math.ceil` — the game avoids fractional currency.
+## Server (`server/`, ESM)
 
-### Client (`client/src/`, React 19 + Vite)
+- `config.js` — `DEFAULT_CONFIG` (all parameters: initial balances 23/8, min stakes, settlement multipliers/rounding/debt allocation, phase timings, reconnect grace…), `mergeConfig`, `getInitialBalance`, `getMinStake`.
+- `modes/index.js` — mode registry: `quick` (available), `classic` (bank role) and `competitive` (rotating bank) are registered but `available: false` (reserved; future hooks attach here).
+- `logic/apportion.js` — largest-remainder integer apportionment (all splits go through this; per-person error ≤ 1).
+- `logic/rules.js` — `flipCoin`, `betBounds`/`validateBet` (bet ∈ [minStake, balance−minStake]; forced all-in when balance < 2×minStake), `allocateDebt` (capacity-capped recursive re-apportionment, default `inverseBet` = "whoever bet more covers less"), `settleRound` (default payout plan), `applyAllocation` (final booking + bankruptcy detection).
+- `auth.js` — register/login (scrypt+salt), token sessions, duplicate login kicks the old socket, online presence.
+- `storage.js` — JSON persistence (`users.json`, `records/*.json` per finished game).
+- `Room.js` — phase machine: `LOBBY → DISCUSSION(ready) → BETTING → REVEAL(confirm) → COIN_FLIP → SETTLE → NEGOTIATE → FINALIZE → DISCUSSION(next round) | ENDED`. The four payout sub-phases are SETTLE (system plan) / NEGOTIATE (farmers drag money & debt between each other; any change resets confirmations; skipped if ≤1 farmer or nothing to split) / FINALIZE (booking, history, bankruptcy) / next DISCUSSION. Offline players are auto-acted (`autoActForOffline`) so gates never stall. `viewFor(playerId)` is the **privacy boundary**: others' balances `null`, bet amounts hidden during BETTING (`hasBet` only), `allocation` visible to farmers/spectators only, `history[].balancesAfter` stripped unless spectator/ENDED.
+- `index.js` — thin REST (`/api/auth/*`, `/api/online`, `/api/modes`, `/api/rooms`) + WS dispatch. Single `state` push pattern: every mutation broadcasts each player their own `viewFor` view; client animations are driven by state diffs, not bespoke events. `voice_*` message types are reserved (reply `NOT_IMPLEMENTED`).
 
-- `store/gameStore.js` — single Zustand store; owns the WebSocket connection and is the only place that talks to the server. `connect(roomId, name)` opens the socket and sends `join_room`; `send(msg)` sends arbitrary typed messages; `handleMessage(msg)` is the inbound message dispatcher (handles `state_update`, `bets_revealed`, `coin_flipped`, `settlement`, `negotiation_*`, `chat`, loan events, etc.) and updates store fields like `gameState`, `coinResult`, `lastRoundResult`, `revealedBets`, `skipVotes`, `chatMessages`/`bankruptChat`. `username` persists to `localStorage` (`landlord_username`) independent of room/connection state; `leaveRoom()` resets room state but keeps `username`.
-- `App.jsx` — three-level routing based on store state: no `username` → `Login`; no `roomId`/`playerId` → `Lobby`; otherwise → `GameBoard`.
-- `components/GameBoard.jsx` — main game screen layout (`.main-grid`: left column = `GameTable` + `ActionPanel` + `ChatBox`; right column = `BalanceBar` + `PlayerList` + `RoundHistory` + `FundHistory`).
-  - `GameTable` — central per-round visualization, renders different content per `phase` (own bet during BETTING, opponents' bet-placed status, revealed bets, coin flip result, settlement deltas/events)
-  - `ActionPanel` — phase/role-driven action area: betting input during `BETTING`, negotiation skip-vote during `NEGOTIATION`, plus an always-present `BankPanel` section for loan requests/approvals
-  - `PlayerList` — player cards with status dots; balances shown as `🔒` for other players per the server-side privacy rules
-  - `BalanceBar` — the viewer's own balance as an HP-style bar
-- All game state is server-authoritative — the client never computes settlement/balances itself, it only renders `gameState` (from `getStateFor`) plus a few transient broadcast-only fields (`coinResult`, `revealedBets`, `lastRoundResult`).
+## Client (`client/src/`, React 19 + Vite + zustand)
 
-### Adding a new WebSocket message type
+- `store/authStore.js` (token/login) and `store/gameStore.js` (server-state mirror, chat, toast, `flights` animation queue). `net/socket.js` — WS singleton with auto-reconnect and rejoin (handlers injected by gameStore to avoid import cycles). `api.js` — REST with Bearer token; 401 clears the session.
+- `App.jsx` routing: no token → `LoginScreen`; no room → `LobbyScreen` (mode cards, room list, join by id); else `GameScreen`.
+- `scene/TableScene.jsx` — **3D scene layer**: CSS 3D (`perspective` + `rotateX(55deg)` table plane). Opponents stand on the plane counter-rotated (`rotateX(-55deg)`, bottom origin) so true perspective produces near-large/far-small. Money notes lie flat in the plane. Seat order = clockwise from the viewer (`SEAT_LAYOUTS`). Coin flip is a dual-face CSS keyframe animation whose duration comes from `state.config.timing.coinAnimMs`.
+- `ui/` — **2D UI layer**: `UiLayer.jsx` shows only the current phase's panel (+ global bar with room id/exit + players strip + self-explaining phase hint), `MoneyHand.jsx` (balance decomposed into 10/5/2/1 notes, reserved min-stake locked aside, long-press to split, select & confirm → notes fly into the 3D table via `FlightLayer`), `NegotiationBoard.jsx` (HTML5 drag of take/debt notes between farmer columns), `ChatPanel.jsx` (public + farmer-only channels, mic button reserved), `FlightLayer.jsx` (FLIP ghost animations between 2D UI and 3D table, fed by `gameStore.flights`).
+- `game/notes.js` — pure note decomposition/split helpers (presentation-only; the server only ever sees integer amounts).
+- `assets/svg/index.jsx` — MoneyNote, CoinFace, CubeAvatar (human-ish body + big cube head with expressions), TableSurface, Icon. All colors via `theme.css` CSS variables (dark theme, white UI, gold accents).
 
-1. Server: add a `case` in `index.js`'s switch (dispatch to a `GameRoom` method), and call `room._broadcastState()` if other players' views need to update.
-2. Client: add a branch in `gameStore.js`'s `handleMessage`, updating store state as needed.
-3. If the change affects what a player can see/do, update `getStateFor()` in `GameRoom.js` to expose the right per-player fields rather than sending raw global state.
+## Adding a new WebSocket message type
+
+1. Server: add a `case` in `index.js`'s switch dispatching to a `Room` method; the method should `_broadcastState()` after mutating.
+2. If it changes what a player may see, expose it through `viewFor()` per-player (never raw global state).
+3. Client: send via `useGameStore.getState().send({type, ...})`; render from the updated `state` (avoid bespoke client events — drive animations from state diffs).

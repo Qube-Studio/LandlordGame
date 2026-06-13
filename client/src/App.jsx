@@ -1,19 +1,53 @@
+import { useEffect } from 'react';
+import { useAuthStore } from './store/authStore';
 import { useGameStore } from './store/gameStore';
-import Login from './components/Login';
-import Lobby from './components/Lobby';
-import GameBoard from './components/GameBoard';
-import DebugPanel from './components/DebugPanel';
-import BettingScene from './components/BettingScene';
-import './App.css';
+import LoginScreen from './screens/LoginScreen';
+import LobbyScreen from './screens/LobbyScreen';
+import GameScreen from './screens/GameScreen';
 
 export default function App() {
-  const username = useGameStore(s => s.username);
+  const token = useAuthStore(s => s.token);
   const roomId = useGameStore(s => s.roomId);
-  const playerId = useGameStore(s => s.playerId);
+  const toast = useGameStore(s => s.toast);
+  const kicked = useGameStore(s => s.kicked);
 
-  if (new URLSearchParams(window.location.search).get('debug') === '1') return <DebugPanel />;
-  if (!username) return <Login />;
-  if (!roomId || !playerId) return <Lobby />;
-  if (new URLSearchParams(window.location.search).get('scene') === 'new') return <BettingScene />;
-  return <GameBoard />;
+  // 登录态变化驱动 WebSocket 生命周期
+  useEffect(() => {
+    if (token) useGameStore.getState().connect(token);
+    else useGameStore.getState().disconnect();
+  }, [token]);
+
+  // 提示自动消失
+  useEffect(() => {
+    if (!toast) return undefined;
+    const t = setTimeout(() => useGameStore.getState().clearToast(), 3200);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  const relogin = () => {
+    useGameStore.getState().clearKicked();
+    useGameStore.getState().disconnect();
+    useAuthStore.getState().clearSession();
+  };
+
+  let screen;
+  if (!token) screen = <LoginScreen />;
+  else if (!roomId) screen = <LobbyScreen />;
+  else screen = <GameScreen />;
+
+  return (
+    <>
+      {screen}
+      {toast && <div className={`toast ${toast.kind ?? 'error'}`}>{toast.text}</div>}
+      {kicked && (
+        <div className="modal-mask">
+          <div className="modal panel">
+            <h3>连接已断开</h3>
+            <p className="dim">{kicked}</p>
+            <button className="btn primary" onClick={relogin}>重新登录</button>
+          </div>
+        </div>
+      )}
+    </>
+  );
 }

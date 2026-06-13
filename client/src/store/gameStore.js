@@ -1,124 +1,104 @@
-import { create } from 'zustand';
+// 房间/游戏状态镜像 + WebSocket 生命周期。
+// state 是服务端 viewFor 的原样镜像，客户端绝不自行计算余额/胜负；
+// flights 是飞牌动画的瞬态队列（纯表现）。
 
-const STORAGE_KEY = 'landlord_username';
+import { create } from 'zustand';
+import { configureSocket, connectSocket, sendMsg, disconnectSocket } from '../net/socket';
 
 export const useGameStore = create((set, get) => ({
-  ws: null,
   connected: false,
-  roomId: null,
+  joining: false,
+  roomId: sessionStorage.getItem('llg_room'),
   playerId: null,
-  gameState: null,
-  chatMessages: [],
-  bankruptChat: [],
-  pendingLoanRequests: [],
-  skipVotes: [],
-  revealedBets: null,
-  coinResult: null,
-  lastRoundResult: null,
-  error: null,
-  // Persisted across page reloads
-  username: localStorage.getItem(STORAGE_KEY) ?? null,
+  state: null,
+  chat: [],          // {channel, from, name, text, ts}
+  toast: null,       // {text, kind}
+  kicked: null,      // 被顶号原因
+  flights: [],       // {id, value, faceDown, debt, from:{x,y,w,h}, to:{x,y,w,h}}
 
-  setUsername: (name) => {
-    localStorage.setItem(STORAGE_KEY, name);
-    set({ username: name });
+  connect(token) {
+    connectSocket(token);
   },
 
-  logout: () => {
-    localStorage.removeItem(STORAGE_KEY);
-    set({ username: null, error: null });
+  disconnect() {
+    disconnectSocket();
+    sessionStorage.removeItem('llg_room');
+    set({ connected: false, joining: false, roomId: null, playerId: null, state: null, chat: [], flights: [] });
   },
 
-  connect: (roomId, playerName) => {
-    const wsUrl = `ws://${window.location.host}/ws`;
-    const ws = new WebSocket(wsUrl);
-
-    ws.onopen = () => {
-      set({ connected: true, error: null });
-      ws.send(JSON.stringify({ type: 'join_room', roomId, name: playerName }));
-    };
-
-    ws.onmessage = (event) => {
-      const msg = JSON.parse(event.data);
-      get().handleMessage(msg);
-    };
-
-    ws.onclose = () => set({ connected: false });
-    ws.onerror = () => set({ error: '连接失败' });
-
-    set({ ws, roomId });
+  joinRoom(roomId) {
+    const id = roomId.trim().toUpperCase();
+    sessionStorage.setItem('llg_room', id);
+    set({ roomId: id, joining: true });
+    sendMsg({ type: 'join_room', roomId: id });
   },
 
-  leaveRoom: () => {
-    const ws = get().ws;
-    if (ws) { try { ws.close(); } catch {} }
-    set({
-      ws: null,
-      connected: false,
-      roomId: null,
-      playerId: null,
-      gameState: null,
-      chatMessages: [],
-      bankruptChat: [],
-      pendingLoanRequests: [],
-      skipVotes: [],
-      revealedBets: null,
-      coinResult: null,
-      lastRoundResult: null,
-      error: null,
-      // username intentionally kept
-    });
+  leaveRoom() {
+    sendMsg({ type: 'leave_room' });
+    sessionStorage.removeItem('llg_room');
+    set({ roomId: null, playerId: null, state: null, chat: [], joining: false, flights: [] });
   },
 
-  handleMessage: (msg) => {
-    const { type } = msg;
+  send(msg) {
+    sendMsg(msg);
+  },
 
-    if (type === 'joined') {
-      set({ playerId: msg.playerId, gameState: msg.state, skipVotes: msg.state?.skipVotes ?? [] });
-    } else if (type === 'state_update') {
-      set({ gameState: msg.state, skipVotes: msg.state?.skipVotes ?? [] });
-    } else if (type === 'bet_placed') {
-      const ws = get().ws;
-      if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'get_state' }));
-    } else if (type === 'negotiation_skip_votes') {
-      set({ skipVotes: msg.votes ?? [] });
-    } else if (type === 'negotiation_start') {
-      set({ skipVotes: [] });
-    } else if (type === 'bets_revealed') {
-      set({ revealedBets: msg.bets });
-    } else if (type === 'coin_flipped') {
-      set({ coinResult: msg.coinResult });
-    } else if (type === 'settlement') {
-      set({ lastRoundResult: msg.roundResult });
-    } else if (type === 'round_start') {
-      set({ revealedBets: null, coinResult: null, lastRoundResult: null });
-    } else if (type === 'chat') {
-      if (msg.channel === 'public') {
-        set(s => ({ chatMessages: [...s.chatMessages.slice(-99), msg] }));
-      } else if (msg.channel === 'bankrupt') {
-        set(s => ({ bankruptChat: [...s.bankruptChat.slice(-99), msg] }));
-      }
-    } else if (type === 'loan_requested') {
-      set(s => ({ pendingLoanRequests: [...s.pendingLoanRequests, msg.loanRequest] }));
-    } else if (type === 'loan_approved' || type === 'loan_rejected') {
-      set(s => ({
-        pendingLoanRequests: s.pendingLoanRequests.filter(l => l.id !== msg.loanRequestId),
-      }));
-    } else if (type === 'error') {
-      set({ error: msg.message });
-    } else if (type.endsWith('_result') && msg.error) {
-      set({ error: msg.error });
-    }
-    const ws = get().ws;
-    if (ws && ws.readyState === WebSocket.OPEN && ['settlement', 'game_started', 'loan_granted', 'loan_forgiven'].includes(type)) {
-      ws.send(JSON.stringify({ type: 'get_state' }));
+  showToast(text, kind = 'error') {
+    set({ toast: { text, kind } });
+  },
+  clearToast() { set({ toast: null }); },
+  clearKicked() { set({ kicked: null }); },
+
+  addFlights(items) {
+    set(s => ({ flights: [...s.flights, ...items] }));
+  },
+  removeFlight(id) {
+    set(s => ({ flights: s.flights.filter(f => f.id !== id) }));
+  },
+
+  _onOpen() {
+    set({ connected: true });
+    const { roomId } = get();
+    if (roomId) {
+      set({ joining: true });
+      sendMsg({ type: 'join_room', roomId });
     }
   },
 
-  send: (msg) => {
-    const ws = get().ws;
-    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
+  _onClose() {
+    set({ connected: false });
   },
 
-  clearError: () => set({ error: null }),
+  _onMessage(msg) {
+    switch (msg.type) {
+      case 'joined':
+        set({ playerId: msg.playerId, state: msg.state, chat: msg.chatHistory ?? [], joining: false });
+        break;
+      case 'state':
+        set({ state: msg.state });
+        break;
+      case 'chat':
+        set(s => ({ chat: [...s.chat, msg] }));
+        break;
+      case 'kicked':
+        set({ kicked: msg.reason ?? '连接被服务器关闭' });
+        break;
+      case 'error':
+        if (get().joining) {
+          // 加入失败（房间不存在/已开始/已满）：回到大厅
+          sessionStorage.removeItem('llg_room');
+          set({ roomId: null, joining: false });
+        }
+        get().showToast(msg.message ?? '发生错误');
+        break;
+      default:
+        break;
+    }
+  },
 }));
+
+configureSocket({
+  onOpen: () => useGameStore.getState()._onOpen(),
+  onClose: () => useGameStore.getState()._onClose(),
+  onMessage: (msg) => useGameStore.getState()._onMessage(msg),
+});

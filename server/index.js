@@ -1,137 +1,195 @@
+// 接入层：Express REST（账号/大厅）+ ws WebSocket（房间内一切交互）。
+// 自身不含游戏规则，只做鉴权与消息分发（见 docs/GAME_SPEC.md §2.4-2.6）。
+
 import express from 'express';
 import { createServer } from 'http';
 import { WebSocketServer } from 'ws';
-import { v4 as uuid } from 'uuid';
-import { GameRoom } from './GameRoom.js';
+import crypto from 'crypto';
+import { Room } from './Room.js';
+import { listModes, getMode } from './modes/index.js';
+import { DEFAULT_CONFIG } from './config.js';
+import * as auth from './auth.js';
 
 const app = express();
 app.use(express.json());
 
 const server = createServer(app);
-const wss = new WebSocketServer({ server });
+const wss = new WebSocketServer({ server, path: '/ws' });
 
-const rooms = {};  // roomId -> GameRoom
-const users = new Set(); // registered usernames
+const rooms = new Map(); // roomId -> Room
 
-// REST: register username
-app.post('/api/users/register', (req, res) => {
-  const { username } = req.body ?? {};
-  if (!username || !username.trim()) return res.status(400).json({ error: '用户名不能为空' });
-  const name = username.trim();
-  if (users.has(name)) return res.status(409).json({ error: '用户名已被注册' });
-  users.add(name);
-  res.status(201).json({ username: name });
+// ---------- REST ----------
+
+function requireAuth(req, res, next) {
+  const token = (req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
+  const username = auth.resolveToken(token);
+  if (!username) return res.status(401).json({ error: '未登录或登录已过期' });
+  req.username = username;
+  req.token = token;
+  next();
+}
+
+app.post('/api/auth/register', (req, res) => {
+  const { username, password } = req.body ?? {};
+  const result = auth.register(username, password);
+  if (result.error) return res.status(400).json(result);
+  res.status(201).json({ ok: true, username: result.username });
 });
 
-// REST: create room
-app.post('/api/rooms', (req, res) => {
-  const roomId = uuid().slice(0, 6).toUpperCase();
-  const { roomName, config } = req.body ?? {};
-  rooms[roomId] = new GameRoom(roomId, roomName ?? '未命名房间', config ?? {});
-  res.json({ roomId, roomName: rooms[roomId].roomName });
+app.post('/api/auth/login', (req, res) => {
+  const { username, password } = req.body ?? {};
+  const result = auth.login(username, password);
+  if (result.error) return res.status(401).json({ error: result.error });
+  if (result.kickedSocket) {
+    try {
+      result.kickedSocket.send(JSON.stringify({ type: 'kicked', reason: '账号在其他位置登录' }));
+      result.kickedSocket.close();
+    } catch { /* 旧连接可能已失效 */ }
+  }
+  res.json({ token: result.token, username: result.username });
 });
 
-// REST: list rooms (lobby)
-app.get('/api/rooms', (req, res) => {
-  const list = Object.values(rooms).map(r => ({
-    roomId: r.roomId,
-    roomName: r.roomName,
-    phase: r.phase,
-    playerCount: Object.keys(r.players).length,
-  }));
-  res.json(list);
+app.post('/api/auth/logout', requireAuth, (req, res) => {
+  auth.logout(req.token);
+  res.json({ ok: true });
 });
 
-wss.on('connection', (ws) => {
+app.get('/api/auth/me', requireAuth, (req, res) => {
+  res.json({ username: req.username });
+});
+
+app.get('/api/online', (req, res) => {
+  const users = auth.listOnline();
+  res.json({ count: users.length, users });
+});
+
+app.get('/api/modes', (req, res) => {
+  res.json(listModes());
+});
+
+app.post('/api/rooms', requireAuth, (req, res) => {
+  const { name, mode, config } = req.body ?? {};
+  const modeDef = getMode(mode ?? 'quick');
+  if (!modeDef) return res.status(400).json({ error: '未知的游戏模式' });
+  if (!modeDef.available) return res.status(400).json({ error: `${modeDef.label}尚未开放` });
+  const roomId = crypto.randomBytes(3).toString('hex').toUpperCase();
+  rooms.set(roomId, new Room(roomId, name, modeDef.id, config ?? {}));
+  res.status(201).json({ roomId });
+});
+
+app.get('/api/rooms', requireAuth, (req, res) => {
+  res.json([...rooms.values()].map(r => r.lobbySummary()));
+});
+
+// ---------- WebSocket ----------
+
+wss.on('connection', (ws, req) => {
+  const url = new URL(req.url, 'http://localhost');
+  const username = auth.resolveToken(url.searchParams.get('token'));
+  if (!username) {
+    ws.send(JSON.stringify({ type: 'error', message: '未登录', code: 'UNAUTHORIZED' }));
+    ws.close();
+    return;
+  }
+  ws.username = username;
+  ws.isAlive = true;
+  ws.on('pong', () => { ws.isAlive = true; });
+
+  const kicked = auth.bindSocket(username, ws);
+  if (kicked) {
+    try {
+      kicked.send(JSON.stringify({ type: 'kicked', reason: '账号在其他位置登录' }));
+      kicked.close();
+    } catch { /* 旧连接可能已失效 */ }
+  }
+
   ws.on('message', (raw) => {
     let msg;
     try { msg = JSON.parse(raw); } catch { return; }
-
-    const { type, roomId } = msg;
+    const { type } = msg;
 
     if (type === 'join_room') {
-      const room = rooms[roomId];
-      if (!room) { ws.send(JSON.stringify({ type: 'error', message: '房间不存在' })); return; }
-      const id = room.addPlayer(ws, msg.name ?? '匿名');
-      ws.roomId = roomId;
-      ws.send(JSON.stringify({ type: 'joined', playerId: id, state: room.getStateFor(id) }));
+      const room = rooms.get((msg.roomId ?? '').toUpperCase());
+      if (!room) { send(ws, { type: 'error', message: '房间不存在' }); return; }
+      const result = room.addPlayer(username, ws);
+      if (result.error) { send(ws, { type: 'error', message: result.error }); return; }
+      ws.roomId = room.roomId;
+      ws.playerId = result.playerId;
+      send(ws, {
+        type: 'joined',
+        playerId: result.playerId,
+        state: room.viewFor(result.playerId),
+        chatHistory: room.chatHistoryFor(result.playerId),
+      });
       return;
     }
 
-    const room = rooms[ws.roomId];
-    if (!room) { ws.send(JSON.stringify({ type: 'error', message: '未加入房间' })); return; }
+    const room = rooms.get(ws.roomId);
+    if (!room) { send(ws, { type: 'error', message: '未加入房间' }); return; }
     const pid = ws.playerId;
+    let result;
 
     switch (type) {
-      case 'assign_role': {
-        const result = room.assignRole(pid, msg.role);
-        ws.send(JSON.stringify({ type: 'assign_role_result', ...result }));
-        room._broadcastState();
+      case 'leave_room':
+        result = room.leave(pid);
+        ws.roomId = null;
+        ws.playerId = null;
         break;
-      }
-      case 'set_ready': {
-        const result = room.setReady(pid, msg.ready);
-        ws.send(JSON.stringify({ type: 'set_ready_result', ...result }));
-        break;
-      }
-      case 'start_game': {
-        const result = room.startGame(pid);
-        ws.send(JSON.stringify({ type: 'start_game_result', ...result }));
-        break;
-      }
-      case 'place_bet': {
-        const result = room.placeBet(pid, Number(msg.amount));
-        ws.send(JSON.stringify({ type: 'place_bet_result', ...result }));
-        break;
-      }
-      case 'request_loan': {
-        const result = room.requestLoan(pid, Number(msg.amount), Number(msg.repayRounds));
-        ws.send(JSON.stringify({ type: 'request_loan_result', ...result }));
-        break;
-      }
-      case 'approve_loan': {
-        const result = room.approveLoan(pid, msg.borrowerId, Number(msg.amount), Number(msg.repayRounds));
-        ws.send(JSON.stringify({ type: 'approve_loan_result', ...result }));
-        break;
-      }
-      case 'file_complaint': {
-        const result = room.fileComplaint(pid, msg.loanRequestId);
-        ws.send(JSON.stringify({ type: 'file_complaint_result', ...result }));
-        break;
-      }
-      case 'forgive_loan': {
-        const result = room.forgiveLoan(pid, msg.loanId);
-        ws.send(JSON.stringify({ type: 'forgive_loan_result', ...result }));
-        break;
-      }
-      case 'negotiate_propose': {
-        const result = room.submitNegotiationProposal(pid, msg.distribution);
-        ws.send(JSON.stringify({ type: 'negotiate_propose_result', ...result }));
-        break;
-      }
-      case 'skip_negotiation_vote': {
-        const result = room.voteSkipNegotiation(pid);
-        ws.send(JSON.stringify({ type: 'skip_negotiation_vote_result', ...result }));
-        break;
-      }
-      case 'chat': {
-        room.chat(pid, msg.message);
-        break;
-      }
-      case 'get_state': {
-        ws.send(JSON.stringify({ type: 'state_update', state: room.getStateFor(pid) }));
-        break;
-      }
+      case 'take_role': result = room.takeRole(pid, msg.role); break;
+      case 'start_game': result = room.startGame(pid); break;
+      case 'ready': result = room.setReady(pid); break;
+      case 'place_bet': result = room.placeBet(pid, Number(msg.amount)); break;
+      case 'confirm_reveal': result = room.confirmReveal(pid); break;
+      case 'negotiate_transfer': result = room.negotiateTransfer(pid, msg.toId, msg.kind, Number(msg.amount)); break;
+      case 'negotiate_confirm': result = room.negotiateConfirm(pid, msg.confirmed); break;
+      case 'chat': result = room.chat(pid, msg.channel ?? 'public', msg.text); break;
+      case 'restart_game': result = room.restartGame(pid); break;
+      case 'get_state':
+        send(ws, { type: 'state', state: room.viewFor(pid) });
+        return;
+      case 'voice_join':
+      case 'voice_leave':
+      case 'voice_signal':
+        // 语音联机预留接口（docs/GAME_SPEC.md §2.5）
+        send(ws, { type: 'error', message: '语音功能尚未开放', code: 'NOT_IMPLEMENTED' });
+        return;
       default:
-        ws.send(JSON.stringify({ type: 'error', message: `未知消息类型: ${type}` }));
+        send(ws, { type: 'error', message: `未知消息类型: ${type}` });
+        return;
     }
+    if (result?.error) send(ws, { type: 'error', message: result.error });
   });
 
   ws.on('close', () => {
-    const room = rooms[ws.roomId];
-    if (room && ws.playerId) room.removePlayer(ws.playerId);
+    auth.unbindSocket(username, ws);
+    const room = rooms.get(ws.roomId);
+    if (room && ws.playerId) room.handleDisconnect(ws.playerId);
   });
 });
+
+function send(ws, payload) {
+  if (ws.readyState === 1) ws.send(JSON.stringify(payload));
+}
+
+// 心跳：清理失联连接
+setInterval(() => {
+  for (const ws of wss.clients) {
+    if (!ws.isAlive) { ws.terminate(); continue; }
+    ws.isAlive = false;
+    ws.ping();
+  }
+}, DEFAULT_CONFIG.heartbeatSec * 1000);
+
+// 清扫：空房间立即回收；全员离线超过 5 分钟的房间回收
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, room] of rooms) {
+    if (room.isEmpty() || (room.allOffline() && now - room.lastActivity > 5 * 60 * 1000)) {
+      room.destroy();
+      rooms.delete(id);
+    }
+  }
+}, 60 * 1000);
 
 const PORT = process.env.PORT ?? 3001;
 server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
