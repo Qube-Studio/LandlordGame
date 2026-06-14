@@ -1,0 +1,291 @@
+/* ============================================================
+   硬核像素皮肤（Minecraft 风）。在 theme.css / App.css 之后加载，覆盖观感。
+   - ASCII / 数字：自制点阵字体（PixelText 组件）。
+   - 中文：回退到像素中文字体栈 .pixel-cjk（允许使用现成像素中文字体）。
+   - 容器/按钮：厚描边 + 斜角凹凸（无圆角）。
+   ============================================================ */
+
+:root {
+  --px-stone:   #6c707b;
+  --px-stone-d: #45484f;
+  --px-dirt:    #2a2d36;
+  --px-dark:    #14161c;
+  --px-darker:  #0a0b0f;
+  --px-panel:   #181b22;
+  --px-bevel-l: rgba(255, 255, 255, 0.22);
+  --px-bevel-d: rgba(0, 0, 0, 0.55);
+  --px-gold:    #e2c044;
+  --px-grass:   #7fb45a;
+  /* 中文像素字体栈：优先常见免费像素中文字体，缺失则退回等宽 */
+  --font-cjk: 'Zpix', 'Fusion Pixel 12px SC', 'Ark Pixel 12px SC', 'Cubic 11',
+              'WenQuanYi Bitmap Song', '宋体', 'SimSun', monospace;
+  --font: var(--font-cjk);
+}
+
+body {
+  background:
+    repeating-linear-gradient(0deg, rgba(0,0,0,0.16) 0 2px, transparent 2px 4px),
+    radial-gradient(900px 500px at 70% -10%, rgba(60, 70, 120, 0.12), transparent 60%),
+    linear-gradient(180deg, #121620, var(--px-darker) 80%);
+  image-rendering: pixelated;
+  -webkit-font-smoothing: none;
+  font-smooth: never;
+}
+
+.pixel-cjk { font-family: var(--font-cjk); letter-spacing: 0.5px; }
+
+/* 让点阵 SVG 不被抗锯齿模糊 */
+.pixel-text svg { image-rendering: pixelated; image-rendering: crisp-edges; }
+
+/* ---------- 通用容器：石质凹凸面板 ---------- */
+.panel,
+.phase-panel,
+.money-hand .hand-info,
+.nego-col {
+  border-radius: 0 !important;
+  background: var(--px-panel);
+  border: 3px solid var(--px-darker);
+  box-shadow:
+    inset 2px 2px 0 var(--px-bevel-l),
+    inset -2px -2px 0 var(--px-bevel-d),
+    0 6px 0 rgba(0,0,0,0.45);
+}
+
+/* ---------- 按钮：石按钮 ---------- */
+.btn {
+  border-radius: 0;
+  border: 3px solid var(--px-darker);
+  background: var(--px-stone);
+  color: #f3f4f7;
+  font-family: var(--font-cjk);
+  letter-spacing: 1px;
+  text-shadow: 1px 1px 0 rgba(0,0,0,0.5);
+  box-shadow:
+    inset 2px 2px 0 var(--px-bevel-l),
+    inset -2px -2px 0 var(--px-bevel-d);
+  transition: none;
+}
+.btn:hover:not(:disabled) { background: #7d818d; border-color: var(--px-darker); }
+.btn:active:not(:disabled) {
+  transform: translateY(2px);
+  box-shadow: inset 2px 2px 0 var(--px-bevel-d), inset -2px -2px 0 var(--px-bevel-l);
+}
+.btn.primary {
+  background: #3c7a3a; color: #f3f4f7; border-color: var(--px-darker);
+}
+.btn.primary:hover:not(:disabled) { background: #469247; opacity: 1; }
+.btn.ghost { background: var(--px-stone-d); }
+.btn.danger-btn { background: #93392f; }
+
+/* ---------- 输入框 ---------- */
+.field input, .chat-input input, .join-by-id input {
+  border-radius: 0;
+  background: var(--px-darker);
+  border: 3px solid #000;
+  box-shadow: inset 2px 2px 0 rgba(0,0,0,0.6);
+  color: #f3f4f7;
+  font-family: var(--font-cjk);
+}
+.field input:focus, .chat-input input:focus, .join-by-id input:focus {
+  border-color: var(--px-gold);
+}
+
+.tab { border-radius: 0; font-family: var(--font-cjk); }
+.tab.active { border-bottom-color: var(--px-gold); }
+
+.toast, .modal {
+  border-radius: 0 !important;
+  border-width: 3px;
+  box-shadow: inset 2px 2px 0 var(--px-bevel-l), inset -2px -2px 0 var(--px-bevel-d), 0 6px 0 rgba(0,0,0,0.5);
+}
+
+/* 圆角统一抹平 */
+.round-chip, .phase-chip, .player-chip, .chat-collapsed, .phase-banner, .hand-info { border-radius: 0 !important; }
+
+/* ============================================================
+   3D 场景 Canvas
+   ============================================================ */
+.r3f-scene { position: absolute; inset: 0; touch-action: none; }
+.r3f-scene canvas { display: block; }
+
+/* 头顶名牌（drei <Html> 内容） */
+.mc-nameplate {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  transform: translateY(-100%);
+  white-space: nowrap;
+  pointer-events: none;
+  user-select: none;
+}
+.mc-nameplate .np-row {
+  display: flex; align-items: center; gap: 5px;
+  background: rgba(8, 9, 13, 0.62);
+  padding: 3px 7px;
+  border: 2px solid rgba(0,0,0,0.6);
+}
+.mc-nameplate.offline { opacity: 0.5; }
+.np-role.landlord { color: var(--px-gold); }
+.np-role.farmer { color: var(--px-grass); }
+.np-tag-bankrupt { color: var(--danger); }
+
+/* ============================================================
+   HUD 叠加层（指针穿透，子元素可交互）
+   ============================================================ */
+.hud { position: absolute; inset: 0; pointer-events: none; z-index: 40; }
+.hud > * { pointer-events: auto; }
+
+/* ---- 顶部全局条 ---- */
+.hud-top {
+  position: absolute; top: 0; left: 0; right: 0;
+  display: flex; justify-content: space-between; align-items: flex-start;
+  padding: 10px 12px;
+  gap: 10px;
+}
+.hud-top-left { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.px-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: rgba(10, 11, 15, 0.78);
+  border: 2px solid #000;
+  box-shadow: inset 2px 2px 0 var(--px-bevel-l), inset -2px -2px 0 var(--px-bevel-d);
+  padding: 5px 9px;
+}
+
+/* ---- 右侧玩家在线纵列 ---- */
+.player-rail {
+  position: absolute; top: 64px; right: 10px;
+  display: flex; flex-direction: column; gap: 7px;
+  width: 188px;
+  z-index: 42;
+}
+.rail-row {
+  display: flex; flex-direction: column; gap: 4px;
+  background: rgba(10, 11, 15, 0.74);
+  border: 2px solid #000;
+  box-shadow: inset 2px 2px 0 var(--px-bevel-l), inset -2px -2px 0 var(--px-bevel-d);
+  padding: 6px 8px;
+}
+.rail-row.me { border-color: var(--px-gold); }
+.rail-row.offline { opacity: 0.5; }
+.rail-line1 { display: flex; align-items: center; gap: 6px; }
+.rail-line2 { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.rail-dot { width: 9px; height: 9px; flex: 0 0 9px; background: var(--ink-faint); box-shadow: inset -2px -2px 0 rgba(0,0,0,0.4); }
+.rail-dot.landlord { background: var(--px-gold); }
+.rail-dot.farmer { background: var(--px-grass); }
+.rail-online { width: 7px; height: 7px; flex: 0 0 7px; background: var(--ok); }
+.rail-online.off { background: var(--ink-faint); }
+.rail-status.ok { color: var(--ok); }
+.rail-status.dim { color: var(--ink-dim); }
+.rail-status.danger { color: var(--danger); }
+
+/* ---- 右下角自己总资金（大号像素字） ---- */
+.balance-hud {
+  position: absolute; right: 14px; bottom: 14px;
+  display: flex; flex-direction: column; align-items: flex-end; gap: 4px;
+  z-index: 42;
+  text-shadow: 0 0 10px rgba(0,0,0,0.9);
+}
+.balance-hud .bh-label { color: var(--ink-dim); }
+.balance-hud .bh-value { display: flex; align-items: flex-end; gap: 6px; }
+.balance-hud.low .bh-value { animation: bh-pulse 0.8s steps(2) infinite; }
+@keyframes bh-pulse { 0%,100% { filter: none; } 50% { filter: brightness(1.6); } }
+
+/* ---- 阶段提示 banner ---- */
+.hud-banner {
+  position: absolute; top: 52px; left: 50%; transform: translateX(-50%);
+  background: rgba(10, 11, 15, 0.78);
+  border: 2px solid #000;
+  box-shadow: inset 2px 2px 0 var(--px-bevel-l), inset -2px -2px 0 var(--px-bevel-d);
+  padding: 6px 16px;
+  max-width: 60vw;
+  text-align: center;
+}
+
+/* ---- 底部动作区 ---- */
+.hud-bottom {
+  position: absolute; left: 0; right: 0; bottom: 12px;
+  display: flex; justify-content: center;
+  padding: 0 200px; /* 给左右两侧 HUD 让位 */
+  pointer-events: none;
+}
+.hud-bottom > * { pointer-events: auto; }
+
+/* 键帽提示 */
+.keycap {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 16px; padding: 1px 4px;
+  background: var(--px-stone);
+  border: 2px solid #000;
+  box-shadow: inset 1px 1px 0 var(--px-bevel-l), inset -1px -1px 0 var(--px-bevel-d);
+  color: #fff;
+}
+
+/* ============================================================
+   拆钱抖动（长按时；短按不触发）
+   ============================================================ */
+@keyframes money-shake {
+  0%   { transform: var(--note-tf) translate(0,0) rotate(0deg); }
+  20%  { transform: var(--note-tf) translate(-2px,1px) rotate(-3deg); }
+  40%  { transform: var(--note-tf) translate(2px,-1px) rotate(3deg); }
+  60%  { transform: var(--note-tf) translate(-2px,-1px) rotate(-2deg); }
+  80%  { transform: var(--note-tf) translate(2px,1px) rotate(2deg); }
+  100% { transform: var(--note-tf) translate(0,0) rotate(0deg); }
+}
+.hand-note.shaking {
+  animation: money-shake 0.12s steps(2) infinite;
+  filter: drop-shadow(0 0 8px var(--px-gold)) brightness(1.15);
+  z-index: 5;
+}
+
+/* ============================================================
+   左下角 Minecraft 风格聊天
+   ============================================================ */
+.mc-chat {
+  position: absolute; left: 12px; bottom: 12px;
+  width: 360px; max-width: 46vw;
+  z-index: 60;
+  display: flex; flex-direction: column; gap: 4px;
+  pointer-events: none;
+}
+.mc-chat-log {
+  display: flex; flex-direction: column; gap: 2px;
+  max-height: 220px; overflow: hidden;
+  padding: 4px;
+  mask-image: linear-gradient(180deg, transparent 0, #000 28px);
+}
+.mc-chat.open .mc-chat-log {
+  background: rgba(8, 9, 13, 0.42);
+  overflow-y: auto;
+  pointer-events: auto;
+  mask-image: none;
+}
+.mc-chat-line {
+  display: flex; align-items: flex-end; gap: 6px;
+  background: rgba(8, 9, 13, 0.42);
+  padding: 2px 6px;
+  width: fit-content; max-width: 100%;
+  animation: mc-line-in 0.18s ease-out;
+}
+.mc-chat:not(.open) .mc-chat-line.fade { animation: mc-line-out 0.6s ease-in forwards; }
+@keyframes mc-line-in { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; } }
+@keyframes mc-line-out { to { opacity: 0; } }
+.mc-chat-line .mc-from { color: var(--px-gold); flex: 0 0 auto; }
+.mc-chat-line.farmer .mc-from { color: var(--px-grass); }
+.mc-chat-line .mc-body { color: #f3f4f7; word-break: break-all; }
+.mc-chat-input {
+  display: flex; align-items: center; gap: 6px;
+  background: rgba(8, 9, 13, 0.85);
+  border: 2px solid #000;
+  box-shadow: inset 2px 2px 0 var(--px-bevel-d);
+  padding: 5px 7px;
+  pointer-events: auto;
+}
+.mc-chat-input .mc-prefix { color: var(--ink-dim); flex: 0 0 auto; }
+.mc-chat-input input {
+  flex: 1; background: transparent; border: none; outline: none;
+  color: #fff; font-family: var(--font-cjk); font-size: 13px;
+}
+.mc-chat-channel { display: flex; gap: 4px; }
+.mc-chan-btn {
+  background: rgba(8,9,13,0.7); border: 2px solid #000; color: var(--ink-dim);
+  padding: 2px 6px; font-family: var(--font-cjk); font-size: 11px;
+}
+.mc-chan-btn.active { color: #fff; border-color: var(--px-gold); }

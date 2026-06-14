@@ -144,7 +144,6 @@ export function TableSurface() {
       <rect x="0.6" y="0.6" width="98.8" height="60.8" rx="3" fill="url(#tbl)" stroke="var(--line-strong)" strokeWidth="0.7" />
       <rect x="3.4" y="3" width="93.2" height="56" rx="2" fill="none" stroke="var(--line)" strokeWidth="0.35" />
       <ellipse cx="50" cy="31" rx="20" ry="11" fill="none" stroke="var(--gold-dim)" strokeWidth="0.4" strokeDasharray="1.6 1.2" />
-      <text x="50" y="33.4" textAnchor="middle" fontSize="5" fill="var(--gold-dim)" opacity="0.85">押 注 区</text>
     </svg>
   );
 }

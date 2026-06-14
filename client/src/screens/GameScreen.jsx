@@ -1,7 +1,7 @@
 import { useGameStore } from '../store/gameStore';
-import TableScene from '../scene/TableScene';
+import Scene3D from '../scene/Scene3D';
 import UiLayer from '../ui/UiLayer';
-import ChatPanel from '../ui/ChatPanel';
+import McChat from '../ui/McChat';
 import FlightLayer from '../ui/FlightLayer';
 
 export default function GameScreen() {
@@ -13,9 +13,9 @@ export default function GameScreen() {
   }
   return (
     <div className="game-screen">
-      <TableScene />
+      <Scene3D />
       <UiLayer />
-      <ChatPanel />
+      <McChat />
       <FlightLayer />
     </div>
   );

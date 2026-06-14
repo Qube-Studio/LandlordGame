@@ -14,7 +14,10 @@ export const useGameStore = create((set, get) => ({
   chat: [],          // {channel, from, name, text, ts}
   toast: null,       // {text, kind}
   kicked: null,      // 被顶号原因
-  flights: [],       // {id, value, faceDown, debt, from:{x,y,w,h}, to:{x,y,w,h}}
+  flights: [],       // {id, value, faceDown, debt, from:{x,y,w,h}, to:{x,y,w,h}} —— 仅用于结算回收的 2D 飞行
+  chatOpen: false,   // 左下角聊天输入是否展开（也用于屏蔽游戏快捷键）
+  betFlight: null,   // 下注时手牌→桌面的 3D 飞行：{round, items:[{id,value,fromScreen:{x,y}}]}
+  myStack: null,     // 自己实际放到桌上的牌（与飞出去的是同一批）：{round, notes:[{id,value,slot}]}
 
   connect(token) {
     connectSocket(token);
@@ -23,7 +26,7 @@ export const useGameStore = create((set, get) => ({
   disconnect() {
     disconnectSocket();
     sessionStorage.removeItem('llg_room');
-    set({ connected: false, joining: false, roomId: null, playerId: null, state: null, chat: [], flights: [] });
+    set({ connected: false, joining: false, roomId: null, playerId: null, state: null, chat: [], flights: [], betFlight: null, myStack: null });
   },
 
   joinRoom(roomId) {
@@ -36,12 +39,23 @@ export const useGameStore = create((set, get) => ({
   leaveRoom() {
     sendMsg({ type: 'leave_room' });
     sessionStorage.removeItem('llg_room');
-    set({ roomId: null, playerId: null, state: null, chat: [], joining: false, flights: [] });
+    set({ roomId: null, playerId: null, state: null, chat: [], joining: false, flights: [], betFlight: null, myStack: null });
   },
 
   send(msg) {
     sendMsg(msg);
   },
+
+  setChatOpen(v) { set({ chatOpen: v }); },
+
+  // 下注：记录这批牌（同一批既用于 3D 飞行，飞行结束后留在桌上作为 myStack）
+  startBetFlight({ round, items }) {
+    set({
+      betFlight: { round, items },
+      myStack: { round, notes: items.map((it, i) => ({ id: it.id, value: it.value, slot: i })) },
+    });
+  },
+  finalizeBetFlight() { set({ betFlight: null }); },
 
   showToast(text, kind = 'error') {
     set({ toast: { text, kind } });
