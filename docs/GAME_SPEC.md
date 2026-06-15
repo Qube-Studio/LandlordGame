@@ -94,9 +94,10 @@ kicked   {reason}           // 顶号或被移出
 ## 3. 快速模式规则（精确定义）
 
 ### 3.1 初始资金
-- 农民：`config.initialBalance.farmer`，默认 **8**。
-- 地主：`config.initialBalance.landlord`，默认 **23**。
-- **预留按人数动态**：取值经函数 `getInitialBalance(role, farmerCount, config)`，当前忽略 `farmerCount` 直接返回配置值，将来在此函数内改公式即可。
+- 农民：`config.initialBalance.farmer`，默认 **7**。
+- 地主：**农民总资金 × `config.landlordFundMultiplier`（默认 1.5）**，向下取整，至少 1。农民总资金 = 农民人数 × 农民初始资金。
+  - 例：1 农民→10；2→21；3→31；4→42。
+- **按人数动态**：取值经函数 `getInitialBalance(role, farmerCount, config)`——农民固定、地主按农民人数算；要换公式只改此函数。
 
 ### 3.2 最小出资额（minStake）
 - 农民 = `config.minStake.farmer`（默认 1）。
@@ -118,6 +119,7 @@ LOBBY ──房主开始──► DISCUSSION ──全员准备──► BETTING
 - **BETTING（下注中）**：见 3.3。已下注玩家对他人显示"已下注"（反面牌），金额保密。
 - **REVEAL（揭牌）**：系统播放翻牌动画展示每个人出的金额；期间允许发言；**所有活跃玩家点确认**后进入掷硬币。
 - **COIN_FLIP（掷硬币）**：播放抛硬币动画；**正面 = 地主胜，反面 = 农民胜**；`coinAnimMs` 后自动进入系统结算。
+  - 动画用**客户端预烘焙动画池**：`scene/coinSim.js` 以确定性物理离线模拟若干轨迹，按落定朝面分桶到正面 10 条、反面 10 条并缓存；服务端权威决定 `coinResult` 后，客户端从对应池随机取一条回放（确定性物理保证不穿桌、明显自旋与弹跳）。
 - **分钱（四个子阶段）**：
   1. **SETTLE 系统结算**：服务端按 3.5 计算默认分配方案并展示，`settleViewMs` 后自动进入下一步。
   2. **NEGOTIATE 农民协商**：每个农民以钞票牌形式看到分给自己的钱或债务，可拖拽给队友（金额守恒，仅在农民之间转移）。任何变动会重置所有人的确认。全部活跃农民确认（或 `negotiateTimeoutMs` 超时按当前方案）后生效。若只有 1 个活跃农民、或本回合农民既无钱可分也无债可摊，则自动跳过。
@@ -133,7 +135,9 @@ LOBBY ──房主开始──► DISCUSSION ──全员准备──► BETTING
 - `pot < target`：地主先拿走整个 `pot`；缺口 `shortfall = target − pot` 由农民**用手里余额共同补足**——这就是"双倍承担不够的部分"。
   - 债务分摊默认 **`inverseBet`（谁出的多谁补的少）**：以 `wᵢ = 1 / betᵢ` 为权重做**最大余数法**整数分摊（科学分摊、只出整数、误差最小）。可配置为 `equal`（均摊）/ `proportionalBet`（出得多摊得多）。
   - 每人实际支付 `min(份额, 余额)`；付不起的人付光破产，残余缺口在未封顶的农民间按同法递归重摊；全员都付不起则地主只拿到实际收到的部分。
+  - **双倍补偿精确入账**：地主拿到 `pot + 农民实际补偿`，补偿多少地主就多拿多少；FINALIZE 时按最终（可能经协商）的债务实收重算 `uncovered = max(0, shortfall − collected)`，使展示与入账一致。
 - 协商阶段农民可以在彼此之间转移"分到的钱"（take）或"分摊的债"（debt）。
+  - **债务可压垮队友**：不限制对方余额，允许把全部债务堆给一名农民使其破产；落账时该农民只付出全部余额，地主只收到这点钱，其余缺口作废。
 
 **反面（农民胜）：**
 - 农民**直接平分** `pot`（`farmerSplit: 'equal'`，最大余数法）；除不尽的余数单位默认给下注多的农民（`surplusTieBreak: 'highestBet'`，可配置），协商阶段可再调整。
@@ -143,6 +147,16 @@ LOBBY ──房主开始──► DISCUSSION ──全员准备──► BETTING
 
 ### 3.6 整数与误差原则
 所有入账金额必为整数。凡是按比例分配，统一用 `logic/apportion.js` 的**最大余数法**：先地板取整，再把剩余单位按小数余量从大到小逐个分配（并列时按 `surplusTieBreak`）。保证"份额之和恰好等于被分配总额"，误差不超过每人 1。
+
+### 3.7 地主资金目标（`config.landlordGoal`，纯函数见 `logic/landlordGoal.js`）
+为地主设置一系列**检查点**：每过若干回合地主必须使资金达到一个目标，否则在**该回合 FINALIZE（押注后资金分配完成时）**受罚。目标与回合间隔都随检查点序号增长但**逐渐放缓**，并各自封顶。
+
+- **检查点序列**（第 k 个，k 从 0 起，记地主初始资金 `B`）：
+  - 回合间隔 `I_k = round(startInterval + (maxInterval − startInterval)·(1 − intervalEaseFactor^k))`，封顶 `maxInterval`；检查点回合 `R_k = ΣI_j`（`I_0 = startInterval` ⇒ `R_0 = startInterval`，默认首检查点在第 3 回合）。
+  - 目标 `G_k = floor(startGoal + (maxGoal − startGoal)·(1 − goalEaseFactor^k))`，封顶 `maxGoal`；其中 `startGoal = floor(B·startMultiplier)`（默认 `floor(B·0.5)`，即首次触发惩罚的阈值为初始资金的一半），`maxGoal = floor(B·maxMultiplier)`（默认 `floor(B·1.8)`）。
+- **惩罚**：检查点回合 FINALIZE 时若地主余额 < 该目标，扣除 `max(minPenalty, floor(余额·penaltyRate))`（默认 `max(2, floor(余额·0.2))`）。**惩罚资金按最大余数法平分给本回合农民**（在破产判定前入账，可能救活濒临破产的农民），可直接使地主破产 → 农民胜。
+- **展示（合理显示在每个人的 UI）**：`viewFor` 下发 `landlordGoal = { goal, dueRound, roundsLeft, initial, landlordId, landlordBalance }`——目标值与到期回合对所有人可见（给农民施压、给地主紧迫感）；`landlordBalance`（进度）仅地主本人/观战者可见（隐私边界）。FINALIZE 面板播报达标/受罚。
+- 默认参数与调法见 `docs/TUNING.md`。
 
 ---
 
@@ -199,6 +213,8 @@ server/
   modes/index.js   三模式注册表（quick 可用，classic/competitive 占位）
   logic/apportion.js   最大余数法整数分摊（纯函数）
   logic/rules.js       flipCoin / validateBet / settleRound / applyAllocation（纯函数）
+  logic/landlordGoal.js 地主资金目标序列/惩罚（纯函数，§3.7）
+  test/logic.test.mjs  纯逻辑边界测试（node 直接跑）
   auth.js          注册/登录/会话/在线表/顶号
   storage.js       JSON 文件持久化（users.json、records/*.json），可替换为 DB
   Room.js          房间状态机 + 每玩家视图 + 定时器 + 回合历史
@@ -222,7 +238,9 @@ data/              运行时数据（gitignore）
 
 | 键 | 默认 | 说明 |
 |----|------|------|
-| initialBalance.farmer / .landlord | 8 / 23 | 初始资金（预留按人数动态） |
+| initialBalance.farmer | 7 | 农民初始资金 |
+| landlordFundMultiplier | 1.5 | 地主初始资金 = 农民总资金 × 该倍数（向下取整） |
+| landlordGoal.* | 见下 | 地主资金目标（§3.7）：enabled/startMultiplier 0.5/maxMultiplier 1.8/goalEaseFactor 0.55/startInterval 3/maxInterval 9/intervalEaseFactor 0.5/penaltyRate 0.2/minPenalty 2；惩罚平分给农民 |
 | minStake.farmer / .landlordPerFarmer | 1 / 1 | 最小出资额 |
 | landlordWinMultiplier | 2 | 地主胜目标倍数 |
 | surplusLandlordShare | 0.5 | 盈余中地主再拿的比例 |

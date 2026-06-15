@@ -159,11 +159,15 @@ export function applyAllocation({ settlement, allocation, balances, bets, landlo
   const after = { ...balances };
   let collected = 0;
   for (const id of farmerIds) {
+    // 农民只付得起手中余额（含本回合分到的钱）的部分；付不起的债务就此作废（地主收不到）。
+    // 协商可把超出某农民承受力的债务全压给他（任务 7），他付光破产，地主只拿到这点钱。
     const take = allocation.takes[id] ?? 0;
-    const paid = Math.min(allocation.debts[id] ?? 0, after[id] ?? 0);
+    const fundable = Math.max(0, (after[id] ?? 0) + take);
+    const paid = Math.min(allocation.debts[id] ?? 0, fundable);
     after[id] = (after[id] ?? 0) + take - paid;
     collected += paid;
   }
+  // 任务 8：地主拿到桌面应得（landlordTake）+ 农民实际补偿（collected），补偿多少就多拿多少。
   after[landlordId] = (after[landlordId] ?? 0) + settlement.landlordTake + collected;
 
   const deltas = {};

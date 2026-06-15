@@ -271,7 +271,7 @@ function SceneContents({ look }) {
 
       {/* 硬币 */}
       {showFlip && (
-        <Coin key={`flip-${state.round}`} mode="flip" result={state.coinResult ?? 'heads'} durationMs={state.config.timing.coinAnimMs} tableTop={TABLE_TOP} />
+        <Coin key={`flip-${state.round}`} mode="flip" result={state.coinResult ?? 'heads'} tableTop={TABLE_TOP} />
       )}
       {showRest && <Coin key={`rest-${state.round}`} mode="rest" result={state.coinResult} tableTop={TABLE_TOP} />}
     </>

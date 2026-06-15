@@ -31,6 +31,7 @@ const base = {
   settlement: null,
   allocation: null,
   roundFarmerIds: ['p1', 'p3', 'p4'],
+  landlordGoal: { goal: 25, dueRound: 3, roundsLeft: 1, initial: 31, landlordId: 'p2', landlordBalance: null },
 };
 
 if (phase === 'BETTING') {

@@ -188,6 +188,21 @@ body {
 .balance-hud.low .bh-value { animation: bh-pulse 0.8s steps(2) infinite; }
 @keyframes bh-pulse { 0%,100% { filter: none; } 50% { filter: brightness(1.6); } }
 
+/* ---- 地主资金目标（左上，所有人可见） ---- */
+.goal-hud {
+  position: absolute; top: 64px; left: 10px;
+  display: flex; flex-direction: column; gap: 3px;
+  width: 150px;
+  background: rgba(10, 11, 15, 0.74);
+  border: 2px solid #000;
+  box-shadow: inset 2px 2px 0 var(--px-bevel-l), inset -2px -2px 0 var(--px-bevel-d);
+  padding: 7px 9px;
+  z-index: 42;
+}
+.goal-hud.behind { border-color: var(--danger); }
+.goal-line { display: flex; align-items: baseline; gap: 6px; }
+.goal-line.gap { margin: 1px 0; }
+
 /* ---- 阶段提示 banner ---- */
 .hud-banner {
   position: absolute; top: 52px; left: 50%; transform: translateX(-50%);

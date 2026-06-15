@@ -149,6 +149,28 @@ function BalanceHud() {
   );
 }
 
+// ---------- 地主资金目标（所有人可见；地主/观战者另见进度） ----------
+function GoalHud() {
+  const state = useGameStore(s => s.state);
+  const g = state.landlordGoal;
+  if (!g) return null;
+  const behind = g.landlordBalance != null && g.landlordBalance < g.goal;
+  return (
+    <div className={`goal-hud ${behind ? 'behind' : ''}`}>
+      <div className="goal-line"><PixelText size={2} color="var(--px-gold)">地主目标</PixelText></div>
+      <div className="goal-line gap">
+        <PixelText size={3} color={behind ? 'var(--danger)' : 'var(--px-gold)'}>{`¥${g.goal}`}</PixelText>
+      </div>
+      <div className="goal-line"><PixelText size={2} color="var(--ink-dim)">
+        {g.roundsLeft <= 0 ? `第${g.dueRound}回合·本回合结算` : `第${g.dueRound}回合·还剩${g.roundsLeft}`}
+      </PixelText></div>
+      {g.landlordBalance != null && (
+        <div className="goal-line"><PixelText size={2} color={behind ? 'var(--danger)' : 'var(--ok)'}>{`当前 ¥${g.landlordBalance}`}</PixelText></div>
+      )}
+    </div>
+  );
+}
+
 // ---------- 阶段面板 ----------
 function LobbyPanel() {
   const state = useGameStore(s => s.state); const send = useGameStore(s => s.send); const me = state.me;
@@ -223,12 +245,19 @@ function FinalizePanel() {
   if (!last) return null;
   const myDelta = last.deltas?.[playerId] ?? 0;
   const nameOf = id => state.players.find(p => p.id === id)?.name ?? id;
+  const landlordName = nameOf(state.landlordGoal?.landlordId);
   return (
     <div className="phase-panel">
       <p className={`delta-big ${myDelta >= 0 ? 'ok' : 'danger'}`}>本回合 {myDelta >= 0 ? `+${myDelta}` : myDelta}</p>
       <div className="settle-detail">
         {Object.entries(last.deltas ?? {}).map(([id, d]) => <span key={id} className={d >= 0 ? 'ok' : 'danger'}>{nameOf(id)} {d >= 0 ? `+${d}` : d}</span>)}
       </div>
+      {last.landlordGoalValue != null && (
+        last.landlordPenalty > 0
+          ? <p className="danger">地主未达目标 ¥{last.landlordGoalValue}，扣除惩罚 ¥{last.landlordPenalty}（平分给农民）！</p>
+          : <p className="ok">{landlordName ? `${landlordName} ` : '地主'}达成目标 ¥{last.landlordGoalValue}</p>
+      )}
+      {last.uncovered > 0 && <p className="dim">仍有 ¥{last.uncovered} 缺口无人能补，地主收不到</p>}
       {last.newlyBankrupt?.length > 0 && <p className="danger">{last.newlyBankrupt.map(nameOf).join('、')} 破产了！</p>}
     </div>
   );
@@ -294,6 +323,7 @@ export default function UiLayer() {
       <TopBar />
       {meta.hint && <div className="hud-banner"><PixelText size={2}>{meta.hint}</PixelText></div>}
       <PlayerRail />
+      <GoalHud />
       <BalanceHud />
       <div className="hud-bottom" data-hand-anchor>
         <Panel />

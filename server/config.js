@@ -2,8 +2,10 @@
 // 任何规则数值都禁止散落在其他文件里硬编码；房间创建时可用 overrides 覆盖。
 
 export const DEFAULT_CONFIG = {
-  // --- 初始资金（预留按人数动态：改 getInitialBalance 即可） ---
-  initialBalance: { farmer: 8, landlord: 23 },
+  // --- 初始资金（地主按农民总资金动态：见 getInitialBalance） ---
+  // farmer：每个农民的初始资金；landlordFundMultiplier：地主初始资金 = 农民总资金 × 该倍数（向下取整）。
+  initialBalance: { farmer: 7 },
+  landlordFundMultiplier: 1.5,
 
   // --- 最小出资额 ---
   minStake: { farmer: 1, landlordPerFarmer: 1 },
@@ -16,6 +18,22 @@ export const DEFAULT_CONFIG = {
   farmerSplit: 'equal',           // 农民胜时分 pot 的方式（当前仅 'equal'）
   surplusTieBreak: 'highestBet',  // 最大余数法并列时余数单位归属：'highestBet' | 'lowestBet'
   bankruptcyThreshold: 0,         // balance ≤ 此值即破产
+
+  // --- 地主资金目标（见 logic/landlordGoal.js 与 docs/TUNING.md） ---
+  // 每过若干回合地主必须达到一个资金目标，否则在该回合 FINALIZE（押注后资金分配完成时）
+  // 扣除 max(minPenalty, floor(余额 × penaltyRate)) 作为惩罚（资金沉没，可触发破产）。
+  // 目标与回合间隔都随检查点序号增长但逐渐放缓，并分别封顶。
+  landlordGoal: {
+    enabled: true,
+    startMultiplier: 0.5,     // 首个目标(首次触发惩罚的阈值) = floor(地主初始资金 × 该值)
+    maxMultiplier: 1.8,       // 目标上限  = floor(地主初始资金 × 该值)
+    goalEaseFactor: 0.55,     // 目标增量的放缓系数 ∈(0,1)，越小增长越快收敛到上限
+    startInterval: 3,         // 首个检查点所在回合（即首段回合间隔）
+    maxInterval: 9,           // 回合间隔上限
+    intervalEaseFactor: 0.5,  // 回合间隔增量的放缓系数 ∈(0,1)
+    penaltyRate: 0.2,         // 未达标时扣除的资金比例（向下取整）
+    minPenalty: 2,            // 未达标时至少扣除的资金
+  },
 
   // --- 人数 ---
   minFarmers: 1,
@@ -40,10 +58,12 @@ export const DEFAULT_CONFIG = {
   voiceEnabled: false,        // 语音联机预留开关
 };
 
-// 初始资金。预留按 farmerCount 动态决定的空间：将来在这里写公式即可。
+// 初始资金。农民固定；地主 = 农民总资金 × landlordFundMultiplier（向下取整，至少 1）。
 export function getInitialBalance(role, farmerCount, config) {
-  if (role === 'landlord') return config.initialBalance.landlord;
-  return config.initialBalance.farmer;
+  const farmer = config.initialBalance.farmer;
+  if (role !== 'landlord') return farmer;
+  const farmers = Math.max(1, farmerCount || 1);
+  return Math.max(1, Math.floor(farmers * farmer * config.landlordFundMultiplier));
 }
 
 // 最小出资额：农民固定，地主随活跃农民人数变化。

@@ -7,6 +7,8 @@ import crypto from 'crypto';
 import { mergeConfig, getInitialBalance } from './config.js';
 import { getMode } from './modes/index.js';
 import { flipCoin, betBounds, validateBet, settleRound, applyAllocation } from './logic/rules.js';
+import { upcomingGoal, goalForRound, goalPenalty } from './logic/landlordGoal.js';
+import { apportion } from './logic/apportion.js';
 import { saveGameRecord } from './storage.js';
 
 export const PHASES = ['LOBBY', 'DISCUSSION', 'BETTING', 'REVEAL', 'COIN_FLIP', 'SETTLE', 'NEGOTIATE', 'FINALIZE', 'ENDED'];
@@ -31,6 +33,7 @@ export class Room {
     this.settlement = null;
     this.allocation = null;        // {takes, debts} 协商中的方案
     this.negotiateDeadline = null;
+    this.landlordInitial = 0;      // 地主开局资金（地主资金目标的基准）
     this.roundFarmerIds = [];
     this.roundStartBalances = {};
     this.history = [];
@@ -167,6 +170,7 @@ export class Room {
       p.balance = getInitialBalance(p.role, farmers.length, this.config);
       p.bankrupt = false;
     }
+    this.landlordInitial = this._landlord()?.balance ?? 0;
     this.round = 1;
     this._enterDiscussion();
     return { ok: true };
@@ -328,12 +332,8 @@ export class Room {
     }
     const pool = kind === 'debt' ? this.allocation.debts : this.allocation.takes;
     if ((pool[playerId] ?? 0) < amount) return { error: '可转移的数额不足' };
-    if (kind === 'debt') {
-      const target = this.players.get(toId);
-      if ((this.allocation.debts[toId] ?? 0) + amount > target.balance) {
-        return { error: '对方余额不足以承担这笔债务' };
-      }
-    }
+    // 债务可以全部压给某个农民使其破产（任务 7）：不再校验对方余额是否承担得起。
+    // 落账时该农民只付出其全部余额（applyAllocation 取 min(债务, 余额)），地主只收到这点钱。
     pool[playerId] -= amount;
     pool[toId] = (pool[toId] ?? 0) + amount;
     for (const p of this.players.values()) p.negotiateConfirmed = false; // 方案变动，重置确认
@@ -375,14 +375,52 @@ export class Room {
       startBalances: this.roundStartBalances,
       config: this.config,
     });
+
+    // 双倍补偿精确入账（任务 8）：地主胜且桌面不足目标时，按最终（可能经协商的）债务实际收齐的
+    // 部分重算缺口，使展示与入账一致——地主拿到 pot + 实际补偿，剩余无人能付的即 uncovered。
+    const target = (this.settlement.landlordBet ?? 0) * this.config.landlordWinMultiplier;
+    const shortfall = this.coinResult === 'heads' ? Math.max(0, target - this.settlement.pot) : 0;
+    const uncovered = Math.max(0, shortfall - result.collected);
+
+    // 地主资金目标（任务 6）：检查点回合的 FINALIZE 若地主未达标，扣除惩罚（资金沉没，可致破产）。
+    let landlordPenalty = 0;
+    let landlordGoalValue = null;
+    let landlordGoalMet = null;
+    if (this.config.landlordGoal?.enabled && landlordId) {
+      landlordGoalValue = goalForRound(this.round, this.landlordInitial, this.config);
+      if (landlordGoalValue != null) {
+        const after = result.after[landlordId] ?? 0;
+        landlordGoalMet = after >= landlordGoalValue;
+        if (!landlordGoalMet) {
+          landlordPenalty = goalPenalty(after, this.config);
+          result.after[landlordId] = after - landlordPenalty;
+          result.deltas[landlordId] = (result.deltas[landlordId] ?? 0) - landlordPenalty;
+          // 惩罚资金平分给本回合农民（最大余数法；破产判定前入账，可能救活濒临破产者）。
+          if (landlordPenalty > 0 && this.roundFarmerIds.length > 0) {
+            const shares = apportion(
+              landlordPenalty,
+              this.roundFarmerIds.map(id => ({ id, weight: 1, tie: this.bets[id] ?? 0 })),
+            );
+            for (const id of this.roundFarmerIds) {
+              const s = shares[id] ?? 0;
+              result.after[id] = (result.after[id] ?? 0) + s;
+              result.deltas[id] = (result.deltas[id] ?? 0) + s;
+            }
+          }
+        }
+      }
+    }
+
     for (const [id, balance] of Object.entries(result.after)) {
       const p = this.players.get(id);
       if (p) p.balance = balance;
     }
+
+    // 破产判定在惩罚扣除之后重算（惩罚可能直接压垮地主）。
     const newlyBankrupt = [];
-    for (const id of result.bankrupts) {
+    for (const id of [landlordId, ...this.roundFarmerIds]) {
       const p = this.players.get(id);
-      if (p && !p.bankrupt) {
+      if (p && !p.bankrupt && (result.after[id] ?? 0) <= this.config.bankruptcyThreshold) {
         p.bankrupt = true;
         newlyBankrupt.push(id);
       }
@@ -395,7 +433,11 @@ export class Room {
       landlordTake: this.settlement.landlordTake,
       takes: { ...this.allocation.takes },
       debts: { ...this.allocation.debts },
-      uncovered: this.settlement.uncovered,
+      uncovered,
+      collected: result.collected,
+      landlordPenalty,
+      landlordGoalValue,
+      landlordGoalMet,
       events: this.settlement.events,
       deltas: result.deltas,
       balancesAfter: result.after,
@@ -497,6 +539,18 @@ export class Room {
       balance: (p.id === viewerId || spectator || this.phase === 'ENDED') ? p.balance : null,
     }));
 
+    // 地主资金目标（任务 6）：目标值与到期回合对所有人可见；地主当前余额仅地主/观战者/终局可见。
+    const landlord = this._landlord();
+    const goalInfo = (this.config.landlordGoal?.enabled && this.landlordInitial > 0 && landlord && IN_GAME_PHASES.includes(this.phase))
+      ? upcomingGoal(this.round, this.landlordInitial, this.config)
+      : null;
+    const landlordGoal = goalInfo ? {
+      ...goalInfo,
+      initial: this.landlordInitial,
+      landlordId: landlord.id,
+      landlordBalance: (viewer?.role === 'landlord' || spectator) ? landlord.balance : null,
+    } : null;
+
     const canNegotiateView = spectator || viewer?.role === 'farmer';
     const me = viewer ? {
       id: viewer.id,
@@ -535,6 +589,7 @@ export class Room {
           }
         : null,
       roundFarmerIds: this.roundFarmerIds,
+      landlordGoal,
       // balancesAfter 会泄露他人余额绝对值，仅观战者/终局可见
       history: this.history.map(h => {
         if (spectator || this.phase === 'ENDED') return h;

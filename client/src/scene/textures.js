@@ -69,13 +69,14 @@ export function coinFaceTexture(face = 'heads') {
   if (COIN_CACHE.has(face)) return COIN_CACHE.get(face);
   const t = pixelTexture((ctx, s) => {
     const heads = face === 'heads';
-    ctx.fillStyle = heads ? '#e2c044' : '#cdb255';
+    // 正反两面用明显不同的颜色：正面(王)暖金，反面(禾)冷蓝青。
+    ctx.fillStyle = heads ? '#e8bf3c' : '#5f9ec2';
     ctx.beginPath(); ctx.arc(s / 2, s / 2, s / 2, 0, Math.PI * 2); ctx.fill();
-    // 内圈点纹
-    ctx.strokeStyle = 'rgba(0,0,0,0.35)'; ctx.lineWidth = 2;
+    // 内圈描边
+    ctx.strokeStyle = heads ? 'rgba(90,60,0,0.4)' : 'rgba(10,40,60,0.45)'; ctx.lineWidth = 2;
     ctx.beginPath(); ctx.arc(s / 2, s / 2, s / 2 - 6, 0, Math.PI * 2); ctx.stroke();
     // 字
-    ctx.fillStyle = heads ? '#5a4710' : '#3a5224';
+    ctx.fillStyle = heads ? '#5a4408' : '#103445';
     ctx.font = `bold ${Math.floor(s * 0.5)}px "Microsoft YaHei", sans-serif`;
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillText(heads ? '王' : '禾', s / 2, s / 2 + 2);
