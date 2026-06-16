@@ -10,11 +10,36 @@ import { listModes, getMode } from './modes/index.js';
 import { DEFAULT_CONFIG } from './config.js';
 import * as auth from './auth.js';
 
+const ALLOWED_ORIGINS = new Set([
+  'https://landlord-game-client.vercel.app',
+  'http://localhost:5173',
+  'http://localhost:3001',
+  ...(process.env.ALLOWED_ORIGIN ? [process.env.ALLOWED_ORIGIN] : []),
+]);
+
 const app = express();
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin && ALLOWED_ORIGINS.has(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.setHeader('Vary', 'Origin');
+  }
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
+  next();
+});
 app.use(express.json());
 
 const server = createServer(app);
-const wss = new WebSocketServer({ server, path: '/ws' });
+const wss = new WebSocketServer({
+  server,
+  path: '/ws',
+  verifyClient: ({ req }) => {
+    const origin = req.headers.origin;
+    return !origin || ALLOWED_ORIGINS.has(origin);
+  },
+});
 
 const rooms = new Map(); // roomId -> Room
 
