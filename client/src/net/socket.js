@@ -20,8 +20,9 @@ export function connectSocket(token) {
 function open() {
   if (!currentToken) return;
   if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
-  const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
-  ws = new WebSocket(`${proto}://${window.location.host}/ws?token=${encodeURIComponent(currentToken)}`);
+  const backendHost = import.meta.env.VITE_BACKEND_HOST ?? window.location.host;
+  const proto = (import.meta.env.VITE_BACKEND_HOST || window.location.protocol === 'https:') ? 'wss' : 'ws';
+  ws = new WebSocket(`${proto}://${backendHost}/ws?token=${encodeURIComponent(currentToken)}`);
 
   ws.onopen = () => handlers.onOpen();
   ws.onmessage = (event) => {
