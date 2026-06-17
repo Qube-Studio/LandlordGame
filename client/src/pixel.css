@@ -248,11 +248,15 @@ body {
   from { opacity: 0; transform: translateX(-50%) translateY(-10px); }
   to   { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
-/* 待机漂移可调参数（纯视觉，集中在此；amp 调大更明显、time 调小更活泼） */
+/* 待机漂移可调参数（纯视觉，集中在此；amp 调大更明显、time 调小更活泼）。
+   amp/rot 用 @property 注册为带类型属性——它们被用在 @keyframes 里，注册后浏览器
+   才能稳定地重算/插值（否则改了值常需硬刷新页面才生效）。 */
+@property --ui-drift-amp { syntax: '<length>'; inherits: true; initial-value: 3px; }
+@property --ui-drift-rot { syntax: '<angle>'; inherits: true; initial-value: 0.5deg; }
 :root {
-  --ui-drift-amp: 3px;      /* 漂移幅度 */
-  --ui-drift-rot: 0.5deg;   /* 漂移旋转 */
-  --ui-drift-time: 11s;     /* 漂移基准周期 */
+  --ui-drift-amp: 4px;      /* 漂移幅度 */
+  --ui-drift-rot: 0.2deg;   /* 漂移旋转 */
+  --ui-drift-time: 5s;     /* 漂移基准周期 */
 }
 @keyframes ui-drift-a {
   0%   { transform: translate(0, 0) rotate(0); }
