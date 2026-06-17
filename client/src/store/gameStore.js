@@ -104,6 +104,11 @@ export const useGameStore = create((set, get) => ({
         set({ kicked: msg.reason ?? '连接被服务器关闭' });
         break;
       case 'error':
+        if (msg.code === 'UNAUTHORIZED') {
+          // token 失效（常见于服务端重启清空了会话）：提示重新登录，避免无限重连转圈。
+          set({ kicked: '登录已过期，请重新登录' });
+          return;
+        }
         if (get().joining) {
           // 加入失败（房间不存在/已开始/已满）：回到大厅
           sessionStorage.removeItem('llg_room');

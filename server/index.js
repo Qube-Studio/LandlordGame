@@ -19,10 +19,20 @@ const ALLOWED_ORIGINS = new Set([
   ...(process.env.ALLOWED_ORIGIN ? [process.env.ALLOWED_ORIGIN] : []),
 ]);
 
+// 放行规则：无 Origin（非浏览器）/ 白名单 / 同源（Origin 的 host 与请求 Host 一致）。
+// 同源放行是为了支持「前后端同机部署」（如香港服务器，origin=http://<ip或域名>），
+// 这类 origin 不在白名单里也应允许，否则 WebSocket 握手会被拒、一直连不上。
+function isAllowedOrigin(origin, host) {
+  if (!origin) return true;
+  if (ALLOWED_ORIGINS.has(origin)) return true;
+  try { if (new URL(origin).host === host) return true; } catch { /* 非法 origin */ }
+  return false;
+}
+
 const app = express();
 app.use((req, res, next) => {
   const origin = req.headers.origin;
-  if (origin && ALLOWED_ORIGINS.has(origin)) {
+  if (origin && isAllowedOrigin(origin, req.headers.host)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
@@ -37,10 +47,7 @@ const server = createServer(app);
 const wss = new WebSocketServer({
   server,
   path: '/ws',
-  verifyClient: ({ req }) => {
-    const origin = req.headers.origin;
-    return !origin || ALLOWED_ORIGINS.has(origin);
-  },
+  verifyClient: ({ req }) => isAllowedOrigin(req.headers.origin, req.headers.host),
 });
 
 const rooms = new Map(); // roomId -> Room
