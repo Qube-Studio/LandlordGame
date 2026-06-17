@@ -20,7 +20,7 @@ function gray(hex) {
   return new THREE.Color(l * 0.5, l * 0.5, l * 0.52).getStyle();
 }
 
-export default function MinecraftPlayer({ player, expression, seed = 0 }) {
+export default function MinecraftPlayer({ player, expression, seed = 0, look = null }) {
   const root = useRef();
   const lArm = useRef();
   const rArm = useRef();
@@ -44,14 +44,27 @@ export default function MinecraftPlayer({ player, expression, seed = 0 }) {
   useFrame((st) => {
     const t = st.clock.elapsedTime + seed;
     if (!bankrupt) {
-      if (root.current) root.current.position.y = Math.sin(t * 1.6) * 0.03;
+      if (root.current) {
+        root.current.position.y = Math.sin(t * 1.6) * 0.03;
+        // 复活/重开后清除破产瘫倒倾斜（任务④：之前只在破产时写 z，从不归零）
+        root.current.rotation.z += (0 - root.current.rotation.z) * 0.15;
+      }
       const swing = Math.sin(t * 1.8) * 0.18;
       if (lArm.current) lArm.current.rotation.x = swing;
       if (rArm.current) rArm.current.rotation.x = -swing;
-      if (head.current) head.current.rotation.y = Math.sin(t * 0.7) * 0.18;
+      if (head.current) {
+        if (look) {
+          // 任务⑦：跟随该玩家上报的视角转头（平滑插值）
+          head.current.rotation.y += (look.yaw - head.current.rotation.y) * 0.2;
+          head.current.rotation.x += (look.pitch - head.current.rotation.x) * 0.2;
+        } else {
+          head.current.rotation.y = Math.sin(t * 0.7) * 0.18; // 无上报：待机摆动
+          head.current.rotation.x += (0 - head.current.rotation.x) * 0.1;
+        }
+      }
     } else if (root.current) {
       root.current.position.y = 0;
-      root.current.rotation.z = 0.12; // 瘫倒一点
+      root.current.rotation.z += (0.12 - root.current.rotation.z) * 0.15; // 平滑瘫倒
     }
   });
 

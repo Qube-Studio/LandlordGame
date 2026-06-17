@@ -2,9 +2,9 @@
 // 相机随鼠标小幅转动视角（带阻尼回中）。只读 store，无任何游戏逻辑。
 // useFrame 内逐帧改写相机是 r3f 既定用法，关闭对应的不可变性规则。
 /* eslint-disable react-hooks/immutability */
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { Html } from '@react-three/drei';
+import { Html, OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
 import { useGameStore } from '../store/gameStore';
 import { decompose } from '../game/notes';
@@ -12,35 +12,25 @@ import MinecraftPlayer from './MinecraftPlayer';
 import Coin from './Coin';
 import { noteTexture } from './textures';
 import { setProjector } from './projection';
+import { expressionFor } from './expression';
 import PixelText from '../assets/pixelfont/PixelText';
 
 const TABLE_TOP = 1.0;
 const PAYOUT_PHASES = ['SETTLE', 'NEGOTIATE', 'FINALIZE'];
 
-// 对手座位（仅对手；自己≈相机视角，不建模）：{x,z} 桌外环绕，朝向桌心
+// 任务③：仅本地测试（import.meta.env.DEV）才暴露的辅助开关。
+const DEV = import.meta.env.DEV;
+
+// 对手座位（仅对手；自己≈相机视角，不建模）：{x,z} 桌外环绕，朝向桌心。
+// 桌框约 ±3.5(x)/±2.2(z)，座位需留身体+手臂余量(~0.6)，否则人物会扎进桌子（穿模）。
 const SEATS = {
   0: [],
-  1: [{ x: 0, z: -2.8 }],
-  2: [{ x: -2.2, z: -2.6 }, { x: 2.2, z: -2.6 }],
-  3: [{ x: -3.4, z: -1.0 }, { x: 0, z: -2.8 }, { x: 3.4, z: -1.0 }],
-  4: [{ x: -3.6, z: -0.4 }, { x: -1.7, z: -2.7 }, { x: 1.7, z: -2.7 }, { x: 3.6, z: -0.4 }],
+  1: [{ x: 0, z: -3.0 }],
+  2: [{ x: -2.8, z: -2.8 }, { x: 2.8, z: -2.8 }],
+  3: [{ x: -4.1, z: -1.2 }, { x: 0, z: -3.0 }, { x: 4.1, z: -1.2 }],
+  4: [{ x: -4.3, z: -0.9 }, { x: -2.1, z: -2.9 }, { x: 2.1, z: -2.9 }, { x: 4.3, z: -0.9 }],
 };
-
-function expressionFor(p, state) {
-  if (p.bankrupt) return 'bankrupt';
-  if (state.phase === 'DISCUSSION') return p.ready ? 'ready' : 'idle';
-  if (state.phase === 'BETTING' || state.phase === 'REVEAL') return p.hasBet ? 'bet' : 'idle';
-  if (PAYOUT_PHASES.includes(state.phase) && state.coinResult) {
-    const farmersWin = state.coinResult === 'tails';
-    if (p.role === 'farmer') return farmersWin ? 'win' : 'lose';
-    if (p.role === 'landlord') return farmersWin ? 'lose' : 'win';
-  }
-  if (state.phase === 'ENDED' && state.winnerSide) {
-    const won = (state.winnerSide === 'farmers') === (p.role === 'farmer');
-    return won ? 'win' : 'lose';
-  }
-  return 'idle';
-}
+const SELF_SEAT = { x: 0, z: 3.0 }; // 自由相机下渲染自己用的近端座位
 
 function CameraRig({ look }) {
   const { camera } = useThree();
@@ -93,9 +83,25 @@ function cardMaterials(value) {
   CARD_MATS.set(value, mats);
   return mats;
 }
-// 单张牌在钱堆内的局部坐标/偏转（飞行落点与静态钱堆共用，保证无缝接力）
-const cardLocal = (i) => [((i % 3) - 1) * 0.05, TABLE_TOP + 0.03 + i * 0.02, Math.sin(i * 1.7) * 0.05];
-const cardYaw = (i) => ((i * 37) % 30 - 15) * Math.PI / 180;
+// 钱堆布局：把牌分成若干小叠聚成一小堆，比单列细塔更有「钱多」的体量感。
+// 飞行落点与静态钱堆共用 cardLocal，保证无缝接力。
+const STACK_CAP = 36;   // 单堆最多渲染张数（超出只影响视觉，张数标签仍显示真实值）
+const COL_H = 5;        // 每小叠张数
+const STACK_SPOTS = [   // 各小叠在桌面上的散布位置（相对钱堆中心），随叠数外扩
+  [0, 0], [0.17, 0.07], [-0.15, 0.11], [0.07, -0.17], [-0.11, -0.15],
+  [0.21, -0.08], [-0.2, -0.04], [0.04, 0.19],
+];
+const cardLocal = (i) => {
+  const col = Math.floor(i / COL_H);
+  const row = i % COL_H;
+  const [sx, sz] = STACK_SPOTS[col % STACK_SPOTS.length];
+  return [sx + ((row % 2) - 0.5) * 0.025, TABLE_TOP + 0.03 + row * 0.045 + col * 0.012, sz + Math.sin(row * 2.1) * 0.02];
+};
+const cardYaw = (i) => ((i * 37) % 34 - 17) * Math.PI / 180;
+// 钱堆顶部（用于悬浮标签）：取最高小叠的高度
+const stackTopY = (count) => TABLE_TOP + 0.06 + Math.min(count, COL_H) * 0.045;
+// 反面占位牌（下注阶段对手只露张数，不露面额）
+const blankNotes = (n) => Array.from({ length: Math.max(0, Math.min(n, STACK_CAP)) }, (_, i) => ({ id: `b${i}`, value: 1 }));
 
 function Projector() {
   const { camera, size } = useThree();
@@ -109,9 +115,9 @@ function Projector() {
   return null;
 }
 
-function MoneyStack({ notes, faceUp, position, label }) {
-  const shown = notes.slice(0, 12);
-  const topY = TABLE_TOP + 0.03 + shown.length * 0.02;
+function MoneyStack({ notes, faceUp, position, amount = null }) {
+  const shown = notes.slice(0, STACK_CAP);
+  const topY = stackTopY(shown.length);
   return (
     <group position={position}>
       {shown.map((n, i) => (
@@ -125,9 +131,10 @@ function MoneyStack({ notes, faceUp, position, label }) {
           <boxGeometry args={[CARD_W, CARD_T, CARD_D]} />
         </mesh>
       ))}
-      {faceUp && label != null && (
+      {/* 不显示张数；金额仅在可见时标注（自己的堆始终可见，他人堆揭牌后可见） */}
+      {amount != null && (
         <Html position={[0, topY + 0.3, 0]} center distanceFactor={11} zIndexRange={[20, 0]}>
-          <div className="money-3d-amount"><PixelText size={2} color="#e2c044">{`¥${label}`}</PixelText></div>
+          <div className="money-3d-amount"><PixelText size={2} color="#e2c044">{`¥${amount}`}</PixelText></div>
         </Html>
       )}
     </group>
@@ -193,11 +200,31 @@ function FlyingNotes({ betFlight }) {
   ));
 }
 
-function SceneContents({ look }) {
+// 任务⑦：把自己的鼠标视角换算成头部 yaw/pitch，限频(8Hz)、仅变化时上报，服务端转发给其他玩家。
+function useHeadReport(look) {
+  const send = useGameStore(s => s.send);
+  const playerId = useGameStore(s => s.playerId);
+  const last = useRef({ yaw: 99, pitch: 99 });
+  useEffect(() => {
+    if (!playerId) return;
+    const id = setInterval(() => {
+      const yaw = -look.current.x * 0.6;   // 鼠标右→头转右（如方向反了把负号去掉即可）
+      const pitch = look.current.y * 0.3;
+      if (Math.abs(yaw - last.current.yaw) < 0.02 && Math.abs(pitch - last.current.pitch) < 0.02) return;
+      last.current = { yaw, pitch };
+      send({ type: 'look', yaw, pitch });
+    }, 125);
+    return () => clearInterval(id);
+  }, [look, send, playerId]);
+}
+
+function SceneContents({ look, freeCam = false }) {
   const state = useGameStore(s => s.state);
   const playerId = useGameStore(s => s.playerId);
   const betFlight = useGameStore(s => s.betFlight);
   const myStack = useGameStore(s => s.myStack);
+  const looks = useGameStore(s => s.looks);
+  useHeadReport(look);
 
   const players = state.players;
   const meIdx = Math.max(0, players.findIndex(p => p.id === playerId));
@@ -211,10 +238,13 @@ function SceneContents({ look }) {
 
   // 自己钱堆：飞行中先不渲染静态堆（由 FlyingNotes 接管）；落定后用 myStack（即飞出去那批牌）
   const flightActive = betFlight && betFlight.round === state.round;
-  const selfNotes = (myStack && myStack.round === state.round)
+  const selfBet = state.me?.bet ?? null;            // 自己的下注额（自己始终可见）
+  const selfBetCount = me?.betCount ?? 0;           // 张数：用服务端值，与他人看到的一致
+  const myStackValid = myStack && myStack.round === state.round;
+  // 刚本地下注 → 用飞过去的那批牌（无缝接力）；否则按张数合成（背面占位 / 揭牌后按金额分解）。
+  const selfNotes = myStackValid
     ? myStack.notes
-    : (me?.bet != null ? decompose(me.bet) : null);
-  const selfBet = state.me?.bet ?? me?.bet ?? null;
+    : (betsVisible ? decompose(selfBet ?? 0) : blankNotes(selfBetCount));
 
   return (
     <>
@@ -231,7 +261,7 @@ function SceneContents({ look }) {
       </mesh>
 
       <Table />
-      <CameraRig look={look} />
+      {freeCam ? <OrbitControls target={[0, 1.05, 0]} makeDefault /> : <CameraRig look={look} />}
       <Projector />
 
       {/* 对手 */}
@@ -241,10 +271,17 @@ function SceneContents({ look }) {
         const ry = Math.atan2(-seat.x, -seat.z);
         return (
           <group key={p.id} position={[seat.x, 0, seat.z]} rotation={[0, ry, 0]}>
-            <MinecraftPlayer player={p} expression={expressionFor(p, state)} seed={i * 1.7} />
+            <MinecraftPlayer player={p} expression={expressionFor(p, state)} seed={i * 1.7} look={looks[p.id]} />
           </group>
         );
       })}
+
+      {/* 自由相机下额外渲染自己（正常视角里自己≈相机，不建模） */}
+      {freeCam && me && (
+        <group position={[SELF_SEAT.x, 0, SELF_SEAT.z]} rotation={[0, Math.atan2(-SELF_SEAT.x, -SELF_SEAT.z), 0]}>
+          <MinecraftPlayer player={me} expression={expressionFor(me, state)} seed={7} />
+        </group>
+      )}
 
       {/* 对手桌面钱堆 */}
       {opponents.map((p, i) => {
@@ -253,9 +290,9 @@ function SceneContents({ look }) {
         return (
           <MoneyStack
             key={`m-${p.id}`}
-            notes={betsVisible ? decompose(p.bet) : decompose(2)}
+            notes={betsVisible ? decompose(p.bet) : blankNotes(p.betCount)}
+            amount={betsVisible ? p.bet : null}
             faceUp={betsVisible}
-            label={betsVisible ? p.bet : null}
             position={[seat.x * 0.42, 0, seat.z * 0.42 + 0.1]}
           />
         );
@@ -265,8 +302,8 @@ function SceneContents({ look }) {
       {flightActive && <FlyingNotes betFlight={betFlight} />}
 
       {/* 自己桌面钱堆（近边）：飞行中隐藏，落定后即飞出去那批牌 */}
-      {me?.hasBet && !flightActive && selfNotes && (
-        <MoneyStack notes={selfNotes} faceUp={betsVisible} label={betsVisible ? selfBet : null} position={SELF_STACK} />
+      {me?.hasBet && !flightActive && (selfNotes?.length || selfBetCount > 0) && (
+        <MoneyStack notes={selfNotes ?? []} amount={selfBet} faceUp={betsVisible} position={SELF_STACK} />
       )}
 
       {/* 硬币 */}
@@ -280,6 +317,7 @@ function SceneContents({ look }) {
 
 export default function Scene3D() {
   const look = useRef({ x: 0, y: 0 });
+  const [freeCam, setFreeCam] = useState(false);
 
   useEffect(() => {
     const onMove = (e) => {
@@ -290,6 +328,28 @@ export default function Scene3D() {
     return () => window.removeEventListener('pointermove', onMove);
   }, []);
 
+  // 本地测试快捷键：B 补满真实测试玩家，V 切换当前操控的角色（单人玩全部角色），C 自由相机。
+  useEffect(() => {
+    if (!DEV) return undefined;
+    const onKey = (e) => {
+      const el = document.activeElement;
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) return;
+      const store = useGameStore.getState();
+      if (e.key === 'b' || e.key === 'B') store.send({ type: 'dev_fill' });
+      else if (e.key === 'c' || e.key === 'C') setFreeCam(v => !v);
+      else if (e.key === 'v' || e.key === 'V') {
+        const list = store.state?.players ?? [];
+        if (list.length > 1) {
+          const i = list.findIndex(p => p.id === store.playerId);
+          const next = list[(i + 1) % list.length];
+          if (next) store.send({ type: 'dev_act_as', playerId: next.id });
+        }
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   return (
     <div className="r3f-scene">
       <Canvas
@@ -298,8 +358,11 @@ export default function Scene3D() {
         camera={{ position: [0, 2.7, 6.4], fov: 50, near: 0.1, far: 100 }}
         gl={{ antialias: false }}
       >
-        <SceneContents look={look} />
+        <SceneContents look={look} freeCam={freeCam} />
       </Canvas>
+      {DEV && (
+        <div className="dev-hud">测试模式 · B 补满玩家 · V 切换操控角色 · C 自由相机({freeCam ? '开' : '关'})</div>
+      )}
     </div>
   );
 }

@@ -18,6 +18,7 @@ export const useGameStore = create((set, get) => ({
   chatOpen: false,   // 左下角聊天输入是否展开（也用于屏蔽游戏快捷键）
   betFlight: null,   // 下注时手牌→桌面的 3D 飞行：{round, items:[{id,value,fromScreen:{x,y}}]}
   myStack: null,     // 自己实际放到桌上的牌（与飞出去的是同一批）：{round, notes:[{id,value,slot}]}
+  looks: {},         // 其他玩家头部朝向（任务⑦，高频瞬态，不走全量 state）：{ playerId: {yaw, pitch} }
 
   connect(token) {
     connectSocket(token);
@@ -26,7 +27,7 @@ export const useGameStore = create((set, get) => ({
   disconnect() {
     disconnectSocket();
     sessionStorage.removeItem('llg_room');
-    set({ connected: false, joining: false, roomId: null, playerId: null, state: null, chat: [], flights: [], betFlight: null, myStack: null });
+    set({ connected: false, joining: false, roomId: null, playerId: null, state: null, chat: [], flights: [], betFlight: null, myStack: null, looks: {} });
   },
 
   joinRoom(roomId) {
@@ -39,7 +40,7 @@ export const useGameStore = create((set, get) => ({
   leaveRoom() {
     sendMsg({ type: 'leave_room' });
     sessionStorage.removeItem('llg_room');
-    set({ roomId: null, playerId: null, state: null, chat: [], joining: false, flights: [], betFlight: null, myStack: null });
+    set({ roomId: null, playerId: null, state: null, chat: [], joining: false, flights: [], betFlight: null, myStack: null, looks: {} });
   },
 
   send(msg) {
@@ -86,13 +87,18 @@ export const useGameStore = create((set, get) => ({
   _onMessage(msg) {
     switch (msg.type) {
       case 'joined':
-        set({ playerId: msg.playerId, state: msg.state, chat: msg.chatHistory ?? [], joining: false });
+        // 初次加入 / 测试模式附身切换都会收到 joined：重置下注瞬态，避免自己的桌面堆叠残留上一身份的牌。
+        set({ playerId: msg.playerId, state: msg.state, chat: msg.chatHistory ?? [], joining: false, betFlight: null, myStack: null });
         break;
       case 'state':
         set({ state: msg.state });
         break;
       case 'chat':
         set(s => ({ chat: [...s.chat, msg] }));
+        break;
+      case 'look':
+        // 他人头部朝向（高频瞬态）：只更新 looks，不触发 state 重渲染逻辑。
+        set(s => ({ looks: { ...s.looks, [msg.id]: { yaw: msg.yaw, pitch: msg.pitch } } }));
         break;
       case 'kicked':
         set({ kicked: msg.reason ?? '连接被服务器关闭' });

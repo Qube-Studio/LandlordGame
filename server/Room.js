@@ -16,6 +16,15 @@ export const PHASES = ['LOBBY', 'DISCUSSION', 'BETTING', 'REVEAL', 'COIN_FLIP', 
 const PAYOUT_PHASES = ['SETTLE', 'NEGOTIATE', 'FINALIZE'];
 const IN_GAME_PHASES = ['DISCUSSION', 'BETTING', 'REVEAL', 'COIN_FLIP', ...PAYOUT_PHASES];
 
+// 金额按 10/5/2/1 贪心分解后的张数（与客户端 game/notes.js decompose 一致）。
+// 张数对所有人可见（任务：桌面堆叠露张数，下注阶段仍不露金额）。
+function noteCount(amount) {
+  let rest = Math.max(0, Math.floor(amount || 0));
+  let c = 0;
+  for (const d of [10, 5, 2, 1]) { c += Math.floor(rest / d); rest %= d; }
+  return c;
+}
+
 export class Room {
   constructor(roomId, name, modeId, configOverrides = {}) {
     this.roomId = roomId;
@@ -29,6 +38,7 @@ export class Room {
     this.gameId = null;
     this.startedAt = null;
     this.bets = {};
+    this.betCounts = {};           // playerId -> 实际拍下的张数（含拆分；客户端上报，仅用于显示一致性）
     this.coinResult = null;
     this.settlement = null;
     this.allocation = null;        // {takes, debts} 协商中的方案
@@ -40,6 +50,7 @@ export class Room {
     this.chatLog = [];             // {channel, from, name, text, ts}
     this.lastActivity = Date.now();
     this._timers = new Set();
+    this._graceTimers = new Map(); // playerId -> 断线宽限计时器（任务⑥）
     this._seat = 0;
   }
 
@@ -48,7 +59,9 @@ export class Room {
   addPlayer(username, ws) {
     const existing = [...this.players.values()].find(p => p.username === username);
     if (existing) {
-      // 断线重连 / 顶号后重进：回到原座位、原余额
+      // 断线重连 / 顶号后重进：回到原座位、原余额。
+      // 宽限期内回来 → 继续游戏；已超时降级观战的 → 以观战者身份回来（spectator 标记保留，任务⑥）。
+      this._cancelGrace(existing.id);
       existing.ws = ws;
       existing.online = true;
       this._touch();
@@ -69,6 +82,8 @@ export class Room {
       ready: false,
       confirmed: false,
       negotiateConfirmed: false,
+      spectator: false,   // 断线超时降级观战（任务⑥）
+      emote: null,        // 手动表情覆盖（任务⑧ 预留接口）
       ws,
     };
     this.players.set(player.id, player);
@@ -78,7 +93,8 @@ export class Room {
     return { ok: true, playerId: player.id };
   }
 
-  // 连接断开：大厅阶段直接移除；游戏中保留座位标记离线（自动代为准备/确认）。
+  // 连接断开：大厅阶段直接移除；游戏中保留座位标记离线（自动代为准备/确认），
+  // 并启动宽限计时器——超时未重连则降级为观战（任务⑥）。
   handleDisconnect(playerId) {
     const player = this.players.get(playerId);
     if (!player) return;
@@ -87,10 +103,44 @@ export class Room {
     if (this.phase === 'LOBBY') {
       this.players.delete(playerId);
       this._reassignHost();
-    } else if (this.config.autoActForOffline) {
-      this._autoActOffline();
+    } else {
+      if (this.config.autoActForOffline) this._autoActOffline();
+      this._scheduleGrace(playerId);
     }
     this._touch();
+    this._broadcastState();
+  }
+
+  // 断线宽限：reconnectGraceSec 内未回来则降级观战。0 = 永不超时（沿用旧行为：一直保留座位）。
+  _scheduleGrace(playerId) {
+    const sec = this.config.reconnectGraceSec;
+    if (!(sec > 0)) return;
+    this._cancelGrace(playerId);
+    const timer = setTimeout(() => {
+      this._graceTimers.delete(playerId);
+      this._abandonPlayer(playerId);
+    }, sec * 1000);
+    this._graceTimers.set(playerId, timer);
+  }
+
+  _cancelGrace(playerId) {
+    const t = this._graceTimers.get(playerId);
+    if (t) { clearTimeout(t); this._graceTimers.delete(playerId); }
+  }
+
+  // 宽限超时：降级为观战者。关键角色（地主 / 最后一个农民）离场则直接结束对局。
+  _abandonPlayer(playerId) {
+    const player = this.players.get(playerId);
+    if (!player || player.online || player.spectator) return;
+    if (!IN_GAME_PHASES.includes(this.phase)) return; // 大厅/终局无需处理
+    player.spectator = true;
+    if (player.role === 'landlord') { this._endGame('farmers', 'landlord_abandoned'); return; }
+    if (player.role === 'farmer' && this._activeFarmers().length === 0) {
+      this._endGame('landlord', 'farmers_abandoned');
+      return;
+    }
+    // 其余：该玩家退出活跃序列后，重新推进当前阶段闸门（原本可能在等他）。
+    this._autoActOffline();
     this._broadcastState();
   }
 
@@ -176,19 +226,75 @@ export class Room {
     return { ok: true };
   }
 
+  // 再来一局：回到大厅并清空所有角色，让每个人重新选（任务⑤：之前会立即沿用旧角色开局，身份被锁死）。
   restartGame(playerId) {
     if (this.phase !== 'ENDED') return { error: '游戏尚未结束' };
     if (playerId !== this.hostId) return { error: '只有房主可以重新开始' };
-    this.phase = 'LOBBY';
+    this._setPhase('LOBBY');
+    this.round = 0;
+    this.gameId = null;
+    this.startedAt = null;
+    this.bets = {};
+    this.coinResult = null;
+    this.settlement = null;
+    this.allocation = null;
+    this.negotiateDeadline = null;
+    this.winnerSide = null;
+    this.endReason = null;
+    this.history = [];
+    this._clearGraceTimers();
     for (const p of this.players.values()) {
+      p.role = null;          // 清空角色，重新选
+      p.balance = 0;
+      p.bankrupt = false;
+      p.spectator = false;    // 解除观战降级，可重新参战
       p.ready = false;
       p.confirmed = false;
       p.negotiateConfirmed = false;
-      p.bankrupt = false;
+      p.emote = null;
     }
-    const result = this.startGame(playerId);
-    if (result.error) this._broadcastState(); // 人员构成不再合法，退回大厅重新配置
-    return result.error ? { ok: true, backToLobby: true } : result;
+    this._broadcastState();
+    return { ok: true, backToLobby: true };
+  }
+
+  // ---------- 本地测试辅助（仅 index.js 在 LLG_TEST 开启时调用，任务③） ----------
+
+  // 把房间补满真实测试玩家并自动配好阵容（首位=地主，其余=农民），关闭自动代离线行动——
+  // 全部交给测试者用 possess 逐个手动操控，实现单人玩通全部角色。
+  devFill() {
+    if (this.phase !== 'LOBBY') return { error: '只能在大厅补充测试玩家' };
+    const target = Math.min(1 + this.config.maxFarmers, 4); // 1 地主 + 3 农民
+    let n = this.players.size;
+    while (this.players.size < target) {
+      n += 1;
+      const id = crypto.randomBytes(4).toString('hex');
+      this.players.set(id, {
+        id, username: '测试' + n, seat: this._seat++, role: null,
+        balance: 0, bankrupt: false, online: true, ready: false, confirmed: false,
+        negotiateConfirmed: false, spectator: false, emote: null, ws: null,
+      });
+    }
+    const all = [...this.players.values()].sort((a, b) => a.seat - b.seat);
+    all.forEach((p, i) => { p.role = i === 0 ? 'landlord' : 'farmer'; });
+    this.config.autoActForOffline = false; // 测试：不自动代离线，全部手动切换控制
+    this._touch();
+    this._broadcastState();
+    return { ok: true };
+  }
+
+  // 把控制 socket 转移到目标玩家（附身）：旧占用者解绑 ws（仍 online，待被再次附身）。
+  possess(ws, playerId) {
+    const target = this.players.get(playerId);
+    if (!target) return { error: '目标玩家不存在' };
+    for (const p of this.players.values()) {
+      if (p.ws === ws && p.id !== playerId) p.ws = null;
+    }
+    target.ws = ws;
+    target.online = true;
+    this._cancelGrace(playerId);
+    this._touch();
+    this._broadcastState();
+    return { ok: true };
   }
 
   // ---------- 阶段推进 ----------
@@ -210,9 +316,22 @@ export class Room {
       p.ready = false;
       p.confirmed = false;
       p.negotiateConfirmed = false;
+      p.emote = null;       // 手动表情每回合清空
     }
     this._broadcastState();
     this._checkGate('ready', () => this._enterBetting());
+  }
+
+  // 手动设置表情（任务⑧ 预留接口）：null 清除，其余须为允许的手动表情之一。
+  // 客户端目前不暴露 UI，后续接面板时直接发 { type:'set_emote', emote } 即可。
+  setEmote(playerId, emote) {
+    const player = this.players.get(playerId);
+    if (!player) return { error: '不在房间中' };
+    const allowed = ['idle', 'ready', 'bet', 'win', 'lose'];
+    if (emote !== null && !allowed.includes(emote)) return { error: '不支持的表情' };
+    player.emote = emote;
+    this._broadcastState();
+    return { ok: true };
   }
 
   setReady(playerId) {
@@ -228,6 +347,7 @@ export class Room {
   _enterBetting() {
     this._setPhase('BETTING');
     this.bets = {};
+    this.betCounts = {};
     this.roundFarmerIds = this._activeFarmers().map(p => p.id);
     this.roundStartBalances = {};
     for (const p of this._activePlayers()) this.roundStartBalances[p.id] = p.balance;
@@ -236,7 +356,7 @@ export class Room {
     this._checkAllBet();
   }
 
-  placeBet(playerId, amount) {
+  placeBet(playerId, amount, count) {
     if (this.phase !== 'BETTING') return { error: '当前不是下注阶段' };
     const player = this.players.get(playerId);
     if (!player || !this._isActive(player)) return { error: '观战者不能下注' };
@@ -250,6 +370,8 @@ export class Room {
     });
     if (!check.valid) return { error: check.reason, bounds: check.bounds };
     this.bets[playerId] = amount;
+    // 实际拍下的张数（含拆分）：客户端上报、夹紧到合理范围；缺省回落到贪心张数。
+    this.betCounts[playerId] = (Number.isInteger(count) && count > 0 && count <= 60) ? count : noteCount(amount);
     player.balance -= amount;
     this._broadcastState();
     this._checkAllBet();
@@ -449,8 +571,8 @@ export class Room {
 
   _afterRound() {
     const landlord = this._landlord();
-    if (!landlord || landlord.bankrupt) {
-      this._endGame('farmers', 'landlord_bankrupt');
+    if (!landlord || landlord.bankrupt || landlord.spectator) {
+      this._endGame('farmers', landlord?.spectator ? 'landlord_abandoned' : 'landlord_bankrupt');
       return;
     }
     if (this._activeFarmers().length === 0) {
@@ -513,11 +635,23 @@ export class Room {
     return this.chatLog.filter(m => this._canSeeChannel(player, m.channel));
   }
 
+  // 头部朝向中继（任务⑦）：高频瞬态数据，不进全量 state——夹紧后只转发给其他在线玩家。
+  setLook(playerId, yaw, pitch) {
+    const player = this.players.get(playerId);
+    if (!player) return { error: '不在房间中' };
+    const clamp = (v, lim) => (Number.isFinite(v) ? Math.max(-lim, Math.min(lim, v)) : 0);
+    const payload = { type: 'look', id: playerId, yaw: clamp(yaw, 1.2), pitch: clamp(pitch, 0.8) };
+    for (const p of this.players.values()) {
+      if (p.id !== playerId) this._send(p, payload);
+    }
+    return { ok: true };
+  }
+
   // ---------- 每玩家视图（隐私边界） ----------
 
   viewFor(viewerId) {
     const viewer = this.players.get(viewerId);
-    const spectator = !!viewer?.bankrupt;
+    const spectator = !!(viewer?.bankrupt || viewer?.spectator); // 破产 或 断线超时降级（任务⑥）
     const betsPublic = !['LOBBY', 'DISCUSSION', 'BETTING'].includes(this.phase);
     const farmerCount = this.phase === 'LOBBY'
       ? [...this.players.values()].filter(p => p.role === 'farmer').length
@@ -534,7 +668,10 @@ export class Room {
       ready: p.ready,
       confirmed: p.confirmed,
       negotiateConfirmed: p.negotiateConfirmed,
+      emote: p.emote ?? null,
+      spectator: !!p.spectator,
       hasBet: this.bets[p.id] !== undefined,
+      betCount: this.bets[p.id] !== undefined ? (this.betCounts[p.id] ?? noteCount(this.bets[p.id])) : 0, // 实际张数，对所有人一致可见
       bet: betsPublic ? (this.bets[p.id] ?? null) : null,
       balance: (p.id === viewerId || spectator || this.phase === 'ENDED') ? p.balance : null,
     }));
@@ -619,15 +756,15 @@ export class Room {
   }
 
   _activeFarmers() {
-    return [...this.players.values()].filter(p => p.role === 'farmer' && !p.bankrupt);
+    return [...this.players.values()].filter(p => p.role === 'farmer' && !p.bankrupt && !p.spectator);
   }
 
   _activePlayers() {
-    return [...this.players.values()].filter(p => (p.role === 'landlord' || p.role === 'farmer') && !p.bankrupt);
+    return [...this.players.values()].filter(p => (p.role === 'landlord' || p.role === 'farmer') && !p.bankrupt && !p.spectator);
   }
 
   _isActive(player) {
-    return (player.role === 'landlord' || player.role === 'farmer') && !player.bankrupt;
+    return (player.role === 'landlord' || player.role === 'farmer') && !player.bankrupt && !player.spectator;
   }
 
   // 通用闸门：所有活跃玩家的 flag 为真（离线玩家按配置自动通过）即推进。
@@ -652,6 +789,7 @@ export class Room {
           });
           const amount = bounds.forceAllIn ? bounds.allInAmount : bounds.min;
           this.bets[p.id] = amount;
+          this.betCounts[p.id] = noteCount(amount);
           p.balance -= amount;
         }
       }
@@ -679,6 +817,11 @@ export class Room {
     this._timers.clear();
   }
 
+  _clearGraceTimers() {
+    for (const t of this._graceTimers.values()) clearTimeout(t);
+    this._graceTimers.clear();
+  }
+
   _touch() {
     this.lastActivity = Date.now();
   }
@@ -697,5 +840,6 @@ export class Room {
 
   destroy() {
     this._clearTimers();
+    this._clearGraceTimers();
   }
 }

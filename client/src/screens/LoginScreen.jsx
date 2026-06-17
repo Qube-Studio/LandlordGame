@@ -5,7 +5,7 @@ import { getArt } from '../assets/registry';
 const Coin = getArt('coin');
 
 export default function LoginScreen() {
-  const { login, register, busy, error, clearError } = useAuthStore();
+  const { login, register, guestLogin, busy, error, clearError } = useAuthStore();
   const [tab, setTab] = useState('login');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -64,6 +64,11 @@ export default function LoginScreen() {
             {busy ? '请稍候…' : tab === 'login' ? '登录' : '注册并登录'}
           </button>
         </form>
+        {import.meta.env.DEV && (
+          <button type="button" className="btn wide" style={{ marginTop: 8 }} disabled={busy} onClick={() => guestLogin()}>
+            游客快速进入（本地测试）
+          </button>
+        )}
       </div>
     </div>
   );

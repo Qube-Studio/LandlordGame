@@ -4,7 +4,7 @@
 export const DEFAULT_CONFIG = {
   // --- 初始资金（地主按农民总资金动态：见 getInitialBalance） ---
   // farmer：每个农民的初始资金；landlordFundMultiplier：地主初始资金 = 农民总资金 × 该倍数（向下取整）。
-  initialBalance: { farmer: 7 },
+  initialBalance: { farmer: 8 },
   landlordFundMultiplier: 1.5,
 
   // --- 最小出资额 ---

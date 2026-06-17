@@ -26,6 +26,7 @@ const ROLE_LABEL = { landlord: '地主', farmer: '农民', bank: '银行', none:
 
 function statusOf(p, state) {
   if (p.bankrupt) return { text: '破产', cls: 'danger' };
+  if (p.spectator) return { text: '观战', cls: 'dim' };
   if (!p.online) return { text: '离线', cls: 'dim' };
   switch (state.phase) {
     case 'DISCUSSION': return p.ready ? { text: '已准备', cls: 'ok' } : { text: '讨论中', cls: 'dim' };
@@ -155,6 +156,11 @@ function GoalHud() {
   const g = state.landlordGoal;
   if (!g) return null;
   const behind = g.landlordBalance != null && g.landlordBalance < g.goal;
+  // 未达标惩罚 = max(minPenalty, floor(余额 × penaltyRate))；仅在地主余额可见时展示（不泄露隐私）。
+  const lg = state.config?.landlordGoal;
+  const penalty = (g.landlordBalance != null && lg)
+    ? Math.max(lg.minPenalty ?? 0, Math.floor(Math.max(0, g.landlordBalance) * (lg.penaltyRate ?? 0)))
+    : null;
   return (
     <div className={`goal-hud ${behind ? 'behind' : ''}`}>
       <div className="goal-line"><PixelText size={2} color="var(--px-gold)">地主目标</PixelText></div>
@@ -162,10 +168,13 @@ function GoalHud() {
         <PixelText size={3} color={behind ? 'var(--danger)' : 'var(--px-gold)'}>{`¥${g.goal}`}</PixelText>
       </div>
       <div className="goal-line"><PixelText size={2} color="var(--ink-dim)">
-        {g.roundsLeft <= 0 ? `第${g.dueRound}回合·本回合结算` : `第${g.dueRound}回合·还剩${g.roundsLeft}`}
+        {g.roundsLeft <= 0 ? '本回合结算' : `还剩 ${g.roundsLeft} 回合`}
       </PixelText></div>
       {g.landlordBalance != null && (
         <div className="goal-line"><PixelText size={2} color={behind ? 'var(--danger)' : 'var(--ok)'}>{`当前 ¥${g.landlordBalance}`}</PixelText></div>
+      )}
+      {penalty != null && (
+        <div className="goal-line"><PixelText size={2} color="var(--danger)">{`未达罚 ¥${penalty}`}</PixelText></div>
       )}
     </div>
   );
@@ -188,7 +197,7 @@ function LobbyPanel() {
 }
 function DiscussionPanel() {
   const state = useGameStore(s => s.state); const send = useGameStore(s => s.send); const me = state.me;
-  if (me?.spectator) return <div className="phase-panel"><p className="dim">你已破产，正在观战。</p></div>;
+  if (me?.spectator) return <div className="phase-panel"><p className="dim">正在观战。</p></div>;
   return (
     <div className="phase-panel">
       {me?.ready ? <p className="ok">已准备，等待其他玩家…</p>
@@ -323,8 +332,10 @@ export default function UiLayer() {
       <TopBar />
       {meta.hint && <div className="hud-banner"><PixelText size={2}>{meta.hint}</PixelText></div>}
       <PlayerRail />
-      <GoalHud />
-      <BalanceHud />
+      <div className="corner-stack">
+        <GoalHud />
+        <BalanceHud />
+      </div>
       <div className="hud-bottom" data-hand-anchor>
         <Panel />
       </div>

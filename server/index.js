@@ -10,6 +10,8 @@ import { listModes, getMode } from './modes/index.js';
 import { DEFAULT_CONFIG } from './config.js';
 import * as auth from './auth.js';
 
+const TEST_MODE = process.env.LLG_TEST === '1'; // 本地测试开关（任务③）：仅 npm run dev 开启
+
 const ALLOWED_ORIGINS = new Set([
   'https://landlord-game-client.vercel.app',
   'http://localhost:5173',
@@ -163,11 +165,32 @@ wss.on('connection', (ws, req) => {
       case 'take_role': result = room.takeRole(pid, msg.role); break;
       case 'start_game': result = room.startGame(pid); break;
       case 'ready': result = room.setReady(pid); break;
-      case 'place_bet': result = room.placeBet(pid, Number(msg.amount)); break;
+      case 'place_bet': result = room.placeBet(pid, Number(msg.amount), Number(msg.count)); break;
       case 'confirm_reveal': result = room.confirmReveal(pid); break;
       case 'negotiate_transfer': result = room.negotiateTransfer(pid, msg.toId, msg.kind, Number(msg.amount)); break;
       case 'negotiate_confirm': result = room.negotiateConfirm(pid, msg.confirmed); break;
       case 'chat': result = room.chat(pid, msg.channel ?? 'public', msg.text); break;
+      case 'set_emote': result = room.setEmote(pid, msg.emote ?? null); break; // 任务⑧ 预留：手动表情
+      case 'look':
+        room.setLook(pid, Number(msg.yaw), Number(msg.pitch)); // 任务⑦：高频中继，不回错误
+        return;
+      case 'dev_fill': // 任务③ 本地测试：补满真实测试玩家
+        if (!TEST_MODE) { send(ws, { type: 'error', message: '测试模式未开启' }); return; }
+        result = room.devFill();
+        break;
+      case 'dev_act_as': { // 任务③ 本地测试：附身控制某个玩家，单人玩全部角色
+        if (!TEST_MODE) { send(ws, { type: 'error', message: '测试模式未开启' }); return; }
+        const r = room.possess(ws, msg.playerId);
+        if (r.error) { send(ws, { type: 'error', message: r.error }); return; }
+        ws.playerId = msg.playerId;
+        send(ws, {
+          type: 'joined',
+          playerId: msg.playerId,
+          state: room.viewFor(msg.playerId),
+          chatHistory: room.chatHistoryFor(msg.playerId),
+        });
+        return;
+      }
       case 'restart_game': result = room.restartGame(pid); break;
       case 'get_state':
         send(ws, { type: 'state', state: room.viewFor(pid) });

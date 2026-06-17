@@ -73,6 +73,7 @@ export default function MoneyHand() {
     const amount = bounds.forceAllIn ? me.balance : total;
     // 把「选中的这几张牌」交给 3D 场景：从它们当前手牌屏幕位置起飞，沿计算好的弧线落到桌面，
     // 落点即该牌在桌上的槽位 —— 飞出去的和留在桌上的是同一批模型。
+    let count = 0;
     if (containerRef.current) {
       const els = containerRef.current.querySelectorAll('[data-flyable="1"]');
       const items = [...els].map((el, i) => {
@@ -83,9 +84,11 @@ export default function MoneyHand() {
           fromScreen: { x: r.x + r.width / 2, y: r.y + r.height / 2 },
         };
       });
+      count = items.length;
       if (items.length) startBetFlight({ round: state.round, items });
     }
-    send({ type: 'place_bet', amount });
+    // 上报实际拍下的张数（含拆分），让所有人看到的桌面堆叠张数一致。
+    send({ type: 'place_bet', amount, count });
   };
 
   // 键盘：下注阶段按 Enter 确认（聊天/输入聚焦时让位）

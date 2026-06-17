@@ -176,11 +176,24 @@ body {
 .rail-status.dim { color: var(--ink-dim); }
 .rail-status.danger { color: var(--danger); }
 
-/* ---- 右下角自己总资金（大号像素字） ---- */
-.balance-hud {
+/* ---- 本地测试模式提示条（任务③，仅 DEV） ---- */
+.dev-hud {
+  position: absolute; left: 50%; bottom: 8px; transform: translateX(-50%);
+  padding: 3px 10px; font-size: 11px; letter-spacing: 1px;
+  color: var(--ink-dim); background: rgba(10, 11, 15, 0.7);
+  border: 1px solid #000; z-index: 60; pointer-events: none; white-space: nowrap;
+}
+
+/* ---- 右下角资金簇：地主目标在上，自己资金在下（任务②） ---- */
+.corner-stack {
   position: absolute; right: 14px; bottom: 14px;
-  display: flex; flex-direction: column; align-items: flex-end; gap: 4px;
+  display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
   z-index: 42;
+}
+
+/* ---- 自己总资金（大号像素字） ---- */
+.balance-hud {
+  display: flex; flex-direction: column; align-items: flex-end; gap: 4px;
   text-shadow: 0 0 10px rgba(0,0,0,0.9);
 }
 .balance-hud .bh-label { color: var(--ink-dim); }
@@ -188,19 +201,17 @@ body {
 .balance-hud.low .bh-value { animation: bh-pulse 0.8s steps(2) infinite; }
 @keyframes bh-pulse { 0%,100% { filter: none; } 50% { filter: brightness(1.6); } }
 
-/* ---- 地主资金目标（左上，所有人可见） ---- */
+/* ---- 地主资金目标（贴在资金上方，右对齐） ---- */
 .goal-hud {
-  position: absolute; top: 64px; left: 10px;
-  display: flex; flex-direction: column; gap: 3px;
-  width: 150px;
+  display: flex; flex-direction: column; align-items: flex-end; gap: 3px;
+  min-width: 150px;
   background: rgba(10, 11, 15, 0.74);
   border: 2px solid #000;
   box-shadow: inset 2px 2px 0 var(--px-bevel-l), inset -2px -2px 0 var(--px-bevel-d);
   padding: 7px 9px;
-  z-index: 42;
 }
 .goal-hud.behind { border-color: var(--danger); }
-.goal-line { display: flex; align-items: baseline; gap: 6px; }
+.goal-line { display: flex; align-items: baseline; gap: 6px; justify-content: flex-end; }
 .goal-line.gap { margin: 1px 0; }
 
 /* ---- 阶段提示 banner ---- */
@@ -222,6 +233,76 @@ body {
   pointer-events: none;
 }
 .hud-bottom > * { pointer-events: auto; }
+
+/* ============================================================
+   入场动画 + 待机极轻微布朗运动（丝滑感）
+   每个 UI 元素各自独立漂移（不同曲线 + 不同周期），不再整块一起动。
+   入场(一次性)与漂移(无限循环)挂在同一元素时，让漂移延迟到入场结束后开始，
+   期间二者不会争抢 transform。
+   ============================================================ */
+@keyframes ui-rise {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes banner-rise {
+  from { opacity: 0; transform: translateX(-50%) translateY(-10px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+/* 待机漂移可调参数（纯视觉，集中在此；amp 调大更明显、time 调小更活泼） */
+:root {
+  --ui-drift-amp: 3px;      /* 漂移幅度 */
+  --ui-drift-rot: 0.5deg;   /* 漂移旋转 */
+  --ui-drift-time: 11s;     /* 漂移基准周期 */
+}
+@keyframes ui-drift-a {
+  0%   { transform: translate(0, 0) rotate(0); }
+  18%  { transform: translate(var(--ui-drift-amp), calc(var(--ui-drift-amp) * -1)) rotate(var(--ui-drift-rot)); }
+  37%  { transform: translate(calc(var(--ui-drift-amp) * -0.9), calc(var(--ui-drift-amp) * -0.4)) rotate(calc(var(--ui-drift-rot) * -0.6)); }
+  55%  { transform: translate(calc(var(--ui-drift-amp) * 0.7), var(--ui-drift-amp)) rotate(calc(var(--ui-drift-rot) * 0.5)); }
+  72%  { transform: translate(calc(var(--ui-drift-amp) * -0.8), calc(var(--ui-drift-amp) * 0.6)) rotate(calc(var(--ui-drift-rot) * -0.3)); }
+  88%  { transform: translate(calc(var(--ui-drift-amp) * 0.5), calc(var(--ui-drift-amp) * -0.7)) rotate(calc(var(--ui-drift-rot) * 0.4)); }
+  100% { transform: translate(0, 0) rotate(0); }
+}
+@keyframes ui-drift-b {
+  0%   { transform: translate(0, 0) rotate(0); }
+  22%  { transform: translate(calc(var(--ui-drift-amp) * -0.8), calc(var(--ui-drift-amp) * 0.7)) rotate(calc(var(--ui-drift-rot) * -0.5)); }
+  44%  { transform: translate(calc(var(--ui-drift-amp) * 0.6), var(--ui-drift-amp)) rotate(calc(var(--ui-drift-rot) * 0.4)); }
+  64%  { transform: translate(var(--ui-drift-amp), calc(var(--ui-drift-amp) * -0.7)) rotate(calc(var(--ui-drift-rot) * 0.6)); }
+  85%  { transform: translate(calc(var(--ui-drift-amp) * -0.6), calc(var(--ui-drift-amp) * -0.9)) rotate(calc(var(--ui-drift-rot) * -0.4)); }
+  100% { transform: translate(0, 0) rotate(0); }
+}
+@keyframes ui-drift-c {
+  0%   { transform: translate(0, 0) rotate(0); }
+  16%  { transform: translate(calc(var(--ui-drift-amp) * 0.5), var(--ui-drift-amp)) rotate(calc(var(--ui-drift-rot) * 0.5)); }
+  40%  { transform: translate(calc(var(--ui-drift-amp) * -0.7), calc(var(--ui-drift-amp) * 0.3)) rotate(calc(var(--ui-drift-rot) * -0.4)); }
+  60%  { transform: translate(calc(var(--ui-drift-amp) * -0.4), calc(var(--ui-drift-amp) * -0.9)) rotate(calc(var(--ui-drift-rot) * -0.6)); }
+  82%  { transform: translate(var(--ui-drift-amp), calc(var(--ui-drift-amp) * -0.3)) rotate(calc(var(--ui-drift-rot) * 0.5)); }
+  100% { transform: translate(0, 0) rotate(0); }
+}
+@keyframes ui-drift-banner { /* 保留居中的 translateX(-50%) */
+  0%   { transform: translateX(-50%) translate(0, 0); }
+  25%  { transform: translateX(-50%) translate(var(--ui-drift-amp), calc(var(--ui-drift-amp) * 0.5)); }
+  50%  { transform: translateX(-50%) translate(calc(var(--ui-drift-amp) * -0.6), calc(var(--ui-drift-amp) * 0.7)); }
+  75%  { transform: translateX(-50%) translate(calc(var(--ui-drift-amp) * -0.3), calc(var(--ui-drift-amp) * -0.6)); }
+  100% { transform: translateX(-50%) translate(0, 0); }
+}
+
+/* 入场（手牌整体上升一次；其内部各块独立漂移） */
+.money-hand { animation: ui-rise 0.34s cubic-bezier(0.2, 0.85, 0.25, 1) both; }
+/* 底部三块各自独立漂移（信息条 / 手牌扇 / 保留金），不同曲线+不同周期 */
+.money-hand .hand-info { animation: ui-drift-a var(--ui-drift-time) ease-in-out infinite; }
+.hand-fan { animation: ui-drift-b calc(var(--ui-drift-time) * 1.27) ease-in-out infinite; }
+.reserved-zone { animation: ui-drift-c calc(var(--ui-drift-time) * 0.83) ease-in-out infinite; }
+/* 其它阶段面板：入场后接漂移（延迟到入场结束，避免争抢 transform） */
+.phase-panel { animation: ui-rise 0.34s cubic-bezier(0.2, 0.85, 0.25, 1) both, ui-drift-a var(--ui-drift-time) ease-in-out 0.5s infinite; }
+.hud-banner { animation: banner-rise 0.3s cubic-bezier(0.2, 0.85, 0.25, 1) both, ui-drift-banner calc(var(--ui-drift-time) * 1.1) ease-in-out 0.5s infinite; }
+/* 右下角目标与资金也分别独立漂移 */
+.goal-hud { animation: ui-drift-b calc(var(--ui-drift-time) * 1.4) ease-in-out infinite; }
+.balance-hud { animation: ui-drift-c calc(var(--ui-drift-time) * 1.13) ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .money-hand, .money-hand .hand-info, .hand-fan, .reserved-zone,
+  .phase-panel, .hud-banner, .goal-hud, .balance-hud { animation: none; }
+}
 
 /* 键帽提示 */
 .keycap {
