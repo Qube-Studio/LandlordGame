@@ -21,10 +21,10 @@
 
 | 键 | 默认 | 说明 |
 |----|------|------|
-| `initialBalance.farmer` | `7` | 每个农民的开局资金。 |
-| `landlordFundMultiplier` | `1.5` | 地主开局资金 = **农民总资金 × 该倍数**（向下取整，至少 1）。农民总资金 = 农民人数 × `initialBalance.farmer`。 |
+| `initialBalance.farmer` | `8` | 每个农民的开局资金。 |
+| `landlordFundMultiplier` | `1.2` | 地主开局资金 = **农民总资金 × 该倍数**（向下取整，至少 1）。农民总资金 = 农民人数 × `initialBalance.farmer`。 |
 
-> 地主资金随农民人数动态：1 农民→`floor(1.5×7)=10`；2→`21`；3→`31`；4→`42`。
+> 地主资金随农民人数动态：1 农民→`floor(1.2×8)=9`；2→`19`；3→`28`；4→`38`。
 > 公式集中在 `config.js` 的 `getInitialBalance(role, farmerCount, config)`，要换算法只改这一处。
 > 调高 `landlordFundMultiplier` → 地主更耐打、对农民更难；调低 → 农民更易翻盘。
 
@@ -41,7 +41,7 @@
 
 | 键 | 默认 | 说明 |
 |----|------|------|
-| `landlordWinMultiplier` | `2` | 地主胜的目标 = 地主下注 × 该倍数（“双倍”）。 |
+| `landlordWinMultiplier` | `1.5` | 地主胜的目标 = `floor(地主下注 × 该倍数)`（取整保证整数钱）。同时决定缺口补偿额。 |
 | `surplusLandlordShare` | `0.5` | 桌面超出目标的盈余里，地主再拿的比例。 |
 | `rounding` | `'floor'` | 比例计算取整：`'floor'`/`'ceil'`。 |
 | `debtAllocation` | `'inverseBet'` | 农民补缺口的分摊权重：`'inverseBet'`（押得多摊得少）/`'equal'`/`'proportionalBet'`。 |
@@ -49,34 +49,26 @@
 | `surplusTieBreak` | `'highestBet'` | 最大余数法并列时余数单位归属：`'highestBet'`/`'lowestBet'`。 |
 | `bankruptcyThreshold` | `0` | 余额 ≤ 此值即破产。 |
 
-> **双倍补偿**：地主胜且桌面不足目标时，地主先拿走整个桌面，缺口由农民用余额补，补多少地主多拿多少；
+> **缺口补偿**：地主胜且桌面不足目标时，地主先拿走整个桌面，缺口（=目标−桌面）由农民用余额补，补多少地主多拿多少；
 > 农民付不起的部分作废（地主收不到）。协商阶段可把债务全压给一名农民使其破产（此时地主只收到他最后的钱）。
 
 ## 地主资金目标（landlordGoal）
 
 每过若干回合地主必须达到一个资金目标，否则在**该回合 FINALIZE（押注后资金分配完成时）**扣罚，
 **惩罚资金平分给本回合农民**（最大余数法，在破产判定前入账，可能救活濒临破产的农民），
-可直接压垮地主导致农民胜。目标与回合间隔都随检查点序号增长但逐渐放缓，并各自封顶。
+可直接压垮地主导致农民胜。检查点由 `schedule` 显式给出，按列表逐项推进。
 
 | 键 | 默认 | 说明 |
 |----|------|------|
 | `landlordGoal.enabled` | `true` | 总开关。关掉则无目标、无惩罚、UI 不显示。 |
-| `landlordGoal.startMultiplier` | `0.5` | 首个目标（即首次触发惩罚的阈值）= `floor(地主初始资金 × 该值)`。 |
-| `landlordGoal.maxMultiplier` | `1.8` | 目标上限 = `floor(地主初始资金 × 该值)`。 |
-| `landlordGoal.goalEaseFactor` | `0.55` | 目标增量放缓系数 ∈(0,1)：越小越快逼近上限。 |
-| `landlordGoal.startInterval` | `3` | 首个检查点所在回合（首段回合间隔）。 |
-| `landlordGoal.maxInterval` | `9` | 回合间隔上限。 |
-| `landlordGoal.intervalEaseFactor` | `0.5` | 回合间隔增量放缓系数 ∈(0,1)。 |
+| `landlordGoal.schedule` | 见下 | 显式检查点列表，每项 `{interval, multiplier}` = 「再过 interval 回合，目标 = `floor(地主初始资金 × multiplier)`」。超出列表后按**最后一项**重复。 |
 | `landlordGoal.penaltyRate` | `0.2` | 未达标时扣除的资金比例（向下取整）。 |
 | `landlordGoal.minPenalty` | `2` | 未达标时至少扣除的资金。 |
 
-> 第 k 个检查点（k 从 0 起）：
-> - 间隔 `I_k = round(startInterval + (maxInterval−startInterval)·(1 − intervalEaseFactor^k))`，封顶 `maxInterval`；检查点回合 `R_k = ΣI_j`。
-> - 目标 `G_k = floor(startGoal + (maxGoal−startGoal)·(1 − goalEaseFactor^k))`，封顶 `maxGoal`。
->
-> 例：地主初始 31（3 农民）→ 检查点回合约 `3, 9, 17, 25, 34…`，目标约 `15, 33, 42, 48, 51 … →55`。
-> 想让地主压力更大：调高 `startMultiplier`/`maxMultiplier` 或调低各 `Interval`；想更宽松反之。
-> 公式在纯函数 `server/logic/landlordGoal.js`，可单测/仿真。
+> 默认 `schedule`（间隔/倍数）：`2/0.6 → 2/1.0 → 3/1.5 → 3/1.8 → 5/2.0`，累计检查点回合 `2, 4, 7, 10, 15`，之后每 5 回合维持 `2.0` 倍。
+> 例：地主初始 30（≈3 农民）→ 检查点回合 `2, 4, 7, 10, 15…`，目标 `18, 30, 45, 54, 60…`。
+> 想让地主压力更大：把各项 `multiplier` 调高或 `interval` 调小；想更宽松反之。
+> 逻辑在纯函数 `server/logic/landlordGoal.js`，可单测/仿真。
 
 ## 阶段时长（毫秒；`0` = 不自动推进，调试用）
 

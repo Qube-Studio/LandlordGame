@@ -94,8 +94,8 @@ kicked   {reason}           // 顶号或被移出
 ## 3. 快速模式规则（精确定义）
 
 ### 3.1 初始资金
-- 农民：`config.initialBalance.farmer`，默认 **7**。
-- 地主：**农民总资金 × `config.landlordFundMultiplier`（默认 1.5）**，向下取整，至少 1。农民总资金 = 农民人数 × 农民初始资金。
+- 农民：`config.initialBalance.farmer`，默认 **8**。
+- 地主：**农民总资金 × `config.landlordFundMultiplier`（默认 1.2）**，向下取整，至少 1。农民总资金 = 农民人数 × 农民初始资金。
   - 例：1 农民→10；2→21；3→31；4→42。
 - **按人数动态**：取值经函数 `getInitialBalance(role, farmerCount, config)`——农民固定、地主按农民人数算；要换公式只改此函数。
 
@@ -119,7 +119,8 @@ LOBBY ──房主开始──► DISCUSSION ──全员准备──► BETTING
 - **BETTING（下注中）**：见 3.3。已下注玩家对他人显示"已下注"（反面牌），金额保密。
 - **REVEAL（揭牌）**：系统播放翻牌动画展示每个人出的金额；期间允许发言；**所有活跃玩家点确认**后进入掷硬币。
 - **COIN_FLIP（掷硬币）**：播放抛硬币动画；**正面 = 地主胜，反面 = 农民胜**；`coinAnimMs` 后自动进入系统结算。
-  - 动画用**客户端预烘焙动画池**：`scene/coinSim.js` 以确定性物理离线模拟若干轨迹，按落定朝面分桶到正面 10 条、反面 10 条并缓存；服务端权威决定 `coinResult` 后，客户端从对应池随机取一条回放（确定性物理保证不穿桌、明显自旋与弹跳）。
+  - 动画用**客户端预烘焙动画池**：`scene/coinSim.js` 以确定性**两段式平面物理**（弹跳翻飞 → 贴台衰减摇摆 → 躺平，见该文件头注释）离线模拟若干轨迹，按落定朝面分桶到正反各 `POOL_SIZE`（24）条并缓存；服务端权威决定 `coinResult` 后，客户端从对应池随机取一条回放（保证不穿桌；落定为真实翻转硬币的**平面翻滚 + 摇摆**而非陀螺式绕边打转）。**抛点高度每回合不同 + 短滞空 + 落台后较长的翻滚/摆动收尾**（约 8 次摆动）→ **落定时间 ~3–5.2s**；摇摆用平滑势 −sin(2·rx)，硬币立起后会自然倒下继续动、绝不被瞬间放平。故 `coinAnimMs` 须 ≥ 客户端 `DURATION`（6.0s）以免最长抛掷被打断。
+  - **公平观感设计**（结果本就服务端 50/50，难点在让动画「看起来」公平）：① 起始朝面 50/50 随机，开局不暗示结果；② 高速自旋使滞空成「糊影」、人眼无法追踪正反 → 落定前有悬念、像真随机；③ 飞行参数对正反同分布、盲采后按落定面分桶 → 过程不泄露结果；④ 回放期叠加绕竖轴偏航 + 水平镜像（均不改变朝上的面）→ 同一条轨迹每次都不同，消除「在放固定录像」的观感。
 - **分钱（四个子阶段）**：
   1. **SETTLE 系统结算**：服务端按 3.5 计算默认分配方案并展示，`settleViewMs` 后自动进入下一步。
   2. **NEGOTIATE 农民协商**：每个农民以钞票牌形式看到分给自己的钱或债务，可拖拽给队友（金额守恒，仅在农民之间转移）。任何变动会重置所有人的确认。全部活跃农民确认（或 `negotiateTimeoutMs` 超时按当前方案）后生效。若只有 1 个活跃农民、或本回合农民既无钱可分也无债可摊，则自动跳过。
@@ -128,14 +129,14 @@ LOBBY ──房主开始──► DISCUSSION ──全员准备──► BETTING
 - **ENDED**：地主破产 → 农民胜；全部农民破产 → 地主胜。展示结果，房主可"再来一局"（重置资金回到第 1 回合 DISCUSSION）。
 
 ### 3.5 结算规则（默认；全部走 config，可替换）
-记地主下注 `L`，农民下注合计 `F`，桌面总额 `pot = L + F`，目标 `target = 2L`（`landlordWinMultiplier`，默认 2）。
+记地主下注 `L`，农民下注合计 `F`，桌面总额 `pot = L + F`，目标 `target = floor(L × landlordWinMultiplier)`（默认 1.5；取整保证整数钱）。
 
 **正面（地主胜）：**
 - `pot ≥ target`：地主拿走 `target`；多出的 `R = pot − target` 地主再拿 `floor(R × 0.5)`（`surplusLandlordShare`，取整方式 `rounding: 'floor'`，**预留改 ceil 或进入协商分配**），剩余归农民平分（最大余数法取整）。
-- `pot < target`：地主先拿走整个 `pot`；缺口 `shortfall = target − pot` 由农民**用手里余额共同补足**——这就是"双倍承担不够的部分"。
+- `pot < target`：地主先拿走整个 `pot`；缺口 `shortfall = target − pot` 由农民**用手里余额共同补足**（"补足不够的部分"）。
   - 债务分摊默认 **`inverseBet`（谁出的多谁补的少）**：以 `wᵢ = 1 / betᵢ` 为权重做**最大余数法**整数分摊（科学分摊、只出整数、误差最小）。可配置为 `equal`（均摊）/ `proportionalBet`（出得多摊得多）。
   - 每人实际支付 `min(份额, 余额)`；付不起的人付光破产，残余缺口在未封顶的农民间按同法递归重摊；全员都付不起则地主只拿到实际收到的部分。
-  - **双倍补偿精确入账**：地主拿到 `pot + 农民实际补偿`，补偿多少地主就多拿多少；FINALIZE 时按最终（可能经协商）的债务实收重算 `uncovered = max(0, shortfall − collected)`，使展示与入账一致。
+  - **补偿精确入账**：地主拿到 `pot + 农民实际补偿`，补偿多少地主就多拿多少；FINALIZE 时按最终（可能经协商）的债务实收重算 `uncovered = max(0, shortfall − collected)`，使展示与入账一致。
 - 协商阶段农民可以在彼此之间转移"分到的钱"（take）或"分摊的债"（debt）。
   - **债务可压垮队友**：不限制对方余额，允许把全部债务堆给一名农民使其破产；落账时该农民只付出全部余额，地主只收到这点钱，其余缺口作废。
 
@@ -149,11 +150,10 @@ LOBBY ──房主开始──► DISCUSSION ──全员准备──► BETTING
 所有入账金额必为整数。凡是按比例分配，统一用 `logic/apportion.js` 的**最大余数法**：先地板取整，再把剩余单位按小数余量从大到小逐个分配（并列时按 `surplusTieBreak`）。保证"份额之和恰好等于被分配总额"，误差不超过每人 1。
 
 ### 3.7 地主资金目标（`config.landlordGoal`，纯函数见 `logic/landlordGoal.js`）
-为地主设置一系列**检查点**：每过若干回合地主必须使资金达到一个目标，否则在**该回合 FINALIZE（押注后资金分配完成时）**受罚。目标与回合间隔都随检查点序号增长但**逐渐放缓**，并各自封顶。
+为地主设置一系列**检查点**：每过若干回合地主必须使资金达到一个目标，否则在**该回合 FINALIZE（押注后资金分配完成时）**受罚。检查点由 `config.landlordGoal.schedule` **显式列出**。
 
-- **检查点序列**（第 k 个，k 从 0 起，记地主初始资金 `B`）：
-  - 回合间隔 `I_k = round(startInterval + (maxInterval − startInterval)·(1 − intervalEaseFactor^k))`，封顶 `maxInterval`；检查点回合 `R_k = ΣI_j`（`I_0 = startInterval` ⇒ `R_0 = startInterval`，默认首检查点在第 3 回合）。
-  - 目标 `G_k = floor(startGoal + (maxGoal − startGoal)·(1 − goalEaseFactor^k))`，封顶 `maxGoal`；其中 `startGoal = floor(B·startMultiplier)`（默认 `floor(B·0.5)`，即首次触发惩罚的阈值为初始资金的一半），`maxGoal = floor(B·maxMultiplier)`（默认 `floor(B·1.8)`）。
+- **检查点序列**（记地主初始资金 `B`）：`schedule` 每项 `{interval, multiplier}` 表示「再过 `interval` 回合，目标 = `floor(B × multiplier)`」；累计回合 `R_k = Σ interval_j`。超出列表后按**最后一项**重复（维持最高目标）。
+  - 默认：`2/0.6 → 2/1.0 → 3/1.5 → 3/1.8 → 5/2.0`，即检查点回合 `2, 4, 7, 10, 15`，目标 `floor(B·0.6) … floor(B·2.0)`，之后每 5 回合维持 `2.0` 倍。
 - **惩罚**：检查点回合 FINALIZE 时若地主余额 < 该目标，扣除 `max(minPenalty, floor(余额·penaltyRate))`（默认 `max(2, floor(余额·0.2))`）。**惩罚资金按最大余数法平分给本回合农民**（在破产判定前入账，可能救活濒临破产的农民），可直接使地主破产 → 农民胜。
 - **展示（合理显示在每个人的 UI）**：`viewFor` 下发 `landlordGoal = { goal, dueRound, roundsLeft, initial, landlordId, landlordBalance }`——目标值与到期回合对所有人可见（给农民施压、给地主紧迫感）；`landlordBalance`（进度）仅地主本人/观战者可见（隐私边界）。FINALIZE 面板播报达标/受罚。
 - 默认参数与调法见 `docs/TUNING.md`。
@@ -238,11 +238,11 @@ data/              运行时数据（gitignore）
 
 | 键 | 默认 | 说明 |
 |----|------|------|
-| initialBalance.farmer | 7 | 农民初始资金 |
-| landlordFundMultiplier | 1.5 | 地主初始资金 = 农民总资金 × 该倍数（向下取整） |
-| landlordGoal.* | 见下 | 地主资金目标（§3.7）：enabled/startMultiplier 0.5/maxMultiplier 1.8/goalEaseFactor 0.55/startInterval 3/maxInterval 9/intervalEaseFactor 0.5/penaltyRate 0.2/minPenalty 2；惩罚平分给农民 |
+| initialBalance.farmer | 8 | 农民初始资金 |
+| landlordFundMultiplier | 1.2 | 地主初始资金 = 农民总资金 × 该倍数（向下取整） |
+| landlordGoal.* | 见下 | 地主资金目标（§3.7）：enabled/schedule（默认 `2/0.6,2/1.0,3/1.5,3/1.8,5/2.0`）/penaltyRate 0.2/minPenalty 2；惩罚平分给农民 |
 | minStake.farmer / .landlordPerFarmer | 1 / 1 | 最小出资额 |
-| landlordWinMultiplier | 2 | 地主胜目标倍数 |
+| landlordWinMultiplier | 1.5 | 地主胜目标倍数 = floor(下注 × 该倍数) |
 | surplusLandlordShare | 0.5 | 盈余中地主再拿的比例 |
 | rounding | 'floor' | 'floor'/'ceil'，预留协商分配 |
 | debtAllocation | 'inverseBet' | 'inverseBet'/'equal'/'proportionalBet' |
@@ -251,7 +251,7 @@ data/              运行时数据（gitignore）
 | bankruptcyThreshold | 0 | balance ≤ 此值破产 |
 | minFarmers / maxFarmers | 1 / 4 | 人数 |
 | timing.revealAnimMs | 2200 | 揭牌动画时长（之后等确认） |
-| timing.coinAnimMs | 2800 | 硬币动画后自动进结算 |
+| timing.coinAnimMs | 6000 | 硬币动画后自动进结算（须 ≥ 客户端 coinSim DURATION 6.0s；落定 ~3–5.2s：抛点高度不一 + 长摆动收尾） |
 | timing.settleViewMs | 3500 | 系统结算展示时长 |
 | timing.finalizeMs | 2600 | 正式结算动画时长 |
 | timing.negotiateTimeoutMs | 120000 | 协商超时（0=不超时） |

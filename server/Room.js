@@ -500,7 +500,7 @@ export class Room {
 
     // 双倍补偿精确入账（任务 8）：地主胜且桌面不足目标时，按最终（可能经协商的）债务实际收齐的
     // 部分重算缺口，使展示与入账一致——地主拿到 pot + 实际补偿，剩余无人能付的即 uncovered。
-    const target = (this.settlement.landlordBet ?? 0) * this.config.landlordWinMultiplier;
+    const target = this.settlement.target ?? 0; // 已在 settleRound 取整（floor(下注×倍数)）
     const shortfall = this.coinResult === 'heads' ? Math.max(0, target - this.settlement.pot) : 0;
     const uncovered = Math.max(0, shortfall - result.collected);
 

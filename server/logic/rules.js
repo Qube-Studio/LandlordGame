@@ -108,9 +108,10 @@ export function settleRound({ coinResult, bets, balances, landlordId, farmerIds,
   const events = [];
   let landlordTake = 0;
   let uncovered = 0;
+  let target = 0;
 
   if (coinResult === 'heads') {
-    const target = landlordBet * config.landlordWinMultiplier;
+    target = roundBy(landlordBet * config.landlordWinMultiplier, config); // 取整保证钱为整数（倍数可为 1.5 等）
     if (pot >= target) {
       // 地主拿走目标额；盈余地主再拿一份，剩余农民平分
       const surplus = pot - target;
@@ -148,7 +149,7 @@ export function settleRound({ coinResult, bets, balances, landlordId, farmerIds,
     events.push({ type: 'farmers_win', pot });
   }
 
-  return { coinResult, pot, landlordBet, farmerBetTotal, landlordTake, takes, debts, uncovered, events };
+  return { coinResult, pot, landlordBet, farmerBetTotal, landlordTake, takes, debts, uncovered, target, events };
 }
 
 /**

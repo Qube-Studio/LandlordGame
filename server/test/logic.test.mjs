@@ -10,6 +10,7 @@ import { buildGoalSchedule, upcomingGoal, goalForRound, goalPenalty } from '../l
 
 let passed = 0;
 const cfg = mergeConfig();
+const cfgWin2 = mergeConfig({ landlordWinMultiplier: 2 }); // 缺口/补偿机制测试固定 2×，与默认调参解耦
 const sumVals = (o) => Object.values(o).reduce((s, v) => s + v, 0);
 
 function test(name, fn) {
@@ -19,12 +20,12 @@ function test(name, fn) {
 }
 
 // 模拟一回合：在「下注后余额」上跑系统结算 + 落账（可注入协商后的 allocation）。
-function runRound({ coinResult, bets, postBetBalances, landlordId, farmerIds, allocationOverride }) {
-  const settlement = settleRound({ coinResult, bets, balances: postBetBalances, landlordId, farmerIds, config: cfg });
+function runRound({ coinResult, bets, postBetBalances, landlordId, farmerIds, allocationOverride, config = cfg }) {
+  const settlement = settleRound({ coinResult, bets, balances: postBetBalances, landlordId, farmerIds, config });
   const allocation = allocationOverride ?? { takes: { ...settlement.takes }, debts: { ...settlement.debts } };
   const startBalances = {}; // 此处只关心相对入账，置 0 即可让 deltas == after
   for (const id of [landlordId, ...farmerIds]) startBalances[id] = 0;
-  const result = applyAllocation({ settlement, allocation, balances: postBetBalances, bets, landlordId, farmerIds, startBalances, config: cfg });
+  const result = applyAllocation({ settlement, allocation, balances: postBetBalances, bets, landlordId, farmerIds, startBalances, config });
   return { settlement, allocation, result };
 }
 
@@ -73,7 +74,7 @@ test('正面缺口·全覆盖：地主恰好拿到双倍 = pot + 补偿', () => 
   // L=8 → target=16；pot=10；shortfall=6；两农民各余 5，可全补
   const { result, settlement } = runRound({
     coinResult: 'heads', bets: { L: 8, A: 1, B: 1 }, postBetBalances: { L: 0, A: 5, B: 5 },
-    landlordId: 'L', farmerIds: ['A', 'B'],
+    landlordId: 'L', farmerIds: ['A', 'B'], config: cfgWin2,
   });
   assert.equal(settlement.pot, 10);
   assert.equal(result.collected, 6);
@@ -83,7 +84,7 @@ test('正面缺口·付不起：地主只拿到实收，农民付光破产', () 
   // 两农民余额不足以补足 6
   const { result } = runRound({
     coinResult: 'heads', bets: { L: 8, A: 1, B: 1 }, postBetBalances: { L: 0, A: 2, B: 1 },
-    landlordId: 'L', farmerIds: ['A', 'B'],
+    landlordId: 'L', farmerIds: ['A', 'B'], config: cfgWin2,
   });
   assert.equal(result.collected, 3);          // 2 + 1
   assert.equal(result.after.L, 13);           // pot 10 + 实收 3
@@ -94,7 +95,7 @@ test('任务 7+8：债务全压给一名农民→他破产，地主只收到他�
   // 系统默认会把 6 的缺口在 A/B 间分摊；这里模拟协商后全压给 A（A 仅余 2）。
   const { result } = runRound({
     coinResult: 'heads', bets: { L: 8, A: 1, B: 1 }, postBetBalances: { L: 0, A: 2, B: 5 },
-    landlordId: 'L', farmerIds: ['A', 'B'],
+    landlordId: 'L', farmerIds: ['A', 'B'], config: cfgWin2,
     allocationOverride: { takes: { A: 0, B: 0 }, debts: { A: 6, B: 0 } },
   });
   assert.equal(result.after.A, 0);            // A 付光破产
@@ -113,38 +114,35 @@ test('allocateDebt：容量封顶 + 递归重摊，uncovered 正确', () => {
 });
 
 console.log('landlordGoal');
-test('序列：首检查点第 3 回合、首目标(惩罚阈值) floor(B*0.5)、回合严格递增', () => {
-  const B = 31;
+test('显式序列：检查点回合 [2,4,7,10,15…]，目标 floor(B×[0.6,1.0,1.5,1.8,2.0…])', () => {
+  const B = 30;
   const sched = buildGoalSchedule(B, cfg);
-  assert.equal(sched[0].round, 3);
-  assert.equal(sched[0].goal, Math.floor(B * 0.5)); // 15
+  const wantRounds = [2, 4, 7, 10, 15];
+  const wantMul = [0.6, 1.0, 1.5, 1.8, 2.0];
+  for (let i = 0; i < wantRounds.length; i++) {
+    assert.equal(sched[i].round, wantRounds[i]);
+    assert.equal(sched[i].goal, Math.floor(B * wantMul[i]));
+  }
   for (let i = 1; i < sched.length; i++) assert.ok(sched[i].round > sched[i - 1].round);
 });
-test('封顶：间隔 ≤ maxInterval(9)、目标 ≤ floor(B*1.8)；目标增量逐渐放缓', () => {
-  const B = 31;
+test('封顶后重复末项：目标非递减且 ≤ floor(B*2.0)，间隔重复末项(5)', () => {
+  const B = 30;
   const sched = buildGoalSchedule(B, cfg);
-  const maxGoal = Math.floor(B * 1.8); // 55
-  let prevRound = 0, prevInc = Infinity, prevGoal = sched[0].goal;
+  const maxGoal = Math.floor(B * 2.0); // 60
   for (let i = 0; i < sched.length; i++) {
-    const interval = sched[i].round - prevRound;
-    assert.ok(interval >= 1 && interval <= cfg.landlordGoal.maxInterval);
     assert.ok(sched[i].goal <= maxGoal);
-    if (i > 0) {
-      const inc = sched[i].goal - prevGoal;
-      assert.ok(inc >= 0);                 // 非递减
-      assert.ok(inc <= prevInc + 1);       // 增量放缓（floor 容差 1）
-      prevInc = inc; prevGoal = sched[i].goal;
-    }
-    prevRound = sched[i].round;
+    if (i > 0) assert.ok(sched[i].goal >= sched[i - 1].goal); // 非递减
   }
+  assert.equal(sched[5].round, 20);    // 15 + 重复末项间隔 5
+  assert.equal(sched[5].goal, maxGoal);
 });
 test('goalForRound / upcomingGoal', () => {
-  const B = 31;
-  assert.equal(goalForRound(3, B, cfg), Math.floor(B * 0.5));
-  assert.equal(goalForRound(4, B, cfg), null); // 非检查点回合
+  const B = 30;
+  assert.equal(goalForRound(2, B, cfg), Math.floor(B * 0.6));
+  assert.equal(goalForRound(3, B, cfg), null); // 非检查点回合
   const up = upcomingGoal(1, B, cfg);
-  assert.equal(up.dueRound, 3);
-  assert.equal(up.roundsLeft, 2);
+  assert.equal(up.dueRound, 2);
+  assert.equal(up.roundsLeft, 1);
 });
 test('惩罚平分给农民：apportion 守恒（份额之和 == 惩罚额）', () => {
   const penalty = goalPenalty(20, cfg); // floor(20*0.2)=4
@@ -161,11 +159,11 @@ test('goalPenalty：max(minPenalty, floor(余额*rate))，余额下限 0', () =>
 });
 
 console.log('config');
-test('初始资金：农民 7；地主 = floor(1.5 * 农民数 * 7)', () => {
-  assert.equal(getInitialBalance('farmer', 3, cfg), 7);
-  assert.equal(getInitialBalance('landlord', 1, cfg), 10);
-  assert.equal(getInitialBalance('landlord', 3, cfg), 31);
-  assert.equal(getInitialBalance('landlord', 4, cfg), 42);
+test('初始资金：农民 8；地主 = floor(1.2 * 农民数 * 8)', () => {
+  assert.equal(getInitialBalance('farmer', 3, cfg), 8);
+  assert.equal(getInitialBalance('landlord', 1, cfg), 9);   // floor(1.2*1*8)=9
+  assert.equal(getInitialBalance('landlord', 3, cfg), 28);  // floor(1.2*3*8)=28
+  assert.equal(getInitialBalance('landlord', 4, cfg), 38);  // floor(1.2*4*8)=38
 });
 test('最小出资额：农民固定 1；地主 = 活跃农民数', () => {
   assert.equal(getMinStake('farmer', 3, cfg), 1);

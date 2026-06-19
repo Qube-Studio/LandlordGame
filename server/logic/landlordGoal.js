@@ -1,34 +1,23 @@
 // 地主资金目标（纯函数，无 IO）。见 docs/GAME_SPEC.md §3.7 与 docs/TUNING.md。
-// 检查点序列：第 k 个检查点（k=0,1,2…）落在某个回合，地主在该回合 FINALIZE 时
-// 必须使余额 ≥ 该检查点的目标，否则受罚。目标与回合间隔都随 k 增长但逐渐放缓，并各自封顶。
-//
-// 间隔（导向第 k 个检查点的回合数）：
-//   I_k = round( startInterval + (maxInterval - startInterval) · (1 - intervalEaseFactor^k) )，并封顶 maxInterval
-//   检查点回合 R_k = Σ_{j≤k} I_j（I_0 = startInterval ⇒ R_0 = startInterval）
-// 目标：
-//   G_k = floor( startGoal + (maxGoal - startGoal) · (1 - goalEaseFactor^k) )，并封顶 maxGoal
-//   其中 startGoal = floor(initial · startMultiplier)，maxGoal = floor(initial · maxMultiplier)
+// 检查点由 config.landlordGoal.schedule 显式给出：每项 {interval, multiplier} 表示
+//   「再过 interval 回合，目标 = floor(地主初始资金 × multiplier)」。
+//   累计回合 R_k = Σ_{j≤k} interval_j；目标 G_k = floor(initial × multiplier_k)。
+//   超出列表长度后按最后一项的 interval/multiplier 重复（维持最高目标）。
 
 const HORIZON_CHECKPOINTS = 64; // 足够长（一局远不会有这么多检查点）
 
 // 构建检查点序列 [{ index, round, goal }]，按回合升序。纯函数、结果只依赖 initial 与 config。
 export function buildGoalSchedule(initial, config) {
   const g = config.landlordGoal ?? {};
-  if (!g.enabled) return [];
-  const startGoal = Math.floor(initial * g.startMultiplier);
-  const maxGoal = Math.floor(initial * g.maxMultiplier);
-  const goalGap = Math.max(0, maxGoal - startGoal);
-  const intervalGap = Math.max(0, g.maxInterval - g.startInterval);
+  const steps = g.schedule;
+  if (!g.enabled || !Array.isArray(steps) || steps.length === 0) return [];
 
   const schedule = [];
   let round = 0;
   for (let k = 0; k < HORIZON_CHECKPOINTS; k++) {
-    const interval = Math.min(
-      g.maxInterval,
-      Math.max(1, Math.round(g.startInterval + intervalGap * (1 - Math.pow(g.intervalEaseFactor, k)))),
-    );
-    round += interval;
-    const goal = Math.min(maxGoal, Math.floor(startGoal + goalGap * (1 - Math.pow(g.goalEaseFactor, k))));
+    const step = steps[Math.min(k, steps.length - 1)]; // 超出列表后重复最后一项
+    round += Math.max(1, step.interval);
+    const goal = Math.floor(initial * step.multiplier);
     schedule.push({ index: k, round, goal });
   }
   return schedule;
