@@ -23,9 +23,10 @@ export const MODES = {
   competitive: {
     id: 'competitive',
     label: '竞技模式',
-    available: false,
-    roles: ['landlord', 'farmer', 'bank'],
-    description: '轮换坐庄银行制的进阶玩法。（开发中）',
+    available: true,
+    // 地主阵营：landlord / capitalist（互斥，恰 1 人）；农民阵营：farmer / investor / glutton（可重复）。
+    roles: ['landlord', 'capitalist', 'farmer', 'investor', 'glutton'],
+    description: '角色技能制：地主/资本家 对阵 基础农民/投资人/暴食者，各有专属技能。',
     hooks: {},
   },
 };

@@ -1,5 +1,7 @@
 // 手持钱牌：余额动态分解为 10/5/2/1 面额，扇形持牌；保留金锁定在旁；
 // 长按拆分——长按期间钱牌抖动（短按只选中、不抖、不拆）；选牌组成下注额；确认后飞入 3D 桌面。
+// 竞技投资人：手牌左侧多一个「投保槽」，把牌拖进去即投保（保费 ≤ 上限）；确认下注时，
+//   下注牌飞向桌面、投保槽里的牌一张张掉出屏幕（不上桌），投保与下注随 place_bet 一并提交。
 // 父组件用 key={round-balance} 控制重建，本地状态生命周期与一次下注一致。
 
 import { useEffect, useRef, useState } from 'react';
@@ -17,23 +19,34 @@ export default function MoneyHand() {
   const state = useGameStore(s => s.state);
   const send = useGameStore(s => s.send);
   const startBetFlight = useGameStore(s => s.startBetFlight);
+  const dropInsurance = useGameStore(s => s.dropInsurance);
   const chatOpen = useGameStore(s => s.chatOpen);
 
   const me = state.me;
   const bounds = me.bounds ?? { minStake: 1, min: 1, max: me.balance, forceAllIn: false };
-  const spendable = bounds.forceAllIn ? me.balance : me.balance - bounds.minStake;
+  // 是否需要留保留金：强制全押、或上限已等于全部余额（如竞技资本家可全押）时无需保留。
+  const noReserve = bounds.forceAllIn || bounds.max >= me.balance;
+  const spendable = noReserve ? me.balance : me.balance - bounds.minStake;
+
+  // 竞技投资人投保（§8.3）：仅在尚未投保时可拖牌入槽；强制全押时不开放投保。
+  const isInvestor = me.role === 'investor';
+  const insurable = isInvestor && !bounds.forceAllIn;
+  const maxPledge = me.pledgeMax ?? 3;
 
   const [notes, setNotes] = useState(() => decompose(spendable));
   const [selected, setSelected] = useState(() => new Set());
+  const [slot, setSlot] = useState([]);          // 投保槽里的保单牌
   const [shakingId, setShakingId] = useState(null);
   const containerRef = useRef(null);
   const pressTimer = useRef(null);
   const shakeTimer = useRef(null);
   const longPressed = useRef(false);
 
-  const reservedNotes = bounds.forceAllIn ? [] : decompose(bounds.minStake);
+  const premium = slot.reduce((s, n) => s + n.value, 0);
+  const reservedNotes = noReserve ? [] : decompose(bounds.minStake);
   const total = bounds.forceAllIn ? me.balance : sumNotes(notes, selected);
-  const canConfirm = bounds.forceAllIn || (total >= bounds.min && total <= bounds.max);
+  const effMax = Math.max(0, bounds.max - premium);   // 投保占用后的有效下注上限
+  const canConfirm = bounds.forceAllIn || (total >= bounds.min && total <= effMax);
 
   const clearTimers = () => {
     clearTimeout(pressTimer.current);
@@ -68,27 +81,48 @@ export default function MoneyHand() {
     });
   };
 
+  // 拖一张手牌进投保槽（超上限拒绝）；点击槽内牌取回手牌。
+  const moveToSlot = (id) => {
+    const note = notes.find(n => n.id === id);
+    if (!note || premium + note.value > maxPledge) return;
+    setNotes(ns => ns.filter(n => n.id !== id));
+    setSelected(s => { if (!s.has(id)) return s; const next = new Set(s); next.delete(id); return next; });
+    setSlot(sl => [...sl, note]);
+  };
+  const moveFromSlot = (id) => {
+    const note = slot.find(n => n.id === id);
+    if (!note) return;
+    setSlot(sl => sl.filter(n => n.id !== id));
+    setNotes(ns => [...ns, note].sort((a, b) => b.value - a.value));
+  };
+
   const confirm = () => {
     if (!canConfirm) return;
     const amount = bounds.forceAllIn ? me.balance : total;
-    // 把「选中的这几张牌」交给 3D 场景：从它们当前手牌屏幕位置起飞，沿计算好的弧线落到桌面，
-    // 落点即该牌在桌上的槽位 —— 飞出去的和留在桌上的是同一批模型。
+    // 投保保单牌：从槽位掉出屏幕（不上桌）。
+    if (insurable && premium > 0 && containerRef.current) {
+      const slotEls = containerRef.current.querySelectorAll('[data-slot-note="1"]');
+      const drops = [...slotEls].map((el, i) => {
+        const r = el.getBoundingClientRect();
+        return {
+          id: `ins-${Date.now()}-${i}`, value: Number(el.dataset.value),
+          x: r.x, y: r.y, w: r.width, delay: i * 130, spin: (i % 2 ? 1 : -1) * (18 + i * 10),
+        };
+      });
+      if (drops.length) dropInsurance(drops);
+    }
+    // 下注牌飞向桌面（同一批模型既飞行也落桌）。
     let count = 0;
     if (containerRef.current) {
       const els = containerRef.current.querySelectorAll('[data-flyable="1"]');
       const items = [...els].map((el, i) => {
         const r = el.getBoundingClientRect();
-        return {
-          id: `bn-${Date.now()}-${i}`,
-          value: Number(el.dataset.value),
-          fromScreen: { x: r.x + r.width / 2, y: r.y + r.height / 2 },
-        };
+        return { id: `bn-${Date.now()}-${i}`, value: Number(el.dataset.value), fromScreen: { x: r.x + r.width / 2, y: r.y + r.height / 2 } };
       });
       count = items.length;
       if (items.length) startBetFlight({ round: state.round, items });
     }
-    // 上报实际拍下的张数（含拆分），让所有人看到的桌面堆叠张数一致。
-    send({ type: 'place_bet', amount, count });
+    send({ type: 'place_bet', amount, count, pledge: insurable ? premium : 0 });
   };
 
   // 键盘：下注阶段按 Enter 确认（聊天/输入聚焦时让位）
@@ -116,13 +150,32 @@ export default function MoneyHand() {
         {bounds.forceAllIn ? (
           <span className="force-allin">资金不足，本回合必须全押 <b>{me.balance}</b></span>
         ) : (
-          <span>已选 <b className="gold">{total}</b>（可下注 {bounds.min} ~ {bounds.max}）</span>
+          <span>已选 <b className="gold">{total}</b>（可下注 {bounds.min} ~ {effMax}{premium > 0 ? `，已投保 ${premium}` : ''}）</span>
         )}
         <button className="btn primary" disabled={!canConfirm} onClick={confirm}>
           {bounds.forceAllIn ? `全押 ${me.balance}` : '确认下注'} <span className="keycap">⏎</span>
         </button>
       </div>
       <div className="hand-row" data-hand-anchor>
+        {insurable && (
+          <div
+            className="insurance-slot"
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => { e.preventDefault(); moveToSlot(e.dataTransfer.getData('text/plain')); }}
+            title={`把手牌拖进来投保（保费先扣，输则免阵营 2× 债务；上限 ${maxPledge}）`}
+          >
+            <span className="ins-slot-label">投保 ¥{premium}/{maxPledge}</span>
+            <div className="ins-slot-notes">
+              {slot.map(n => (
+                <button key={n.id} className="ins-slot-note" data-slot-note="1" data-value={n.value}
+                  onClick={() => moveFromSlot(n.id)} title="点击取回">
+                  <MoneyNote value={n.value} width={34} />
+                </button>
+              ))}
+              {slot.length === 0 && <span className="ins-slot-hint">拖牌入槽</span>}
+            </div>
+          </div>
+        )}
         <div className="hand-fan">
           {notes.map((n, i) => {
             const isSel = bounds.forceAllIn || selected.has(n.id);
@@ -133,6 +186,8 @@ export default function MoneyHand() {
                 className={`hand-note ${isSel ? 'selected' : ''} ${shakingId === n.id ? 'shaking' : ''}`}
                 data-flyable={isSel ? '1' : '0'}
                 data-value={n.value}
+                draggable={insurable}
+                onDragStart={(e) => { clearTimers(); e.dataTransfer.setData('text/plain', n.id); e.dataTransfer.effectAllowed = 'move'; }}
                 style={{ transform: tf, '--note-tf': tf }}
                 onPointerDown={() => startPress(n)}
                 onPointerUp={cancelPress}

@@ -21,6 +21,8 @@ Vite proxies `/api` and `/ws` to `http://localhost:3001` (`client/vite.config.js
 
 **Offline visual verification**: `client/preview.html` + `src/preview.jsx` mount the real `GameScreen` with mock zustand state and no backend — with `npm run dev` running, open `/preview.html?phase=LOBBY|DISCUSSION|BETTING|FLIGHT|REVEAL|COIN_FLIP|SETTLE|NEGOTIATE|FINALIZE|ENDED`. Useful for screenshot-checking 3D scene/UI changes. `preview.html` is a second HTML file in `client/` but isn't a Vite build entry, so it's excluded from `npm run build`.
 
+**Visual verification gallery** (preferred for presentation-layer changes): `client/preview/gallery.html` (+ `gallery.jsx`, `README.md`) — a scene-switcher harness that mounts real components with mock state so UI/art/animation changes can be eyeballed without launching a game. Open `/preview/gallery.html`. Add a scene by appending to the `SCENES` array (`kind:'game'` mounts `GameScreen` with a mock `viewFor` state; `kind:'grid'` renders prop-driven components directly). Also excluded from the build.
+
 ## Architecture principles (do not violate)
 
 1. **Server-authoritative**: all rules/settlement/validation run on the server; the client only renders `state` and sends intents. The client must never compute balances or outcomes.

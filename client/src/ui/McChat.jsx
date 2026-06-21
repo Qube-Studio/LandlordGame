@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useGameStore } from '../store/gameStore';
 import PixelText from '../assets/pixelfont/PixelText';
+import { isFarmerSide } from '../game/roles';
 
 const FADE_MS = 10000;
 
@@ -21,7 +22,7 @@ export default function McChat() {
   const logRef = useRef(null);
 
   const me = state.players.find(p => p.id === playerId);
-  const canFarmer = me?.role === 'farmer' || me?.bankrupt;
+  const canFarmer = isFarmerSide(me?.role) || me?.bankrupt;
   const activeChannel = channel === 'farmer' && !canFarmer ? 'public' : channel;
 
   const accessible = chat.filter(m => m.channel === 'public' || (m.channel === 'farmer' && canFarmer));

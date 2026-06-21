@@ -234,7 +234,8 @@ function SceneContents({ look, freeCam = false }) {
 
   const betsVisible = !['LOBBY', 'DISCUSSION', 'BETTING'].includes(state.phase);
   const showFlip = state.phase === 'COIN_FLIP';
-  const showRest = PAYOUT_PHASES.includes(state.phase) && state.coinResult;
+  // REFLIP（暴食者重掷决策窗）也保持硬币停在已落定的反面结果上，让玩家看到自己输了再决定是否重掷。
+  const showRest = (PAYOUT_PHASES.includes(state.phase) || state.phase === 'REFLIP') && state.coinResult;
 
   // 自己钱堆：飞行中先不渲染静态堆（由 FlyingNotes 接管）；落定后用 myStack（即飞出去那批牌）
   const flightActive = betFlight && betFlight.round === state.round;

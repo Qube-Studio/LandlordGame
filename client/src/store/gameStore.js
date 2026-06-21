@@ -15,6 +15,7 @@ export const useGameStore = create((set, get) => ({
   toast: null,       // {text, kind}
   kicked: null,      // 被顶号原因
   flights: [],       // {id, value, faceDown, debt, from:{x,y,w,h}, to:{x,y,w,h}} —— 仅用于结算回收的 2D 飞行
+  insuranceDrops: [],// 投资人投保确认后，保单牌一张张掉出屏幕（不上桌）的瞬态队列
   chatOpen: false,   // 左下角聊天输入是否展开（也用于屏蔽游戏快捷键）
   betFlight: null,   // 下注时手牌→桌面的 3D 飞行：{round, items:[{id,value,fromScreen:{x,y}}]}
   myStack: null,     // 自己实际放到桌上的牌（与飞出去的是同一批）：{round, notes:[{id,value,slot}]}
@@ -27,7 +28,7 @@ export const useGameStore = create((set, get) => ({
   disconnect() {
     disconnectSocket();
     sessionStorage.removeItem('llg_room');
-    set({ connected: false, joining: false, roomId: null, playerId: null, state: null, chat: [], flights: [], betFlight: null, myStack: null, looks: {} });
+    set({ connected: false, joining: false, roomId: null, playerId: null, state: null, chat: [], flights: [], insuranceDrops: [], betFlight: null, myStack: null, looks: {} });
   },
 
   joinRoom(roomId) {
@@ -40,7 +41,7 @@ export const useGameStore = create((set, get) => ({
   leaveRoom() {
     sendMsg({ type: 'leave_room' });
     sessionStorage.removeItem('llg_room');
-    set({ roomId: null, playerId: null, state: null, chat: [], joining: false, flights: [], betFlight: null, myStack: null, looks: {} });
+    set({ roomId: null, playerId: null, state: null, chat: [], joining: false, flights: [], insuranceDrops: [], betFlight: null, myStack: null, looks: {} });
   },
 
   send(msg) {
@@ -69,6 +70,13 @@ export const useGameStore = create((set, get) => ({
   },
   removeFlight(id) {
     set(s => ({ flights: s.flights.filter(f => f.id !== id) }));
+  },
+
+  dropInsurance(items) {
+    set(s => ({ insuranceDrops: [...s.insuranceDrops, ...items] }));
+  },
+  removeInsuranceDrop(id) {
+    set(s => ({ insuranceDrops: s.insuranceDrops.filter(d => d.id !== id) }));
   },
 
   _onOpen() {

@@ -127,6 +127,28 @@ body {
 .np-role.farmer { color: var(--px-grass); }
 .np-tag-bankrupt { color: var(--danger); }
 
+/* 竞技：选角分组 / 角色技能面板 */
+.role-pick-groups { display: flex; flex-direction: column; gap: 8px; align-items: center; }
+.role-group { display: flex; flex-direction: column; gap: 4px; align-items: center; }
+.role-desc { margin: 2px 0 0; max-width: 360px; text-align: center; }
+.skill-panel { display: flex; flex-direction: column; gap: 5px; align-items: center; margin-bottom: 8px; }
+
+/* 投保槽（手牌左侧）：把手牌拖进来投保 */
+.insurance-slot {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  min-width: 96px; min-height: 100px; padding: 6px; align-self: flex-end;
+  border: 2px dashed var(--px-gold); background: rgba(216, 184, 106, 0.08);
+}
+.ins-slot-label { font-size: 11px; color: var(--px-gold); white-space: nowrap; }
+.ins-slot-notes { display: flex; flex-wrap: wrap; gap: 3px; justify-content: center; align-items: center; min-height: 50px; }
+.ins-slot-note { background: transparent; border: none; padding: 0; cursor: pointer; }
+.ins-slot-hint { font-size: 10px; color: var(--ink-dim); }
+/* 投保牌确认后掉出屏幕（不上桌） */
+.insurance-drop {
+  position: fixed; top: 0; left: 0; z-index: 60; pointer-events: none;
+  transition-property: transform, opacity; transition-timing-function: cubic-bezier(0.4, 0.1, 0.7, 1);
+}
+
 /* ============================================================
    HUD 叠加层（指针穿透，子元素可交互）
    ============================================================ */
@@ -300,13 +322,15 @@ body {
 /* 其它阶段面板：入场后接漂移（延迟到入场结束，避免争抢 transform） */
 .phase-panel { animation: ui-rise 0.34s cubic-bezier(0.2, 0.85, 0.25, 1) both, ui-drift-a var(--ui-drift-time) ease-in-out 0.5s infinite; }
 .hud-banner { animation: banner-rise 0.3s cubic-bezier(0.2, 0.85, 0.25, 1) both, ui-drift-banner calc(var(--ui-drift-time) * 1.1) ease-in-out 0.5s infinite; }
-/* 右下角目标与资金也分别独立漂移 */
+/* 右下角目标独立漂移（资金数字不漂移：见 #3） */
 .goal-hud { animation: ui-drift-b calc(var(--ui-drift-time) * 1.4) ease-in-out infinite; }
-.balance-hud { animation: ui-drift-c calc(var(--ui-drift-time) * 1.13) ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) {
   .money-hand, .money-hand .hand-info, .hand-fan, .reserved-zone,
-  .phase-panel, .hud-banner, .goal-hud, .balance-hud { animation: none; }
+  .phase-panel, .hud-banner, .goal-hud { animation: none; }
 }
+
+/* 资金增长强调：数字随计数「提起放下」，幅度随减速衰减——由 JS 逐帧驱动 transform
+   （见 UiLayer.jsx#useBalanceCount / BALANCE_TUNE，#2~#4），此处无需 CSS 动画。 */
 
 /* 键帽提示 */
 .keycap {

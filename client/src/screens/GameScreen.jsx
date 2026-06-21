@@ -3,6 +3,7 @@ import Scene3D from '../scene/Scene3D';
 import UiLayer from '../ui/UiLayer';
 import McChat from '../ui/McChat';
 import FlightLayer from '../ui/FlightLayer';
+import InsuranceDropLayer from '../ui/InsuranceDropLayer';
 
 export default function GameScreen() {
   const state = useGameStore(s => s.state);
@@ -17,6 +18,7 @@ export default function GameScreen() {
       <UiLayer />
       <McChat />
       <FlightLayer />
+      <InsuranceDropLayer />
     </div>
   );
 }

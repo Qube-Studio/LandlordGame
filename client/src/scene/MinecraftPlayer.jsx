@@ -6,11 +6,15 @@ import { Html } from '@react-three/drei';
 import * as THREE from 'three';
 import { faceTexture } from './textures';
 import PixelText from '../assets/pixelfont/PixelText';
+import { ROLE_LABEL, factionOf } from '../game/roles';
 
 const ROLE_COLORS = {
-  landlord: { shirt: '#c79a3a', pants: '#5a4a22', sleeve: '#b88c30' },
-  farmer:   { shirt: '#5a8a4a', pants: '#394a2c', sleeve: '#4e7a40' },
-  none:     { shirt: '#6c707b', pants: '#45484f', sleeve: '#5a5e68' },
+  landlord:   { shirt: '#c79a3a', pants: '#5a4a22', sleeve: '#b88c30' },
+  capitalist: { shirt: '#7a4fae', pants: '#3a2a55', sleeve: '#6c43a0' }, // 资本家：紫金
+  farmer:     { shirt: '#5a8a4a', pants: '#394a2c', sleeve: '#4e7a40' },
+  investor:   { shirt: '#3a8a86', pants: '#2c4a48', sleeve: '#308079' }, // 投资人：青绿
+  glutton:    { shirt: '#7f8a3a', pants: '#44482c', sleeve: '#727a30' }, // 暴食者：橄榄绿
+  none:       { shirt: '#6c707b', pants: '#45484f', sleeve: '#5a5e68' },
 };
 const SKIN = '#e0ac69';
 
@@ -92,13 +96,20 @@ export default function MinecraftPlayer({ player, expression, seed = 0, look = n
       {player.role === 'landlord' && !bankrupt && (
         <mesh position={[0, 2.0, 0]}><boxGeometry args={[0.5, 0.14, 0.5]} />{mat('#e2c044')}</mesh>
       )}
+      {/* 资本家：头顶礼帽（区别于地主皇冠） */}
+      {player.role === 'capitalist' && !bankrupt && (
+        <group position={[0, 2.0, 0]}>
+          <mesh><boxGeometry args={[0.6, 0.05, 0.6]} />{mat('#1b1b22')}</mesh>
+          <mesh position={[0, 0.16, 0]}><boxGeometry args={[0.4, 0.28, 0.4]} />{mat('#23232c')}</mesh>
+        </group>
+      )}
 
       {/* 头顶名牌 */}
       <Html position={[0, 2.45, 0]} center distanceFactor={10} zIndexRange={[30, 0]}>
         <div className={`mc-nameplate ${player.online ? '' : 'offline'}`}>
           <div className="np-row">
-            <PixelText size={2} className={`np-role ${player.role ?? ''}`}>
-              {player.role === 'landlord' ? '地主' : player.role === 'farmer' ? '农民' : '?'}
+            <PixelText size={2} className={`np-role ${factionOf(player.role) ?? ''}`}>
+              {ROLE_LABEL[player.role] ?? '?'}
             </PixelText>
             <PixelText size={2}>{player.name}</PixelText>
             {player.bankrupt && <PixelText size={2} className="np-tag-bankrupt">破产</PixelText>}

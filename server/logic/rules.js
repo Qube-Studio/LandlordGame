@@ -16,17 +16,22 @@ function roundBy(value, config) {
 /**
  * 下注边界：返回 {minStake, min, max, forceAllIn, allInAmount}。
  * 规则：minStake ≤ bet ≤ balance − minStake；balance < 2×minStake 时强制全押。
+ * 竞技资本家（mode==='competitive' && role==='capitalist'）：本金必归还、可全押 →
+ *   [minStake, balance]，无需留保留金、无强制全押（balance 即个人资金钱包）。
  */
-export function betBounds({ balance, role, farmerCount, config }) {
-  const minStake = getMinStake(role, farmerCount, config);
+export function betBounds({ balance, role, farmerCount, config, mode }) {
+  const minStake = getMinStake(role, farmerCount, config, { mode });
+  if (mode === 'competitive' && role === 'capitalist') {
+    return { minStake, min: Math.min(minStake, balance), max: balance, forceAllIn: false, allInAmount: null };
+  }
   if (balance < 2 * minStake) {
     return { minStake, min: balance, max: balance, forceAllIn: true, allInAmount: balance };
   }
   return { minStake, min: minStake, max: balance - minStake, forceAllIn: false, allInAmount: null };
 }
 
-export function validateBet({ amount, balance, role, farmerCount, config }) {
-  const bounds = betBounds({ balance, role, farmerCount, config });
+export function validateBet({ amount, balance, role, farmerCount, config, mode }) {
+  const bounds = betBounds({ balance, role, farmerCount, config, mode });
   if (!Number.isInteger(amount) || amount <= 0) return { valid: false, bounds, reason: '下注必须是正整数' };
   if (bounds.forceAllIn) {
     if (amount !== balance) return { valid: false, bounds, reason: `资金不足，只能全押 ${balance}` };
@@ -98,7 +103,7 @@ export function allocateDebt(total, farmers, config) {
  *   events: Array<object>,           // 供 UI 解说的结算事件
  * }}
  */
-export function settleRound({ coinResult, bets, balances, landlordId, farmerIds, config }) {
+export function settleRound({ coinResult, bets, balances, landlordId, farmerIds, config, debtWaiver = 0 }) {
   const landlordBet = bets[landlordId] ?? 0;
   const farmerBetTotal = farmerIds.reduce((s, id) => s + (bets[id] ?? 0), 0);
   const pot = landlordBet + farmerBetTotal;
@@ -127,9 +132,12 @@ export function settleRound({ coinResult, bets, balances, landlordId, farmerIds,
       }
       events.push({ type: 'landlord_win', target, surplus, landlordExtra, farmerPool });
     } else {
-      // 桌面不够：地主先拿走整个 pot，缺口由农民用手中余额共同补足
+      // 桌面不够：地主先拿走整个 pot，缺口由农民用手中余额共同补足。
+      // 竞技投资人担保（§8.3）：先把缺口减去 debtWaiver（=waiveMultiplier×Σ担保），被免除的部分地主收不到。
       landlordTake = pot;
-      const shortfall = target - pot;
+      const rawShortfall = target - pot;
+      const waived = Math.min(rawShortfall, Math.max(0, debtWaiver));
+      const shortfall = rawShortfall - waived;
       const allocation = allocateDebt(
         shortfall,
         farmerIds.map(id => ({ id, bet: bets[id] ?? 0, capacity: Math.max(balances[id] ?? 0, 0) })),
@@ -137,7 +145,8 @@ export function settleRound({ coinResult, bets, balances, landlordId, farmerIds,
       );
       for (const id of farmerIds) debts[id] = allocation.debts[id] ?? 0;
       uncovered = allocation.uncovered;
-      events.push({ type: 'landlord_win_shortfall', target, shortfall, uncovered });
+      if (waived > 0) events.push({ type: 'investor_waive', waived });
+      events.push({ type: 'landlord_win_shortfall', target, shortfall, rawShortfall, waived, uncovered });
     }
   } else {
     // 反面：农民胜，直接平分桌面所有钱

@@ -4,17 +4,19 @@
 // 分钱四子阶段 = SETTLE(系统结算) + NEGOTIATE(农民协商) + FINALIZE(正式结算) + 下一轮 DISCUSSION(农民讨论)。
 
 import crypto from 'crypto';
-import { mergeConfig, getInitialBalance } from './config.js';
+import { roomConfig, getInitialBalance, getInitialPool, getMinStake, factionOf } from './config.js';
 import { getMode } from './modes/index.js';
 import { flipCoin, betBounds, validateBet, settleRound, applyAllocation } from './logic/rules.js';
 import { upcomingGoal, goalForRound, goalPenalty } from './logic/landlordGoal.js';
+import { computeWage, wageDueThisRound, investorWaiver, computeTax } from './logic/competitive.js';
 import { apportion } from './logic/apportion.js';
 import { saveGameRecord } from './storage.js';
 
-export const PHASES = ['LOBBY', 'DISCUSSION', 'BETTING', 'REVEAL', 'COIN_FLIP', 'SETTLE', 'NEGOTIATE', 'FINALIZE', 'ENDED'];
+// REFLIP = 竞技暴食者重掷决策窗（§8.4），夹在 COIN_FLIP 与 SETTLE 之间，仅农民输且有暴食者时出现。
+export const PHASES = ['LOBBY', 'DISCUSSION', 'BETTING', 'REVEAL', 'COIN_FLIP', 'REFLIP', 'SETTLE', 'NEGOTIATE', 'FINALIZE', 'ENDED'];
 
 const PAYOUT_PHASES = ['SETTLE', 'NEGOTIATE', 'FINALIZE'];
-const IN_GAME_PHASES = ['DISCUSSION', 'BETTING', 'REVEAL', 'COIN_FLIP', ...PAYOUT_PHASES];
+const IN_GAME_PHASES = ['DISCUSSION', 'BETTING', 'REVEAL', 'COIN_FLIP', 'REFLIP', ...PAYOUT_PHASES];
 
 // 金额按 10/5/2/1 贪心分解后的张数（与客户端 game/notes.js decompose 一致）。
 // 张数对所有人可见（任务：桌面堆叠露张数，下注阶段仍不露金额）。
@@ -30,7 +32,7 @@ export class Room {
     this.roomId = roomId;
     this.name = name || '未命名房间';
     this.mode = getMode(modeId)?.id ?? 'quick';
-    this.config = mergeConfig(configOverrides);
+    this.config = roomConfig(this.mode, configOverrides);
     this.players = new Map(); // playerId -> player
     this.hostId = null;
     this.phase = 'LOBBY';
@@ -84,6 +86,14 @@ export class Room {
       negotiateConfirmed: false,
       spectator: false,   // 断线超时降级观战（任务⑥）
       emote: null,        // 手动表情覆盖（任务⑧ 预留接口）
+      // 竞技模式角色技能状态（§8；非竞技恒为默认值）：
+      pool: null,             // 资本家资金池（血条）；非资本家为 null
+      pledge: 0,              // 投资人本回合担保额（掷币前可改）
+      premium: 0,             // 投资人本回合已扣保费（锁定后）
+      mealAllowance: 0,       // 暴食者累积饭账（成本，农民胜时扣除）
+      reflipsLeft: 0,         // 暴食者剩余重掷次数（每局）
+      usedReflipThisRound: false,
+      passedReflip: false,    // 暴食者本重掷窗已放弃
       ws,
     };
     this.players.set(player.id, player);
@@ -134,8 +144,8 @@ export class Room {
     if (!player || player.online || player.spectator) return;
     if (!IN_GAME_PHASES.includes(this.phase)) return; // 大厅/终局无需处理
     player.spectator = true;
-    if (player.role === 'landlord') { this._endGame('farmers', 'landlord_abandoned'); return; }
-    if (player.role === 'farmer' && this._activeFarmers().length === 0) {
+    if (factionOf(player.role) === 'landlord') { this._endGame('farmers', 'landlord_abandoned'); return; }
+    if (factionOf(player.role) === 'farmer' && this._activeFarmers().length === 0) {
       this._endGame('landlord', 'farmers_abandoned');
       return;
     }
@@ -152,9 +162,9 @@ export class Room {
     this._reassignHost();
 
     if (IN_GAME_PHASES.includes(this.phase)) {
-      if (player.role === 'landlord') {
+      if (factionOf(player.role) === 'landlord') {
         this._endGame('farmers', 'landlord_left');
-      } else if (player.role === 'farmer' && this._activeFarmers().length === 0) {
+      } else if (factionOf(player.role) === 'farmer' && this._activeFarmers().length === 0) {
         this._endGame('landlord', 'farmers_left');
       } else {
         this._autoActOffline();
@@ -188,12 +198,15 @@ export class Room {
     const mode = getMode(this.mode);
     if (!mode.roles.includes(role)) return { error: '该模式不支持此角色' };
     if (role === 'bank') return { error: '银行角色尚未开放' };
-    if (role === 'landlord') {
-      const taken = [...this.players.values()].find(p => p.role === 'landlord' && p.id !== playerId);
-      if (taken) return { error: '已有玩家选择地主' };
-    }
-    if (role === 'farmer') {
-      const farmers = [...this.players.values()].filter(p => p.role === 'farmer' && p.id !== playerId);
+    const faction = factionOf(role);
+    if (!faction) return { error: '无效角色' };
+    if (faction === 'landlord') {
+      // 地主阵营恰 1 人：地主 / 资本家互斥。
+      const taken = [...this.players.values()].find(p => factionOf(p.role) === 'landlord' && p.id !== playerId);
+      if (taken) return { error: '地主阵营已有玩家（地主/资本家互斥）' };
+    } else {
+      // 农民阵营可重复（farmer/investor/glutton），仅限人数上限。
+      const farmers = [...this.players.values()].filter(p => factionOf(p.role) === 'farmer' && p.id !== playerId);
       if (farmers.length >= this.config.maxFarmers) return { error: '农民人数已满' };
     }
     player.role = role;
@@ -206,21 +219,32 @@ export class Room {
     if (this.phase !== 'LOBBY') return { error: '游戏已在进行中' };
     if (playerId !== this.hostId) return { error: '只有房主可以开始游戏' };
     const all = [...this.players.values()];
-    const landlords = all.filter(p => p.role === 'landlord');
-    const farmers = all.filter(p => p.role === 'farmer');
+    const landlordSide = all.filter(p => factionOf(p.role) === 'landlord');
+    const farmers = all.filter(p => factionOf(p.role) === 'farmer');
     if (all.some(p => !p.role)) return { error: '还有玩家未选择角色' };
-    if (landlords.length !== 1) return { error: '需要恰好 1 名地主' };
+    if (landlordSide.length !== 1) return { error: '需要恰好 1 名地主阵营玩家（地主或资本家）' };
     if (farmers.length < this.config.minFarmers) return { error: `至少需要 ${this.config.minFarmers} 名农民` };
     if (farmers.length > this.config.maxFarmers) return { error: `农民最多 ${this.config.maxFarmers} 名` };
 
     this.gameId = crypto.randomBytes(6).toString('hex');
     this.startedAt = Date.now();
     this.history = [];
+    const opts = { mode: this.mode };
+    // 竞技地主初始按花名册：农民阵营各自初始资金之和。
+    const farmerTotal = farmers.reduce((s, p) => s + getInitialBalance(p.role, farmers.length, this.config, opts), 0);
+    const g = this.config.competitive?.glutton;
     for (const p of all) {
-      p.balance = getInitialBalance(p.role, farmers.length, this.config);
+      p.balance = getInitialBalance(p.role, farmers.length, this.config, { ...opts, farmerTotal });
+      p.pool = getInitialPool(p.role, farmers.length, this.config); // 资本家资金池；非资本家 null
       p.bankrupt = false;
+      p.pledge = 0;
+      p.premium = 0;
+      p.mealAllowance = 0;
+      p.reflipsLeft = p.role === 'glutton' ? (g?.maxReflips ?? 0) : 0;
+      p.usedReflipThisRound = false;
     }
-    this.landlordInitial = this._landlord()?.balance ?? 0;
+    // 地主资金目标基准：仅地主（非资本家）才有考核。
+    this.landlordInitial = this._landlord()?.role === 'landlord' ? (this._landlord()?.balance ?? 0) : 0;
     this.round = 1;
     this._enterDiscussion();
     return { ok: true };
@@ -241,6 +265,7 @@ export class Room {
     this.negotiateDeadline = null;
     this.winnerSide = null;
     this.endReason = null;
+    this.debtWaiver = 0;
     this.history = [];
     this._clearGraceTimers();
     for (const p of this.players.values()) {
@@ -252,6 +277,13 @@ export class Room {
       p.confirmed = false;
       p.negotiateConfirmed = false;
       p.emote = null;
+      p.pool = null;          // 竞技角色技能状态清空
+      p.pledge = 0;
+      p.premium = 0;
+      p.mealAllowance = 0;
+      p.reflipsLeft = 0;
+      p.usedReflipThisRound = false;
+      p.passedReflip = false;
     }
     this._broadcastState();
     return { ok: true, backToLobby: true };
@@ -271,11 +303,18 @@ export class Room {
       this.players.set(id, {
         id, username: '测试' + n, seat: this._seat++, role: null,
         balance: 0, bankrupt: false, online: true, ready: false, confirmed: false,
-        negotiateConfirmed: false, spectator: false, emote: null, ws: null,
+        negotiateConfirmed: false, spectator: false, emote: null,
+        pool: null, pledge: 0, premium: 0, mealAllowance: 0, reflipsLeft: 0, usedReflipThisRound: false, passedReflip: false,
+        ws: null,
       });
     }
     const all = [...this.players.values()].sort((a, b) => a.seat - b.seat);
-    all.forEach((p, i) => { p.role = i === 0 ? 'landlord' : 'farmer'; });
+    // 竞技模式补满成「地主 + 三种农民各一」，方便用 V 键逐个附身、单人玩通新角色
+    // （想测资本家：附身 0 号位、LOBBY 里改选资本家即可）。
+    const roster = this.mode === 'competitive'
+      ? ['landlord', 'investor', 'glutton', 'farmer']
+      : ['landlord', 'farmer', 'farmer', 'farmer'];
+    all.forEach((p, i) => { p.role = roster[i] ?? 'farmer'; });
     this.config.autoActForOffline = false; // 测试：不自动代离线，全部手动切换控制
     this._touch();
     this._broadcastState();
@@ -351,22 +390,43 @@ export class Room {
     this.roundFarmerIds = this._activeFarmers().map(p => p.id);
     this.roundStartBalances = {};
     for (const p of this._activePlayers()) this.roundStartBalances[p.id] = p.balance;
+    if (this._competitive) this._beginCompetitiveRound();
     this._autoActOffline();
     this._broadcastState();
     this._checkAllBet();
   }
 
-  placeBet(playerId, amount, count) {
+  // 竞技每回合开始：清空本回合担保/保费/重掷标记，暴食者累积 1 点饭账（§8.2/8.4）。
+  _beginCompetitiveRound() {
+    this.debtWaiver = 0;
+    const inc = this.config.competitive.glutton.allowancePerRound;
+    for (const p of this._activePlayers()) {
+      p.pledge = 0;
+      p.premium = 0;
+      p.usedReflipThisRound = false;
+      p.passedReflip = false;
+      if (p.role === 'glutton') p.mealAllowance += inc;
+    }
+  }
+
+  placeBet(playerId, amount, count, pledge) {
     if (this.phase !== 'BETTING') return { error: '当前不是下注阶段' };
     const player = this.players.get(playerId);
     if (!player || !this._isActive(player)) return { error: '观战者不能下注' };
     if (this.bets[playerId] !== undefined) return { error: '已经下过注了' };
+    // 竞技投资人：投保与下注同时提交（§8.3 手牌下保）。先扣保费，扣后余额才是下注校验基数。
+    if (this._competitive && player.role === 'investor' && player.premium === 0
+        && Number.isInteger(pledge) && pledge >= 1) {
+      const n = Math.min(pledge, this.config.competitive.investor.maxPledge, player.balance);
+      if (n >= 1) { player.pledge = n; player.premium = n; player.balance -= n; }
+    }
     const check = validateBet({
       amount,
       balance: player.balance,
       role: player.role,
       farmerCount: this.roundFarmerIds.length,
       config: this.config,
+      mode: this.mode,
     });
     if (!check.valid) return { error: check.reason, bounds: check.bounds };
     this.bets[playerId] = amount;
@@ -382,6 +442,25 @@ export class Room {
     if (this.phase !== 'BETTING') return;
     const pending = this._activePlayers().filter(p => this.bets[p.id] === undefined);
     if (pending.length === 0) this._enterReveal();
+  }
+
+  // 暴食者放弃本窗重掷（§8.4）：所有可重掷暴食者都放弃（或离线自动放弃）即进入结算。
+  passReflip(playerId) {
+    if (this.phase !== 'REFLIP') return { error: '当前不是重掷阶段' };
+    const player = this.players.get(playerId);
+    if (!player || player.role !== 'glutton' || !this._isActive(player)) return { error: '只有暴食者可以操作' };
+    if (!this.roundFarmerIds.includes(playerId)) return { error: '本回合未参与' };
+    player.passedReflip = true;
+    this._broadcastState();
+    this._checkReflipGate();
+    return { ok: true };
+  }
+
+  _checkReflipGate() {
+    if (this.phase !== 'REFLIP') return;
+    const capable = this._reflipGluttons();
+    const allPassed = capable.every(g => g.passedReflip || (!g.online && this.config.autoActForOffline));
+    if (allPassed) this._enterSettle();
   }
 
   _enterReveal() {
@@ -402,10 +481,58 @@ export class Room {
   }
 
   _enterCoinFlip() {
+    if (this._competitive) this._lockInvestorPledges();
+    this._flipAndAnimate();
+  }
+
+  // 汇总担保减债（§8.3）：保费已在 BETTING 投保时即扣，这里只累计本回合减债总额。
+  _lockInvestorPledges() {
+    let totalPremium = 0;
+    for (const p of this._activePlayers()) {
+      if (p.role === 'investor') totalPremium += (p.premium ?? 0);
+    }
+    this.debtWaiver = investorWaiver(totalPremium, this.config);
+  }
+
+  // 抛硬币 + 播放动画；动画结束后决定进入重掷窗或系统结算。重掷也复用此方法重播。
+  _flipAndAnimate() {
     this._setPhase('COIN_FLIP');
     this.coinResult = flipCoin();
     this._broadcastState();
-    this._after(this.config.timing.coinAnimMs, () => this._enterSettle());
+    this._after(this.config.timing.coinAnimMs, () => this._afterCoinFlip());
+  }
+
+  _afterCoinFlip() {
+    // 竞技：农民输（heads）且仍有暴食者可重掷 → 进入 REFLIP 决策窗；否则系统结算。
+    if (this._competitive && this.coinResult === 'heads' && this._reflipGluttons().length > 0) {
+      this._enterReflip();
+    } else {
+      this._enterSettle();
+    }
+  }
+
+  _enterReflip() {
+    this._setPhase('REFLIP');
+    for (const g of this._reflipGluttons()) g.passedReflip = false; // 新窗重置放弃标记
+    this._broadcastState();
+    // 决策窗：超时（或全部放弃）则进入结算（窗内暴食者可 request_reflip / pass_reflip）。
+    this._after(this.config.timing.reflipDecisionMs, () => {
+      if (this.phase === 'REFLIP') this._enterSettle();
+    });
+    this._autoActOffline(); // 离线暴食者自动放弃
+  }
+
+  // 暴食者请求重掷（§8.4）：消耗一次，标记本回合已重掷（决定伙食费是否清零），权威重掷并重播动画。
+  requestReflip(playerId) {
+    if (this.phase !== 'REFLIP') return { error: '当前不是重掷阶段' };
+    const player = this.players.get(playerId);
+    if (!player || player.role !== 'glutton' || !this._isActive(player)) return { error: '只有暴食者可以重掷' };
+    if (!this.roundFarmerIds.includes(playerId)) return { error: '本回合未参与，不能重掷' };
+    if (player.reflipsLeft <= 0) return { error: '重掷次数已用尽' };
+    player.reflipsLeft -= 1;
+    player.usedReflipThisRound = true;
+    this._flipAndAnimate();
+    return { ok: true };
   }
 
   _enterSettle() {
@@ -419,6 +546,7 @@ export class Room {
       landlordId: this._landlord()?.id,
       farmerIds: this.roundFarmerIds,
       config: this.config,
+      debtWaiver: this._competitive ? (this.debtWaiver ?? 0) : 0,
     });
     this.allocation = {
       takes: { ...this.settlement.takes },
@@ -508,7 +636,7 @@ export class Room {
     let landlordPenalty = 0;
     let landlordGoalValue = null;
     let landlordGoalMet = null;
-    if (this.config.landlordGoal?.enabled && landlordId) {
+    if (this.config.landlordGoal?.enabled && landlordId && this.players.get(landlordId)?.role === 'landlord') {
       landlordGoalValue = goalForRound(this.round, this.landlordInitial, this.config);
       if (landlordGoalValue != null) {
         const after = result.after[landlordId] ?? 0;
@@ -533,19 +661,63 @@ export class Room {
       }
     }
 
+    // === 竞技模式入账（§8）：资本家资金池换算、基础农民工资、暴食者伙食费。均在破产判定前。===
+    let capitalistPool = null, capitalistTax = 0, capitalistPoolDelta = 0;
+    const wagePaid = {}, allowanceCharged = {};
+    if (this._competitive) {
+      // 资本家：个人押注本金原封不动归还（个人净变动 0），净盈亏入资金池，再扣税；资金池才是血条。
+      const cap = this._capitalist();
+      if (cap && landlordId === cap.id) {
+        const start = this.roundStartBalances[cap.id] ?? 0;
+        capitalistPoolDelta = (result.after[cap.id] ?? 0) - start;
+        result.after[cap.id] = start;          // 个人资金恒定
+        result.deltas[cap.id] = 0;
+        cap.pool = (cap.pool ?? 0) + capitalistPoolDelta;
+        capitalistTax = computeTax(cap.pool, this.config);
+        cap.pool -= capitalistTax;
+        capitalistPool = cap.pool;
+      }
+      // 基础农民工资：按活跃农民数缩放，到点发薪给存活的基础农民。
+      const { interval, amount } = computeWage(this.roundFarmerIds.length, this.config);
+      if (wageDueThisRound(this.round, interval) && amount > 0) {
+        for (const id of this.roundFarmerIds) {
+          if (this.players.get(id)?.role === 'farmer') {
+            result.after[id] = (result.after[id] ?? 0) + amount;
+            result.deltas[id] = (result.deltas[id] ?? 0) + amount;
+            wagePaid[id] = amount;
+          }
+        }
+      }
+      // 暴食者饭账：每回合累积成「饭账」（成本）。农民胜时从余额扣除并清零（允许扣到破产）；
+      // 农民负则饭账继续累积——含重掷仍输也不清零（§8.4）。
+      const farmersWon = this.coinResult === 'tails';
+      for (const id of this.roundFarmerIds) {
+        const p = this.players.get(id);
+        if (!p || p.role !== 'glutton') continue;
+        if (farmersWon && p.mealAllowance > 0) {
+          result.after[id] = (result.after[id] ?? 0) - p.mealAllowance;
+          result.deltas[id] = (result.deltas[id] ?? 0) - p.mealAllowance;
+          allowanceCharged[id] = p.mealAllowance;
+          p.mealAllowance = 0;
+        }
+      }
+    }
+
     for (const [id, balance] of Object.entries(result.after)) {
       const p = this.players.get(id);
       if (p) p.balance = balance;
     }
 
     // 破产判定在惩罚扣除之后重算（惩罚可能直接压垮地主）。
+    // 资本家用资金池判定（个人资金恒定不破产）；其余按余额。
     const newlyBankrupt = [];
     for (const id of [landlordId, ...this.roundFarmerIds]) {
       const p = this.players.get(id);
-      if (p && !p.bankrupt && (result.after[id] ?? 0) <= this.config.bankruptcyThreshold) {
-        p.bankrupt = true;
-        newlyBankrupt.push(id);
-      }
+      if (!p || p.bankrupt) continue;
+      const broke = p.role === 'capitalist'
+        ? (p.pool ?? 0) <= this.config.bankruptcyThreshold
+        : (result.after[id] ?? 0) <= this.config.bankruptcyThreshold;
+      if (broke) { p.bankrupt = true; newlyBankrupt.push(id); }
     }
     this.history.push({
       round: this.round,
@@ -564,6 +736,12 @@ export class Room {
       deltas: result.deltas,
       balancesAfter: result.after,
       newlyBankrupt,
+      // 竞技模式回合记录（§8）：
+      ...(this._competitive ? {
+        debtWaiver: this.debtWaiver ?? 0,
+        capitalistPool, capitalistTax, capitalistPoolDelta,
+        wagePaid, allowanceCharged,
+      } : {}),
     });
     this._broadcastState();
     this._after(this.config.timing.finalizeMs, () => this._afterRound());
@@ -613,7 +791,7 @@ export class Room {
     const message = (text ?? '').toString().trim().slice(0, 200);
     if (!player || !message) return { error: '消息无效' };
     if (!this.config.channels.includes(channel)) return { error: '频道不存在' };
-    if (channel === 'farmer' && player.role !== 'farmer') return { error: '只有农民可以使用农民频道' };
+    if (channel === 'farmer' && factionOf(player.role) !== 'farmer') return { error: '只有农民阵营可以使用农民频道' };
     const entry = { channel, from: playerId, name: player.username, text: message, ts: Date.now() };
     this.chatLog.push(entry);
     if (this.chatLog.length > 200) this.chatLog.shift();
@@ -626,7 +804,7 @@ export class Room {
 
   _canSeeChannel(player, channel) {
     if (channel === 'public') return true;
-    return player.role === 'farmer' || player.bankrupt; // 破产观战者全可见
+    return factionOf(player.role) === 'farmer' || player.bankrupt; // 破产观战者全可见
   }
 
   chatHistoryFor(playerId) {
@@ -654,8 +832,17 @@ export class Room {
     const spectator = !!(viewer?.bankrupt || viewer?.spectator); // 破产 或 断线超时降级（任务⑥）
     const betsPublic = !['LOBBY', 'DISCUSSION', 'BETTING'].includes(this.phase);
     const farmerCount = this.phase === 'LOBBY'
-      ? [...this.players.values()].filter(p => p.role === 'farmer').length
+      ? [...this.players.values()].filter(p => factionOf(p.role) === 'farmer').length
       : this.roundFarmerIds.length;
+
+    // 基础农民工资进度（§8.2）：还剩几回合发薪、每次发多少（按当前活跃农民数缩放）。公开信息。
+    let wageInfo = null;
+    if (this._competitive && IN_GAME_PHASES.includes(this.phase)) {
+      const m = Math.max(1, this._activeFarmers().length);
+      const { interval, amount } = computeWage(m, this.config);
+      const mod = this.round % interval;
+      wageInfo = { interval, amount, roundsToNext: mod === 0 ? 0 : interval - mod };
+    }
 
     const players = [...this.players.values()].sort((a, b) => a.seat - b.seat).map(p => ({
       id: p.id,
@@ -674,6 +861,15 @@ export class Room {
       betCount: this.bets[p.id] !== undefined ? (this.betCounts[p.id] ?? noteCount(this.bets[p.id])) : 0, // 实际张数，对所有人一致可见
       bet: betsPublic ? (this.bets[p.id] ?? null) : null,
       balance: (p.id === viewerId || spectator || this.phase === 'ENDED') ? p.balance : null,
+      // 竞技角色技能进度（§8.7 隐私边界）：担保/伙食费/资金池仅本人/观战可见；剩余重掷次数公开（施压）。
+      ...(this._competitive ? {
+        pledge: p.role === 'investor' ? ((p.id === viewerId || spectator || betsPublic) ? p.pledge : null) : null,
+        reflipsLeft: p.role === 'glutton' ? p.reflipsLeft : null,
+        usedReflip: p.role === 'glutton' ? p.usedReflipThisRound : null,
+        mealAllowance: p.role === 'glutton' ? ((p.id === viewerId || spectator) ? p.mealAllowance : null) : null,
+        pool: p.role === 'capitalist' ? ((p.id === viewerId || spectator) ? p.pool : null) : null,
+        wage: p.role === 'farmer' ? wageInfo : null,
+      } : {}),
     }));
 
     // 地主资金目标（任务 6）：目标值与到期回合对所有人可见；地主当前余额仅地主/观战者/终局可见。
@@ -688,7 +884,17 @@ export class Room {
       landlordBalance: (viewer?.role === 'landlord' || spectator) ? landlord.balance : null,
     } : null;
 
-    const canNegotiateView = spectator || viewer?.role === 'farmer';
+    // 资本家 HUD（§8.6/8.7）：资金池/个人资金仅本人/观战可见；taxRate 公开（用于展示扣税规则）。
+    const cap = this._capitalist();
+    const capitalist = (this._competitive && cap && IN_GAME_PHASES.includes(this.phase)) ? {
+      id: cap.id,
+      personal: (viewerId === cap.id || spectator) ? cap.balance : null,
+      pool: (viewerId === cap.id || spectator) ? cap.pool : null,
+      taxRate: this.config.competitive.capitalist.taxRate,
+      taxMin: this.config.competitive.capitalist.taxMin,
+    } : null;
+
+    const canNegotiateView = spectator || factionOf(viewer?.role) === 'farmer';
     const me = viewer ? {
       id: viewer.id,
       role: viewer.role,
@@ -700,8 +906,19 @@ export class Room {
       spectator,
       isHost: viewerId === this.hostId,
       bounds: this._isActive(viewer) && farmerCount > 0
-        ? betBounds({ balance: viewer.balance, role: viewer.role, farmerCount, config: this.config })
+        ? betBounds({ balance: viewer.balance, role: viewer.role, farmerCount, config: this.config, mode: this.mode })
         : null,
+      // 竞技自身技能状态（方便面板读取；隐私无碍——都是本人数据）：
+      ...(this._competitive && viewer ? {
+        pledge: viewer.pledge,
+        premium: viewer.premium,
+        pledgeMax: this.config.competitive.investor.maxPledge,
+        mealAllowance: viewer.mealAllowance,
+        reflipsLeft: viewer.reflipsLeft,
+        passedReflip: viewer.passedReflip,
+        pool: viewer.pool,
+        wage: viewer.role === 'farmer' ? wageInfo : null,
+      } : {}),
     } : null;
 
     return {
@@ -715,7 +932,7 @@ export class Room {
       players,
       me,
       pot: betsPublic ? Object.values(this.bets).reduce((s, v) => s + v, 0) : null,
-      coinResult: ['COIN_FLIP', ...PAYOUT_PHASES].includes(this.phase) ? this.coinResult : null,
+      coinResult: ['COIN_FLIP', 'REFLIP', ...PAYOUT_PHASES].includes(this.phase) ? this.coinResult : null,
       settlement: PAYOUT_PHASES.includes(this.phase) ? this.settlement : null,
       allocation: this.phase === 'NEGOTIATE' && canNegotiateView
         ? {
@@ -727,10 +944,16 @@ export class Room {
         : null,
       roundFarmerIds: this.roundFarmerIds,
       landlordGoal,
+      capitalist,
       // balancesAfter 会泄露他人余额绝对值，仅观战者/终局可见
       history: this.history.map(h => {
         if (spectator || this.phase === 'ENDED') return h;
         const { balancesAfter: _hidden, ...publicEntry } = h;
+        // 资本家资金池绝对值/变动/税 仅资本家本人可见（与余额隐私一致）。
+        if (this._competitive && viewer?.role !== 'capitalist') {
+          const { capitalistPool: _p, capitalistTax: _t, capitalistPoolDelta: _d, ...pub } = publicEntry;
+          return pub;
+        }
         return publicEntry;
       }),
       winnerSide: this.phase === 'ENDED' ? this.winnerSide : null,
@@ -751,20 +974,37 @@ export class Room {
 
   // ---------- 内部工具 ----------
 
-  _landlord() {
-    return [...this.players.values()].find(p => p.role === 'landlord');
+  get _competitive() {
+    return this.mode === 'competitive';
   }
 
+  // 地主阵营的唯一玩家（地主 或 资本家）。结算/胜负判定都把它当作「地主侧」。
+  _landlord() {
+    return [...this.players.values()].find(p => factionOf(p.role) === 'landlord');
+  }
+
+  _capitalist() {
+    return [...this.players.values()].find(p => p.role === 'capitalist');
+  }
+
+  // 活跃农民 = 农民阵营（farmer/investor/glutton）中未破产、未观战者。
   _activeFarmers() {
-    return [...this.players.values()].filter(p => p.role === 'farmer' && !p.bankrupt && !p.spectator);
+    return [...this.players.values()].filter(p => factionOf(p.role) === 'farmer' && !p.bankrupt && !p.spectator);
   }
 
   _activePlayers() {
-    return [...this.players.values()].filter(p => (p.role === 'landlord' || p.role === 'farmer') && !p.bankrupt && !p.spectator);
+    return [...this.players.values()].filter(p => factionOf(p.role) && !p.bankrupt && !p.spectator);
   }
 
   _isActive(player) {
-    return (player.role === 'landlord' || player.role === 'farmer') && !player.bankrupt && !player.spectator;
+    return !!factionOf(player.role) && !player.bankrupt && !player.spectator;
+  }
+
+  // 暴食者中仍可重掷者（活跃 + 本回合参与 + 尚有次数）。
+  _reflipGluttons() {
+    return this.roundFarmerIds
+      .map(id => this.players.get(id))
+      .filter(p => p && p.role === 'glutton' && this._isActive(p) && p.reflipsLeft > 0);
   }
 
   // 通用闸门：所有活跃玩家的 flag 为真（离线玩家按配置自动通过）即推进。
@@ -786,6 +1026,7 @@ export class Room {
             role: p.role,
             farmerCount: this.roundFarmerIds.length,
             config: this.config,
+            mode: this.mode,
           });
           const amount = bounds.forceAllIn ? bounds.allInAmount : bounds.min;
           this.bets[p.id] = amount;
@@ -800,6 +1041,8 @@ export class Room {
       this._checkGate('confirmed', () => this._enterCoinFlip());
     } else if (this.phase === 'NEGOTIATE') {
       this._checkNegotiateGate();
+    } else if (this.phase === 'REFLIP') {
+      this._checkReflipGate();
     }
   }
 

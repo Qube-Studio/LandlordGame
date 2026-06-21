@@ -24,7 +24,7 @@
 |------|----|------|------|
 | 快速 | `quick` | 地主 ×1，农民 ×1..4 | **本次实现** |
 | 经典 | `classic` | 快速 + 银行 ×1（放贷/利息/赦免） | 预留（注册表中占位，大厅可见但禁用） |
-| 竞技 | `competitive` | 轮换坐庄银行制 | 预留（同上） |
+| 竞技 | `competitive` | 地主/资本家（互斥）+ 基础农民/投资人/暴食者 | **本次开放（见 §8）** |
 
 模式注册表 `server/modes/index.js`：每个模式导出描述符
 `{ id, label, available, roles: [...], minFarmers, maxFarmers, description }`。
@@ -272,4 +272,118 @@ data/              运行时数据（gitignore）
 7. FINALIZE：余额变动正确（含缺口分摊、付不起破产）、钱回手动画、回合历史落盘。
 8. 循环回 DISCUSSION，round+1；地主或全部农民破产 → ENDED，房主可重开。
 9. 断线重连回原座位；顶号踢旧连接；大厅在线人数正确。
-10. `npm run build` 与 `npm run lint` 通过；经典/竞技在大厅显示但禁用。
+10. `npm run build` 与 `npm run lint` 通过；经典在大厅显示但禁用（竞技见 §8）。
+
+---
+
+## 8. 竞技模式（`competitive`，本次开放）
+
+> 竞技模式 = 快速模式全部规则 + **角色技能系统**。原 §1 占位的「轮换坐庄银行制」概念作废，由本节角色设计取代。
+> 角色技能仅作用于竞技模式；快速模式完全不变。
+> 本节数值多为 Draft 0.1，§8.9 标注的「待校准」项依赖实测——先实现机制、再调参（与 `docs/TUNING.md` 同步）。
+> 仍遵守 §0：服务端权威、零硬编码（参数集中在 `config.competitive`）、逻辑/表现分离。
+
+### 8.1 阵营与角色
+
+两大阵营，角色在 LOBBY 选定、`start_game` 时锁定并据此计算初始资金：
+
+- **地主阵营**（恰 1 人，二者互斥）：`landlord` 地主 / `capitalist` 资本家。
+- **农民阵营**（1–4 人，**可重复**选取，可出现多个同种角色）：`farmer` 基础农民 / `investor` 投资人 / `glutton` 暴食者。
+
+| 阵营 | 角色 id | 初始资金 | 主动技能 | 被动 |
+|------|--------|---------|---------|------|
+| 农民 | `farmer` 基础农民 | 9 | — | 工资（§8.2） |
+| 农民 | `investor` 投资人 | 8 | 掷币前担保 n（§8.3） | — |
+| 农民 | `glutton` 暴食者 | 6 | 农民输时重掷（§8.4） | 饭账（农民胜时扣，§8.4） |
+| 地主 | `landlord` 地主 | ⌊农民总资金 × 1.5⌋ | — | 资金目标考核（§8.5） |
+| 地主 | `capitalist` 资本家 | 个人 农民数×4 + 资金池 农民数×10 | 押注从个人资金出、本金必归还（§8.6） | 每回合资金池税（§8.6） |
+
+- **初始资金按花名册**：竞技模式下 `getInitialBalance` 需「按角色名册」计算——先求各农民按其角色初始资金之和 `farmerTotal`，地主 = ⌊`landlordFundMultiplier` × farmerTotal⌋，资本家个人 = 活跃农民数 × `personalPerFarmer`(4)、资金池 = 活跃农民数 × `poolPerFarmer`(10)。换公式只改此函数（保持 §0.2 扩展点）。
+- 角色身份（哪一种）与现有 landlord/farmer 一样**公开**（座位、头顶名牌显示），用于施压与配合；**技能进度**的隐私见 §8.7。
+
+### 8.2 工资（基础农民被动）
+
+体现「多农民熬死地主」：基础农民越多，滚雪球越快。仅 `farmer` 计发工资（投资人/暴食者有各自机制）。记当前**活跃农民总数**（含投资人/暴食者）为 `m`：
+
+- **发薪间隔** `interval = max(wage.minInterval, wage.baseInterval − (m−1)·wage.perFarmerIntervalReduce)`，默认 `max(2, 5−(m−1))` → m=1..4 得 5 / 4 / 3 / 2。
+- **每次工资额** `amount = wage.baseAmount + (m−1)·wage.perFarmerAmountBonus`，默认 `1+(m−1)` → m=1..4 得 1 / 2 / 3 / 4。
+- **FINALIZE** 时若 `round % interval === 0`，每个**存活的基础农民**入账 `+amount`（在破产判定前，可救活濒死农民）。
+
+### 8.3 投资人技能：投保（保费制，手牌下保）
+
+- **投保**：投资人**仅在 BETTING、下注确认前**，把手牌拖入「投保槽」（手牌左侧）累积保费 `n ∈ [1, min(investor.maxPledge, 余额)]`（默认上限 3）。**与下注一并提交**（`place_bet` 携带 `pledge`），**下注完成后不可再投保、本回合一次性**。
+- **保费即扣**：提交时先扣保费 `n`、再以扣后余额校验下注。表现：确认下注后，下注牌飞上桌、投保槽里的保单牌**一张张掉出屏幕（不上桌）**。农民赢则白付 n、农民输则减债。
+- **效果**：若本回合**农民阵营输**（地主胜且 `pot < target` 产生缺口 `shortfall`），把缺口**先减去 `investor.waiveMultiplier × Σn`（默认 2×Σ保费；多名投资人累加，封顶到 shortfall）**，再按 §3.5 的 `inverseBet` 分摊剩余缺口；地主据实少收对应金额（`COIN_FLIP` 时汇总减债总额）。
+- 隐私：他人 BETTING 期不可见 n，REVEAL 起公开（与 bets 一致）。右侧玩家列展示投保额与「生效/未生效」状态。
+
+### 8.4 暴食者技能：饭账 + 重掷
+
+主题呼应「暴食」——每回合不停吃饭累积**饭账（成本）**，赢钱时才结清，但能强行干预掷币。
+
+- **饭账 mealAllowance**：每回合 +`glutton.allowancePerRound`（默认 1），是累积的**待扣成本**而非收益。**仅农民阵营赢时**于 FINALIZE 把当前累积额从该暴食者余额**扣除**（记为 `allowanceCharged`），随后清零；扣除在破产判定前，**允许直接扣到破产**（囤饭账有风险）。农民输则饭账继续累积（不结算）。
+- **重掷**：当 COIN_FLIP 落定为**农民输**时进入 **REFLIP 决策窗**（仅当场上存在尚有次数的暴食者且农民输时才出现）。每个暴食者每局最多 `glutton.maxReflips`（默认 3）次：
+  - 暴食者请求重掷（`request_reflip`）→ 服务端**权威重新 flipCoin**，客户端回放新动画。
+  - 暴食者可主动**放弃重掷**（`pass_reflip`，不消耗次数）；**全部可重掷暴食者放弃（或离线自动放弃）即提前进入 SETTLE**，不必等满决策窗。
+  - 重掷**只消耗 1 次重掷机会**，不影响饭账（饭账只在农民胜时结清）；重掷后仍为农民输则饭账继续累积，其余有次数的暴食者仍可继续请求。
+  - 任一暴食者使农民转胜、或全部暴食者放弃/用尽次数、或超时 → 退出 REFLIP 窗进入 SETTLE。
+- 隐私：mealAllowance 仅本人/观战可见；剩余重掷次数公开（施压）。
+- **多暴食者**：各自独立计数与结清；同一次落定可被多名暴食者接力重掷。
+
+### 8.5 地主（竞技数值）
+
+规则同 §3.5，仅数值改用竞技档（均为待校准）：
+
+- 初始 = ⌊农民总资金 × `competitive.landlordFundMultiplier`(1.5)⌋。
+- 资金目标 `landlordGoal.schedule`（竞技档）：检查点回合 3→0.6、4→1.0、5→1.4、6→1.7、7→2.0，其后维持 2.0；未达标扣 `max(minPenalty, ⌊余额×0.2⌋)`，惩罚平分给农民（沿用 §3.7 的 `logic/landlordGoal.js`）。
+
+### 8.6 资本家（竞技）
+
+风险结构与地主完全不同：**个人资金只是押注用的钱包、本金永远拿回**，真正的血条是**资金池**。
+
+- **个人资金（押注钱包）= 活跃农民数 × `capitalist.personalPerFarmer`(4)**。押注像地主一样把 L 放上桌，但**无论输赢，本金 L 在 FINALIZE 原封不动归还**（即现有「桌面→手牌」回收动画）——故个人资金恒定不变、**不决定破产**。
+- **最小出资额 = `capitalist.minStake`(1)**（固定，不随农民数）。**押注边界 `L ∈ [1, 个人资金]`，可全押**（押满个人资金；因本金必归还，无需留保留金，也没有强制全押的特殊情形）。
+- **资金池 = 真实钱包/血条**：初始 = 活跃农民数 × `capitalist.poolPerFarmer`(10)，承接全部**净盈亏**——FINALIZE 时 `pool += (本回合按地主口径算出的净变动)`，即 `pool += (实际收取额 − L)`（资本家胜为正、农民胜为 `−L`）。本金 L 归个人资金、盈亏归资金池，二者不重复计。
+- **押注与结算结构**与地主相同（L vs F，`target = ⌊L × landlordWinMultiplier⌋`，正面 = 资本家胜）。
+- **税收**：FINALIZE 时资金池 −`max(capitalist.taxMin, ⌊pool × capitalist.taxRate⌋)`（默认 `max(2, ⌊pool×10%⌋)`）。核心决策：押多大才能让池的净赢盖过税收、又不被大额回摆拖垮。
+- **无资金目标考核**。**破产**：FINALIZE 后资金池 ≤ 0。**FINALIZE 顺序**：本金 L 归还个人资金 → 净盈亏入资金池 → 扣税 → 破产判定。
+
+### 8.7 阶段 / 协议 / 视图增量
+
+- **LOBBY 选角**：`take_role {role}` 扩展接受 5 种 id；校验阵营人数（地主侧恰 1 人且 landlord/capitalist 互斥；农民侧 1–4、可重复）。`start_game` 时锁定角色并按 §8.1 算初始资金。
+- **WS（客户端→服务端）**：`place_bet {amount, count, pledge?}`（`pledge`=竞技投资人投保，§8.3）、`request_reflip {}`、`pass_reflip {}`。
+- **新增子阶段**：COIN_FLIP 后、SETTLE 前的条件式 **REFLIP** 窗（§8.4）；无暴食者或农民未输时直接跳过（与「≤1 农民跳过 NEGOTIATE」同模式）。
+- **viewFor 增量**（隐私边界）：每人见自身 `role`；按角色下发——基础农民 `wage:{interval, amount, roundsToNext}`（公开，可施压）；投资人 `pledge`（REVEAL 起公开，之前仅本人）；暴食者 `mealAllowance`（本人/观战）+ `reflipsLeft`（公开）；资本家以 `capitalist:{pool, tax, personal}` 取代 `landlordGoal`（`pool/personal` 仅本人/观战，`tax` 公开）；地主侧仍下发 `landlordGoal`。
+
+### 8.8 config 增量（`server/config.js`）
+
+竞技参数集中在 `DEFAULT_CONFIG.competitive`，Room 在 `mode==='competitive'` 时合并生效；`modes/index.js` 把 `competitive.available=true`、`roles` 改为 5 种、描述改为角色技能制。
+
+```js
+competitive: {
+  initialBalance: { farmer: 9, investor: 8, glutton: 6 },
+  landlordFundMultiplier: 1.5,
+  capitalist: { personalPerFarmer: 4, poolPerFarmer: 10, minStake: 1, taxRate: 0.10, taxMin: 2 },
+  wage:    { baseInterval: 5, minInterval: 2, perFarmerIntervalReduce: 1, baseAmount: 1, perFarmerAmountBonus: 1 },
+  investor:{ maxPledge: 3, waiveMultiplier: 2 },
+  glutton: { allowancePerRound: 1, maxReflips: 3 },
+  landlordGoal: {
+    schedule: [ { interval: 3, multiplier: 0.6 }, { interval: 1, multiplier: 1.0 },
+                { interval: 1, multiplier: 1.4 }, { interval: 1, multiplier: 1.7 },
+                { interval: 1, multiplier: 2.0 } ],
+    penaltyRate: 0.2, minPenalty: 2,
+  },
+}
+```
+
+纯逻辑（工资、担保减债、伙食费、税）放入 `server/logic/`（可单测）；REFLIP 窗与计时归 `Room.js`。
+
+### 8.9 待校准（实测，见 `docs/TUNING.md`）
+
+工资 interval/amount 缩放、投资人 `waiveMultiplier`、暴食者 `allowancePerRound`/`maxReflips`、地主竞技 `schedule`、资本家 `poolPerFarmer`/`taxRate` —— 全部待数值测试。原设计稿的 4 个平衡问题逐条对应这些参数：① 资本家 vs 地主的选择平衡；② 暴食者多农民局强度；③ 工资流 vs 地主考核增速的互相牵制；④ 地主目标具体数值。
+
+### 8.10 验收增量
+
+- 大厅竞技可建房；选角校验（地主侧互斥恰 1、农民可重复）；初始资金按花名册正确。
+- 工资按活跃农民数缩放、按间隔发薪；投资人保费先扣、农民输则减债 2n；暴食者饭账仅农民胜时扣除（可扣破产）、农民输则继续累积、重掷只消耗次数不影响饭账；资本家资金池押注/税收/破产、个人资金不动。
+- REFLIP 窗仅在有暴食者且农民输时出现，离线暴食者自动放弃（`autoActForOffline`）。
+- 快速模式行为零变化；经典模式仍禁用。

@@ -2,6 +2,8 @@
 // 这是表情系统的唯一权威映射；scene/textures.js#faceTexture 负责把表情名画成像素脸。
 // 优先级：破产 > 手动表情(emote 覆盖) > 阶段/胜负默认 > 待机。
 
+import { factionOf } from '../game/roles';
+
 // faceTexture 当前支持的全部表情；新增表情需同步在 textures.js 里实现画法。
 export const EXPRESSIONS = ['idle', 'ready', 'bet', 'win', 'lose', 'bankrupt'];
 // 允许玩家手动摆出的表情（不含 bankrupt——破产由状态决定，不能手动装死）。
@@ -33,14 +35,15 @@ export function expressionFor(player, state) {
 function resultExpression(player, state) {
   if (!state.coinResult) return 'idle';
   const farmersWin = state.coinResult === 'tails';
-  if (player.role === 'farmer') return farmersWin ? 'win' : 'lose';
-  if (player.role === 'landlord') return farmersWin ? 'lose' : 'win';
+  const faction = factionOf(player.role);
+  if (faction === 'farmer') return farmersWin ? 'win' : 'lose';
+  if (faction === 'landlord') return farmersWin ? 'lose' : 'win';
   return 'idle';
 }
 
 // 终局：与最终胜方阵营一致即胜。
 function endedExpression(player, state) {
   if (!state.winnerSide) return 'idle';
-  const won = (state.winnerSide === 'farmers') === (player.role === 'farmer');
+  const won = (state.winnerSide === 'farmers') === (factionOf(player.role) === 'farmer');
   return won ? 'win' : 'lose';
 }

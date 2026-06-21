@@ -49,6 +49,7 @@ export const DEFAULT_CONFIG = {
     settleViewMs: 3500,       // 系统结算展示后自动进入协商
     finalizeMs: 2600,         // 正式结算动画后进入下一回合讨论
     negotiateTimeoutMs: 120000, // 协商超时按当前方案生效（0 = 不超时）
+    reflipDecisionMs: 8000,   // 竞技暴食者重掷决策窗（§8.4）；超时无人重掷则进入结算（0 = 立即跳过）
   },
 
   // --- 连接 ---
@@ -59,19 +60,71 @@ export const DEFAULT_CONFIG = {
   // --- 聊天/语音 ---
   channels: ['public', 'farmer'],
   voiceEnabled: false,        // 语音联机预留开关
+
+  // --- 竞技模式（角色技能系统，见 docs/GAME_SPEC.md §8） ---
+  // 仅 mode==='competitive' 生效；roomConfig() 会把这里的 landlordFundMultiplier / landlordGoal
+  // 覆盖到顶层（让既有 landlordGoal.js、settleRound 直接用竞技数值），其余角色专属参数按需直接读取。
+  competitive: {
+    landlordFundMultiplier: 1.5,                        // 地主初始 = ⌊农民总资金 × 1.5⌋
+    initialBalance: { farmer: 9, investor: 8, glutton: 6 }, // 农民阵营按角色的初始资金
+    // 资本家：个人资金=押注钱包（本金必归还、不决定破产）；资金池=血条（承接盈亏、被税、耗尽即破产）。
+    capitalist: { personalPerFarmer: 4, poolPerFarmer: 10, minStake: 1, taxRate: 0.10, taxMin: 2 },
+    // 基础农民工资（m=活跃农民总数）：interval=max(minInterval, baseInterval−(m−1)·reduce)，amount=base+(m−1)·bonus。
+    wage:    { baseInterval: 5, minInterval: 2, perFarmerIntervalReduce: 1, baseAmount: 1, perFarmerAmountBonus: 1 },
+    investor:{ maxPledge: 3, waiveMultiplier: 2 },      // 担保保费先扣 n；农民输则缺口减 waiveMultiplier×Σn
+    glutton: { allowancePerRound: 1, maxReflips: 3 },   // 每回合 +1 伙食费（仅胜时发放）；每局最多 3 次重掷
+    landlordGoal: {                                      // 竞技档目标 schedule（覆盖顶层）：回合 3→0.6 … 7→2.0
+      schedule: [
+        { interval: 3, multiplier: 0.6 }, { interval: 1, multiplier: 1.0 },
+        { interval: 1, multiplier: 1.4 }, { interval: 1, multiplier: 1.7 },
+        { interval: 1, multiplier: 2.0 },
+      ],
+      penaltyRate: 0.2, minPenalty: 2,
+    },
+  },
 };
 
-// 初始资金。农民固定；地主 = 农民总资金 × landlordFundMultiplier（向下取整，至少 1）。
-export function getInitialBalance(role, farmerCount, config) {
+// 角色 → 阵营。地主阵营={landlord, capitalist}，农民阵营={farmer, investor, glutton}。
+// 这是竞技模式的核心抽象：Room/结算只关心阵营（哪一侧），具体角色只影响技能。
+const LANDLORD_ROLES = new Set(['landlord', 'capitalist']);
+const FARMER_ROLES = new Set(['farmer', 'investor', 'glutton']);
+export function factionOf(role) {
+  if (LANDLORD_ROLES.has(role)) return 'landlord';
+  if (FARMER_ROLES.has(role)) return 'farmer';
+  return null;
+}
+
+// 初始资金。快速模式：农民固定、地主 = 农民总资金 × 倍数。
+// 竞技模式（opts.mode==='competitive'）：农民阵营按角色取值；地主 = ⌊farmerTotal × 倍数⌋；
+//   资本家个人资金 = 活跃农民数 × personalPerFarmer（资金池另由 getInitialPool 计算）。
+// 要换公式只改此函数（§0.2 扩展点）。
+export function getInitialBalance(role, farmerCount, config, opts = {}) {
+  if (opts.mode === 'competitive') {
+    const c = config.competitive;
+    if (role === 'farmer') return c.initialBalance.farmer;
+    if (role === 'investor') return c.initialBalance.investor;
+    if (role === 'glutton') return c.initialBalance.glutton;
+    if (role === 'capitalist') return Math.max(1, (farmerCount || 1) * c.capitalist.personalPerFarmer);
+    if (role === 'landlord') return Math.max(1, Math.floor((opts.farmerTotal ?? 0) * config.landlordFundMultiplier));
+  }
   const farmer = config.initialBalance.farmer;
   if (role !== 'landlord') return farmer;
   const farmers = Math.max(1, farmerCount || 1);
   return Math.max(1, Math.floor(farmers * farmer * config.landlordFundMultiplier));
 }
 
-// 最小出资额：农民固定，地主随活跃农民人数变化。
-export function getMinStake(role, farmerCount, config) {
-  if (role === 'landlord') return Math.max(1, farmerCount * config.minStake.landlordPerFarmer);
+// 资本家资金池初始额（血条）= 活跃农民数 × poolPerFarmer。非资本家返回 null。
+export function getInitialPool(role, farmerCount, config) {
+  if (role !== 'capitalist') return null;
+  return Math.max(0, (farmerCount || 1) * config.competitive.capitalist.poolPerFarmer);
+}
+
+// 最小出资额：农民固定，地主随活跃农民人数变化；竞技资本家固定（默认 1）。
+export function getMinStake(role, farmerCount, config, opts = {}) {
+  if (opts.mode === 'competitive' && role === 'capitalist') {
+    return Math.max(1, config.competitive.capitalist.minStake ?? 1);
+  }
+  if (factionOf(role) === 'landlord') return Math.max(1, farmerCount * config.minStake.landlordPerFarmer);
   return config.minStake.farmer;
 }
 
@@ -89,4 +142,17 @@ export function mergeConfig(overrides = {}) {
   };
   apply(merged, overrides);
   return merged;
+}
+
+// 房间生效配置：mergeConfig 之后，竞技模式把 competitive 里的 landlordFundMultiplier / landlordGoal
+// 覆盖到顶层——这样 landlordGoal.js、settleRound 等既有逻辑直接吃到竞技数值，无需到处分支。
+// 角色专属参数（capitalist/wage/investor/glutton/initialBalance）仍保留在 config.competitive 下按需读取。
+export function roomConfig(modeId, overrides = {}) {
+  const config = mergeConfig(overrides);
+  if (modeId === 'competitive') {
+    const c = config.competitive ?? {};
+    if (c.landlordFundMultiplier != null) config.landlordFundMultiplier = c.landlordFundMultiplier;
+    if (c.landlordGoal) config.landlordGoal = { ...config.landlordGoal, ...c.landlordGoal };
+  }
+  return config;
 }

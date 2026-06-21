@@ -3,13 +3,15 @@
 // 地主资金目标序列（放缓/封顶）与惩罚、初始资金动态、下注边界。
 
 import assert from 'node:assert/strict';
-import { mergeConfig, getInitialBalance, getMinStake } from '../config.js';
+import { mergeConfig, roomConfig, getInitialBalance, getInitialPool, getMinStake, factionOf } from '../config.js';
 import { apportion } from '../logic/apportion.js';
 import { betBounds, settleRound, applyAllocation, allocateDebt } from '../logic/rules.js';
 import { buildGoalSchedule, upcomingGoal, goalForRound, goalPenalty } from '../logic/landlordGoal.js';
+import { computeWage, wageDueThisRound, investorWaiver, computeTax } from '../logic/competitive.js';
 
 let passed = 0;
 const cfg = mergeConfig();
+const comp = roomConfig('competitive'); // 竞技档：landlordFundMultiplier=1.5、竞技 landlordGoal 已覆盖到顶层
 const cfgWin2 = mergeConfig({ landlordWinMultiplier: 2 }); // 缺口/补偿机制测试固定 2×，与默认调参解耦
 const sumVals = (o) => Object.values(o).reduce((s, v) => s + v, 0);
 
@@ -177,6 +179,69 @@ test('下注边界：balance < 2*minStake 强制全押', () => {
   assert.equal(b2.forceAllIn, false);
   assert.equal(b2.min, 1);
   assert.equal(b2.max, 9);
+});
+
+console.log('competitive (§8)');
+test('阵营映射 factionOf', () => {
+  assert.equal(factionOf('landlord'), 'landlord');
+  assert.equal(factionOf('capitalist'), 'landlord');
+  assert.equal(factionOf('farmer'), 'farmer');
+  assert.equal(factionOf('investor'), 'farmer');
+  assert.equal(factionOf('glutton'), 'farmer');
+  assert.equal(factionOf('bank'), null);
+});
+test('竞技初始资金：农民阵营按角色 9/8/6', () => {
+  const o = { mode: 'competitive' };
+  assert.equal(getInitialBalance('farmer', 3, comp, o), 9);
+  assert.equal(getInitialBalance('investor', 3, comp, o), 8);
+  assert.equal(getInitialBalance('glutton', 3, comp, o), 6);
+});
+test('竞技地主初始 = ⌊1.5 × 农民总资金⌋（按花名册）', () => {
+  // 名册 farmer+investor+glutton = 9+8+6 = 23 → 地主 ⌊1.5×23⌋ = 34
+  assert.equal(getInitialBalance('landlord', 3, comp, { mode: 'competitive', farmerTotal: 23 }), 34);
+});
+test('资本家：个人资金 = 农民数×4，资金池 = 农民数×10', () => {
+  assert.equal(getInitialBalance('capitalist', 3, comp, { mode: 'competitive' }), 12);
+  assert.equal(getInitialPool('capitalist', 3, comp), 30);
+  assert.equal(getInitialPool('landlord', 3, comp), null);
+});
+test('资本家最小出资 = 1，且可全押（无强制全押、无保留金）', () => {
+  assert.equal(getMinStake('capitalist', 3, comp, { mode: 'competitive' }), 1);
+  const b = betBounds({ balance: 12, role: 'capitalist', farmerCount: 3, config: comp, mode: 'competitive' });
+  assert.equal(b.forceAllIn, false);
+  assert.equal(b.min, 1);
+  assert.equal(b.max, 12); // 可全押到个人资金上限，无需留保留金
+});
+test('工资缩放：m=1..4 → interval 5/4/3/2、amount 1/2/3/4', () => {
+  assert.deepEqual(computeWage(1, comp), { interval: 5, amount: 1 });
+  assert.deepEqual(computeWage(2, comp), { interval: 4, amount: 2 });
+  assert.deepEqual(computeWage(3, comp), { interval: 3, amount: 3 });
+  assert.deepEqual(computeWage(4, comp), { interval: 2, amount: 4 });
+});
+test('发薪判定：round 为间隔整数倍', () => {
+  assert.equal(wageDueThisRound(5, 5), true);
+  assert.equal(wageDueThisRound(4, 5), false);
+  assert.equal(wageDueThisRound(10, 5), true);
+  assert.equal(wageDueThisRound(0, 5), false);
+});
+test('投资人减债 = waiveMultiplier × Σ担保（默认 2n）', () => {
+  assert.equal(investorWaiver(3, comp), 6);
+  assert.equal(investorWaiver(0, comp), 0);
+});
+test('settleRound：投资人担保把缺口减 2n（地主据实少收）', () => {
+  // L=8 → target ⌊8×1.5⌋=12；pot=10；rawShortfall=2；担保 n=1 → 减 2 → shortfall=0
+  const s = settleRound({
+    coinResult: 'heads', bets: { L: 8, A: 1, B: 1 }, balances: { L: 0, A: 5, B: 5 },
+    landlordId: 'L', farmerIds: ['A', 'B'], config: comp, debtWaiver: investorWaiver(1, comp),
+  });
+  assert.equal(s.target, 12);
+  assert.equal(s.debts.A + s.debts.B, 0); // 缺口被完全免除，农民无需补
+});
+test('资本家税：max(taxMin, ⌊pool×10%⌋)，pool≤0 不扣', () => {
+  assert.equal(computeTax(30, comp), 3);   // floor(3)
+  assert.equal(computeTax(15, comp), 2);   // floor(1.5)=1 → 下限 2
+  assert.equal(computeTax(0, comp), 0);
+  assert.equal(computeTax(-5, comp), 0);
 });
 
 console.log(`\n全部通过：${passed} 项 ✅`);
