@@ -22,10 +22,13 @@ export default function McChat() {
   const logRef = useRef(null);
 
   const me = state.players.find(p => p.id === playerId);
-  const canFarmer = isFarmerSide(me?.role) || me?.bankrupt;
-  const activeChannel = channel === 'farmer' && !canFarmer ? 'public' : channel;
+  // 读密谈：农民阵营 + 破产观战者（与服务端 _canSeeChannel 一致）。
+  const canReadFarmer = isFarmerSide(me?.role) || me?.bankrupt;
+  // 发密谈：仅农民阵营（与服务端 chat() 的 factionOf 校验一致——破产的地主只能读不能发）。
+  const canPostFarmer = isFarmerSide(me?.role);
+  const activeChannel = channel === 'farmer' && !canPostFarmer ? 'public' : channel;
 
-  const accessible = chat.filter(m => m.channel === 'public' || (m.channel === 'farmer' && canFarmer));
+  const accessible = chat.filter(m => m.channel === 'public' || (m.channel === 'farmer' && canReadFarmer));
   const visible = open ? accessible.slice(-50) : accessible.filter(m => now - m.ts < FADE_MS).slice(-8);
 
   // 关闭态下有近期消息时，定时刷新以驱动淡出
@@ -70,7 +73,7 @@ export default function McChat() {
 
       {open && (
         <>
-          {canFarmer && (
+          {canPostFarmer && (
             <div className="mc-chat-channel">
               <button className={`mc-chan-btn ${activeChannel === 'public' ? 'active' : ''}`} onClick={() => setChannel('public')}>公开</button>
               <button className={`mc-chan-btn ${activeChannel === 'farmer' ? 'active' : ''}`} onClick={() => setChannel('farmer')}>农民密谈</button>

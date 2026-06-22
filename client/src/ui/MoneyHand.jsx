@@ -7,7 +7,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useGameStore } from '../store/gameStore';
 import { getArt } from '../assets/registry';
-import { decompose, splitNote, sumNotes, SPLITS } from '../game/notes';
+import { decompose, splitNote, sumNotes, SPLITS, insStackStyle } from '../game/notes';
 
 const MoneyNote = getArt('moneyNote');
 const Icon = getArt('icon');
@@ -37,6 +37,8 @@ export default function MoneyHand() {
   const [selected, setSelected] = useState(() => new Set());
   const [slot, setSlot] = useState([]);          // 投保槽里的保单牌
   const [shakingId, setShakingId] = useState(null);
+  const [dragNote, setDragNote] = useState(null);   // 正在从手牌拖拽的牌（同页拖拽，dragover 时可读其面额做判定）
+  const [slotHover, setSlotHover] = useState(false);// 拖拽是否悬停在钱框上
   const containerRef = useRef(null);
   const pressTimer = useRef(null);
   const shakeTimer = useRef(null);
@@ -47,6 +49,8 @@ export default function MoneyHand() {
   const total = bounds.forceAllIn ? me.balance : sumNotes(notes, selected);
   const effMax = Math.max(0, bounds.max - premium);   // 投保占用后的有效下注上限
   const canConfirm = bounds.forceAllIn || (total >= bounds.min && total <= effMax);
+  // 当前拖拽的牌能否被钱框接受（不超投保上限）；无拖拽时视为可接受。
+  const slotAccept = !dragNote || premium + dragNote.value <= maxPledge;
 
   const clearTimers = () => {
     clearTimeout(pressTimer.current);
@@ -158,21 +162,28 @@ export default function MoneyHand() {
       </div>
       <div className="hand-row" data-hand-anchor>
         {insurable && (
-          <div
-            className="insurance-slot"
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={(e) => { e.preventDefault(); moveToSlot(e.dataTransfer.getData('text/plain')); }}
-            title={`把手牌拖进来投保（保费先扣，输则免阵营 2× 债务；上限 ${maxPledge}）`}
-          >
+          <div className="insurance-slot">
             <span className="ins-slot-label">投保 ¥{premium}/{maxPledge}</span>
-            <div className="ins-slot-notes">
-              {slot.map(n => (
-                <button key={n.id} className="ins-slot-note" data-slot-note="1" data-value={n.value}
-                  onClick={() => moveFromSlot(n.id)} title="点击取回">
-                  <MoneyNote value={n.value} width={34} />
-                </button>
-              ))}
-              {slot.length === 0 && <span className="ins-slot-hint">拖牌入槽</span>}
+            {/* 判定区(.ins-dropzone)比可见钱框大一圈——命中更宽松；拖拽中内部不吃指针事件，
+                避免子元素打断 dragenter/leave。反馈样式落在内层钱框上。 */}
+            <div
+              className={`ins-dropzone${dragNote ? ' dragging' : ''}${slotHover ? (slotAccept ? ' can-drop' : ' no-drop') : ''}`}
+              onDragEnter={(e) => { e.preventDefault(); setSlotHover(true); }}
+              onDragOver={(e) => { e.preventDefault(); if (!slotHover) setSlotHover(true); }}
+              onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setSlotHover(false); }}
+              onDrop={(e) => { e.preventDefault(); moveToSlot(e.dataTransfer.getData('text/plain')); setSlotHover(false); setDragNote(null); }}
+              title={`把手牌拖进来投保（保费先扣，输则免阵营 2× 债务；上限 ${maxPledge}）`}
+            >
+              <div className="ins-slot-notes">
+                {slot.map((n, i) => (
+                  <button key={n.id} className="ins-slot-note" data-slot-note="1" data-value={n.value}
+                    style={insStackStyle(i, slot.length)}
+                    onClick={() => moveFromSlot(n.id)} title="点击取回">
+                    <MoneyNote value={n.value} width={62} />
+                  </button>
+                ))}
+                {slot.length === 0 && <span className="ins-slot-hint">拖牌入槽</span>}
+              </div>
             </div>
           </div>
         )}
@@ -187,7 +198,8 @@ export default function MoneyHand() {
                 data-flyable={isSel ? '1' : '0'}
                 data-value={n.value}
                 draggable={insurable}
-                onDragStart={(e) => { clearTimers(); e.dataTransfer.setData('text/plain', n.id); e.dataTransfer.effectAllowed = 'move'; }}
+                onDragStart={(e) => { clearTimers(); setDragNote(n); e.dataTransfer.setData('text/plain', n.id); e.dataTransfer.effectAllowed = 'move'; }}
+                onDragEnd={() => { setDragNote(null); setSlotHover(false); }}
                 style={{ transform: tf, '--note-tf': tf }}
                 onPointerDown={() => startPress(n)}
                 onPointerUp={cancelPress}

@@ -133,16 +133,59 @@ body {
 .role-desc { margin: 2px 0 0; max-width: 360px; text-align: center; }
 .skill-panel { display: flex; flex-direction: column; gap: 5px; align-items: center; margin-bottom: 8px; }
 
-/* 投保槽（手牌左侧）：把手牌拖进来投保 */
+/* 投保槽（手牌左侧）：把手牌拖进「钱框」即投保。钱框与纸币同比例(高/宽=1.4)、略大；牌在框内堆叠。 */
 .insurance-slot {
-  display: flex; flex-direction: column; align-items: center; gap: 4px;
-  min-width: 96px; min-height: 100px; padding: 6px; align-self: flex-end;
-  border: 2px dashed var(--px-gold); background: rgba(216, 184, 106, 0.08);
+  display: flex; flex-direction: column; align-items: center; gap: 5px;
+  align-self: flex-end; padding: 2px;
 }
 .ins-slot-label { font-size: 11px; color: var(--px-gold); white-space: nowrap; }
-.ins-slot-notes { display: flex; flex-wrap: wrap; gap: 3px; justify-content: center; align-items: center; min-height: 50px; }
-.ins-slot-note { background: transparent; border: none; padding: 0; cursor: pointer; }
-.ins-slot-hint { font-size: 10px; color: var(--ink-dim); }
+/* 判定区：比可见钱框大一圈的透明外扩，拖放命中更宽松（padding 越大越好拖中） */
+.ins-dropzone {
+  display: flex; align-items: center; justify-content: center;
+  padding: 22px;
+}
+/* 钱框：与纸币「等高」（高度=投保牌高度，不再额外加高）；宽度略宽留横向余量。牌不缩小(与手牌同宽 62)。 */
+.ins-slot-notes {
+  --ins-note-w: 62px;                          /* 投保牌宽度，与手牌一致 */
+  position: relative;
+  width: calc(var(--ins-note-w) + 16px);       /* 略宽：横向留余量 */
+  height: calc(var(--ins-note-w) * 1.4);       /* 与纸币等高 */
+  display: flex; align-items: center; justify-content: center;
+  border: 2px dashed var(--px-gold); background: rgba(216, 184, 106, 0.08);
+  transition: border-color .12s, background-color .12s, box-shadow .12s, transform .12s;
+}
+.ins-slot-note {
+  position: absolute; left: 50%; top: 50%;
+  background: transparent; border: none; padding: 0; cursor: pointer;
+  filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.6));
+}
+/* 拖拽期间判定区内部不吃指针事件——避免子元素打断 dragenter/leave 判定 */
+.ins-dropzone.dragging .ins-slot-notes,
+.ins-dropzone.dragging .ins-slot-note { pointer-events: none; }
+.ins-slot-hint { position: absolute; font-size: 10px; color: var(--ink-dim); pointer-events: none; }
+/* 可投保的牌悬停：金色实线高亮 + 轻微放大（反馈落在内层钱框上） */
+.ins-dropzone.can-drop .ins-slot-notes {
+  border-style: solid; border-color: var(--px-gold);
+  background: rgba(216, 184, 106, 0.22);
+  box-shadow: 0 0 0 2px rgba(216, 184, 106, 0.35), 0 0 14px rgba(216, 184, 106, 0.5);
+  transform: scale(1.06);
+}
+/* 不匹配（超过投保上限）的牌悬停：红框 + 抖动 */
+.ins-dropzone.no-drop .ins-slot-notes {
+  border-style: solid; border-color: var(--danger);
+  background: rgba(196, 80, 72, 0.20);
+  box-shadow: 0 0 0 2px rgba(196, 80, 72, 0.4), 0 0 14px rgba(196, 80, 72, 0.55);
+  animation: ins-reject 0.16s steps(2) infinite;
+}
+@keyframes ins-reject {
+  0%, 100% { transform: translate(0, 0); }
+  25% { transform: translate(-3px, 1px); }
+  50% { transform: translate(3px, -1px); }
+  75% { transform: translate(-2px, -1px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ins-dropzone.no-drop .ins-slot-notes { animation: none; }
+}
 /* 投保牌确认后掉出屏幕（不上桌） */
 .insurance-drop {
   position: fixed; top: 0; left: 0; z-index: 60; pointer-events: none;

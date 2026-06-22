@@ -27,7 +27,7 @@ function DropNote({ item }) {
         opacity: fall ? 0.15 : 1,
       }}
     >
-      <MoneyNote value={item.value || 1} width={item.w || 46} />
+      <MoneyNote value={item.value || 1} width={item.w || 62} />
     </div>
   );
 }

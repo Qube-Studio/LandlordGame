@@ -16,6 +16,7 @@ import GameScreen from '../src/screens/GameScreen';
 import MinecraftPlayer from '../src/scene/MinecraftPlayer';
 import { getArt } from '../src/assets/registry';
 import { ROLE_LABEL } from '../src/game/roles';
+import { insStackStyle } from '../src/game/notes';
 import { useGameStore } from '../src/store/gameStore';
 
 const MoneyNote = getArt('moneyNote');
@@ -114,6 +115,7 @@ const insDrop = mk({
 const SCENES = [
   { key: 'avatars', label: '角色形象', kind: 'grid' },
   { key: 'notes', label: '钱牌', kind: 'grid' },
+  { key: 'insSlot', label: '投保槽状态', kind: 'grid' },
   { key: 'lobby', label: '竞技选角', kind: 'game', state: lobby },
   { key: 'investorBet', label: '投资人投保槽', kind: 'game', state: investorBet, note: '把手牌拖进左侧槽 → 确认下注：注上桌、保单掉屏' },
   { key: 'insDrop', label: '投保掉落动画', kind: 'game', state: insDrop, note: '保单牌一张张掉出屏幕（循环演示）' },
@@ -154,6 +156,36 @@ function NotesGrid() {
       {cell('债务（红）', <MoneyNote value={5} debt width={72} />)}
       {cell('背面朝上', <MoneyNote value={10} faceDown width={72} />)}
       {cell('锁定（保留金）', <MoneyNote value={2} locked width={72} />)}
+    </div>
+  );
+}
+
+// 投保槽四态：核对堆叠式布局、钱框比例、can-drop/no-drop 反馈（拖拽态无法 headless 截图，用类名静态呈现）。
+function InsSlotGrid() {
+  const box = (label, cls, notes) => (
+    <div className="gal-card">
+      <div className="insurance-slot">
+        <span className="ins-slot-label">投保 ¥{notes.reduce((s, v) => s + v, 0)}/3</span>
+        <div className={`ins-dropzone ${cls}`}>
+          <div className="ins-slot-notes">
+            {notes.map((v, i) => (
+              <span key={i} className="ins-slot-note" style={insStackStyle(i, notes.length)}>
+                <MoneyNote value={v} width={62} />
+              </span>
+            ))}
+            {notes.length === 0 && <span className="ins-slot-hint">拖牌入槽</span>}
+          </div>
+        </div>
+      </div>
+      <div className="gal-label">{label}</div>
+    </div>
+  );
+  return (
+    <div className="gal-grid">
+      {box('空框', '', [])}
+      {box('堆叠 1+1+1', '', [1, 1, 1])}
+      {box('可投保 (can-drop)', 'can-drop', [2])}
+      {box('超上限 (no-drop)', 'no-drop', [2, 1])}
     </div>
   );
 }
@@ -204,9 +236,10 @@ function Gallery() {
   useEffect(() => {
     if (key !== 'insDrop') return undefined;
     const fire = () => {
-      const y = window.innerHeight - 140;
+      const y = window.innerHeight - 170;
+      // 保单牌按手牌/投保槽实际尺寸掉落（不缩小，w=62），间距随之放宽。
       useGameStore.getState().dropInsurance([0, 1, 2].map(i => ({
-        id: `d-${Date.now()}-${i}`, value: 1, x: 130 + i * 46, y, w: 46, delay: i * 130, spin: (i % 2 ? 1 : -1) * 22,
+        id: `d-${Date.now()}-${i}`, value: i === 1 ? 2 : 1, x: 120 + i * 74, y, w: 62, delay: i * 130, spin: (i % 2 ? 1 : -1) * 22,
       })));
     };
     fire();
@@ -225,7 +258,7 @@ function Gallery() {
       </div>
       <div className="gal-stage">
         {scene.kind === 'grid'
-          ? (scene.key === 'avatars' ? <AvatarGrid /> : <NotesGrid />)
+          ? (scene.key === 'avatars' ? <AvatarGrid /> : scene.key === 'insSlot' ? <InsSlotGrid /> : <NotesGrid />)
           : <GameScreen key={key} />}
       </div>
       {scene.controls === 'balance' && <BalanceControls />}

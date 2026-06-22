@@ -72,7 +72,7 @@ export const DEFAULT_CONFIG = {
     // 基础农民工资（m=活跃农民总数）：interval=max(minInterval, baseInterval−(m−1)·reduce)，amount=base+(m−1)·bonus。
     wage:    { baseInterval: 5, minInterval: 2, perFarmerIntervalReduce: 1, baseAmount: 1, perFarmerAmountBonus: 1 },
     investor:{ maxPledge: 3, waiveMultiplier: 2 },      // 担保保费先扣 n；农民输则缺口减 waiveMultiplier×Σn
-    glutton: { allowancePerRound: 1, maxReflips: 3 },   // 每回合 +1 伙食费（仅胜时发放）；每局最多 3 次重掷
+    glutton: { allowancePerRound: 1, maxReflips: 3 },   // 每回合 +1 饭账（成本，仅农民胜时从余额扣除并清零，可扣破产）；每局最多 3 次重掷
     landlordGoal: {                                      // 竞技档目标 schedule（覆盖顶层）：回合 3→0.6 … 7→2.0
       schedule: [
         { interval: 3, multiplier: 0.6 }, { interval: 1, multiplier: 1.0 },
