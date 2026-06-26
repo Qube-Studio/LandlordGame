@@ -573,6 +573,7 @@ function useFinalizeFlight() {
 
 export default function UiLayer() {
   const state = useGameStore(s => s.state);
+  const connected = useGameStore(s => s.connected);
   useGameKeys();
   useFinalizeFlight();
   const meta = PHASE_META[state.phase] ?? { label: state.phase, hint: '' };
@@ -581,6 +582,7 @@ export default function UiLayer() {
   return (
     <div className="hud">
       <TopBar />
+      {!connected && <div className="hud-disconnect"><PixelText size={2} color="var(--danger)">连接已断开，正在重连…</PixelText></div>}
       {meta.hint && <div className="hud-banner"><PixelText size={2}>{meta.hint}</PixelText></div>}
       <PlayerRail />
       <div className="corner-stack">

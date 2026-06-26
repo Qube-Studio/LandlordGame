@@ -88,10 +88,10 @@
 | 键 | 默认 | 说明 |
 |----|------|------|
 | `minFarmers` / `maxFarmers` | `1` / `4` | 农民人数下限/上限。 |
-| `reconnectGraceSec` | `60` | 断线保留座位时长。 |
+| `reconnectGraceSec` | `0` | 断线保座时长；`0`=永久保座（永不超时降级），`>0`=超时降级为观战者。 |
 | `autoActForOffline` | `true` | 离线玩家自动准备/下注/确认，避免卡住全场。 |
 | `heartbeatSec` | `30` | 心跳间隔。 |
-| `channels` | `['public','farmer']` | 聊天频道。 |
+| `channels` | `['public','farmer','spectator']` | 聊天频道（`spectator` 仅观战者可读写，防上帝视角泄密）。 |
 | `voiceEnabled` | `false` | 语音预留开关。 |
 
 ---

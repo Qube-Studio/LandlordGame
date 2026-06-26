@@ -22,13 +22,19 @@ export default function McChat() {
   const logRef = useRef(null);
 
   const me = state.players.find(p => p.id === playerId);
-  // 读密谈：农民阵营 + 破产观战者（与服务端 _canSeeChannel 一致）。
-  const canReadFarmer = isFarmerSide(me?.role) || me?.bankrupt;
-  // 发密谈：仅农民阵营（与服务端 chat() 的 factionOf 校验一致——破产的地主只能读不能发）。
-  const canPostFarmer = isFarmerSide(me?.role);
-  const activeChannel = channel === 'farmer' && !canPostFarmer ? 'public' : channel;
+  const isSpec = !!(me?.bankrupt || me?.spectator); // 观战者：有上帝视角，发言只进观战频道
+  // 读密谈：农民阵营 + 观战者（与服务端 _canSeeChannel 一致）。
+  const canReadFarmer = isFarmerSide(me?.role) || isSpec;
+  // 发密谈：仅在场农民阵营；观战者（破产/降级）被服务端强制转观战频道，故不开放密谈。
+  const canPostFarmer = isFarmerSide(me?.role) && !isSpec;
+  // 观战者强制 spectator 频道；非农民选了 farmer 时回落 public。
+  const activeChannel = isSpec ? 'spectator' : (channel === 'farmer' && !canPostFarmer ? 'public' : channel);
 
-  const accessible = chat.filter(m => m.channel === 'public' || (m.channel === 'farmer' && canReadFarmer));
+  const accessible = chat.filter(m =>
+    m.channel === 'public'
+    || (m.channel === 'farmer' && canReadFarmer)
+    || (m.channel === 'spectator' && isSpec),
+  );
   const visible = open ? accessible.slice(-50) : accessible.filter(m => now - m.ts < FADE_MS).slice(-8);
 
   // 关闭态下有近期消息时，定时刷新以驱动淡出
@@ -63,12 +69,15 @@ export default function McChat() {
         {visible.length === 0 && !open && (
           <div className="mc-chat-line"><PixelText size={2} color="var(--ink-dim)">按 T 聊天</PixelText></div>
         )}
-        {visible.map((m, i) => (
-          <div key={`${m.ts}-${i}`} className={`mc-chat-line ${m.channel === 'farmer' ? 'farmer' : ''} ${!open ? 'fade' : ''}`}>
-            <PixelText size={2} className="mc-from">{m.channel === 'farmer' ? `〔密〕${m.name}` : m.name}</PixelText>
-            <PixelText size={2} className="mc-body">{m.text}</PixelText>
-          </div>
-        ))}
+        {visible.map((m, i) => {
+          const tag = m.channel === 'farmer' ? '〔密〕' : m.channel === 'spectator' ? '〔观战〕' : '';
+          return (
+            <div key={`${m.ts}-${i}`} className={`mc-chat-line ${m.channel === 'farmer' ? 'farmer' : ''} ${m.channel === 'spectator' ? 'spectator' : ''} ${!open ? 'fade' : ''}`}>
+              <PixelText size={2} className="mc-from">{`${tag}${m.name}`}</PixelText>
+              <PixelText size={2} className="mc-body">{m.text}</PixelText>
+            </div>
+          );
+        })}
       </div>
 
       {open && (
@@ -79,14 +88,19 @@ export default function McChat() {
               <button className={`mc-chan-btn ${activeChannel === 'farmer' ? 'active' : ''}`} onClick={() => setChannel('farmer')}>农民密谈</button>
             </div>
           )}
+          {isSpec && (
+            <div className="mc-chat-channel">
+              <span className="mc-chan-btn active">观战频道（仅观战者可见）</span>
+            </div>
+          )}
           <form className="mc-chat-input" onSubmit={submit}>
-            <span className="mc-prefix"><PixelText size={2} color="var(--ink-dim)">{activeChannel === 'farmer' ? '密>' : '>'}</PixelText></span>
+            <span className="mc-prefix"><PixelText size={2} color="var(--ink-dim)">{activeChannel === 'farmer' ? '密>' : activeChannel === 'spectator' ? '观>' : '>'}</PixelText></span>
             <input
               ref={inputRef}
               value={text}
               onChange={e => setText(e.target.value)}
               onKeyDown={onKeyDown}
-              placeholder={activeChannel === 'farmer' ? '密谈战术…（Esc 收起）' : '发送消息…（Esc 收起）'}
+              placeholder={activeChannel === 'farmer' ? '密谈战术…（Esc 收起）' : activeChannel === 'spectator' ? '观战频道发言…（Esc 收起）' : '发送消息…（Esc 收起）'}
               maxLength={200}
             />
           </form>

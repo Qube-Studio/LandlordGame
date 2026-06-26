@@ -114,6 +114,7 @@ export function settleRound({ coinResult, bets, balances, landlordId, farmerIds,
   let landlordTake = 0;
   let uncovered = 0;
   let target = 0;
+  let shortfall = 0; // 乘后、扣减债后的最终债额（地主胜桌面不足时），供 FINALIZE 复用
 
   if (coinResult === 'heads') {
     target = roundBy(landlordBet * config.landlordWinMultiplier, config); // 取整保证钱为整数（倍数可为 1.5 等）
@@ -132,12 +133,14 @@ export function settleRound({ coinResult, bets, balances, landlordId, farmerIds,
       }
       events.push({ type: 'landlord_win', target, surplus, landlordExtra, farmerPool });
     } else {
-      // 桌面不够：地主先拿走整个 pot，缺口由农民用手中余额共同补足。
-      // 竞技投资人担保（§8.3）：先把缺口减去 debtWaiver（=waiveMultiplier×Σ担保），被免除的部分地主收不到。
+      // 桌面不够：地主先拿走整个 pot，缺口【再乘一次乘数】后由农民用手中余额共同补足
+      // （惩罚消极下注；地主最终可拿到超过 target）。
+      // 竞技投资人担保（§8.3）：减债作用于乘后债额，被免除的部分地主收不到。
       landlordTake = pot;
-      const rawShortfall = target - pot;
+      const baseShortfall = target - pot;
+      const rawShortfall = roundBy(baseShortfall * config.landlordWinMultiplier, config); // 缺口×乘数
       const waived = Math.min(rawShortfall, Math.max(0, debtWaiver));
-      const shortfall = rawShortfall - waived;
+      shortfall = rawShortfall - waived;
       const allocation = allocateDebt(
         shortfall,
         farmerIds.map(id => ({ id, bet: bets[id] ?? 0, capacity: Math.max(balances[id] ?? 0, 0) })),
@@ -146,7 +149,7 @@ export function settleRound({ coinResult, bets, balances, landlordId, farmerIds,
       for (const id of farmerIds) debts[id] = allocation.debts[id] ?? 0;
       uncovered = allocation.uncovered;
       if (waived > 0) events.push({ type: 'investor_waive', waived });
-      events.push({ type: 'landlord_win_shortfall', target, shortfall, rawShortfall, waived, uncovered });
+      events.push({ type: 'landlord_win_shortfall', target, base: baseShortfall, shortfall, rawShortfall, waived, uncovered });
     }
   } else {
     // 反面：农民胜，直接平分桌面所有钱
@@ -158,7 +161,7 @@ export function settleRound({ coinResult, bets, balances, landlordId, farmerIds,
     events.push({ type: 'farmers_win', pot });
   }
 
-  return { coinResult, pot, landlordBet, farmerBetTotal, landlordTake, takes, debts, uncovered, target, events };
+  return { coinResult, pot, landlordBet, farmerBetTotal, landlordTake, takes, debts, uncovered, target, shortfall, events };
 }
 
 /**

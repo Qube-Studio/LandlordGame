@@ -628,8 +628,8 @@ export class Room {
 
     // 双倍补偿精确入账（任务 8）：地主胜且桌面不足目标时，按最终（可能经协商的）债务实际收齐的
     // 部分重算缺口，使展示与入账一致——地主拿到 pot + 实际补偿，剩余无人能付的即 uncovered。
-    const target = this.settlement.target ?? 0; // 已在 settleRound 取整（floor(下注×倍数)）
-    const shortfall = this.coinResult === 'heads' ? Math.max(0, target - this.settlement.pot) : 0;
+    // 缺口已在 settleRound 乘过乘数并扣减债；FINALIZE 直接复用其最终债额，避免重算口径分叉。
+    const shortfall = this.coinResult === 'heads' ? (this.settlement.shortfall ?? 0) : 0;
     const uncovered = Math.max(0, shortfall - result.collected);
 
     // 地主资金目标（任务 6）：检查点回合的 FINALIZE 若地主未达标，扣除惩罚（资金沉没，可致破产）。
@@ -790,6 +790,9 @@ export class Room {
     const player = this.players.get(playerId);
     const message = (text ?? '').toString().trim().slice(0, 200);
     if (!player || !message) return { error: '消息无效' };
+    // 观战者（破产/降级）发言一律强制进观战频道：其有上帝视角，绝不能向活跃玩家泄露余额/暗注。
+    if (player.bankrupt || player.spectator) channel = 'spectator';
+    else if (channel === 'spectator') return { error: '只有观战者可以使用观战频道' };
     if (!this.config.channels.includes(channel)) return { error: '频道不存在' };
     if (channel === 'farmer' && factionOf(player.role) !== 'farmer') return { error: '只有农民阵营可以使用农民频道' };
     const entry = { channel, from: playerId, name: player.username, text: message, ts: Date.now() };
@@ -804,7 +807,10 @@ export class Room {
 
   _canSeeChannel(player, channel) {
     if (channel === 'public') return true;
-    return factionOf(player.role) === 'farmer' || player.bankrupt; // 破产观战者全可见
+    const isSpec = player.bankrupt || player.spectator;
+    if (channel === 'spectator') return isSpec;                          // 观战频道：仅观战者可读（活跃玩家看不到）
+    if (channel === 'farmer') return factionOf(player.role) === 'farmer' || isSpec; // 农民密谈：农民阵营 + 观战者
+    return false;
   }
 
   chatHistoryFor(playerId) {

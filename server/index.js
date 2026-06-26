@@ -158,6 +158,9 @@ wss.on('connection', (ws, req) => {
       return;
     }
 
+    // 应用级保活：客户端用它做活性自检（见 client/src/net/socket.js）。无需房间。
+    if (type === 'ping') { send(ws, { type: 'pong' }); return; }
+
     const room = rooms.get(ws.roomId);
     if (!room) { send(ws, { type: 'error', message: '未加入房间' }); return; }
     const pid = ws.playerId;

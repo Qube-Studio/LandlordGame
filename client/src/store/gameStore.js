@@ -45,7 +45,8 @@ export const useGameStore = create((set, get) => ({
   },
 
   send(msg) {
-    sendMsg(msg);
+    // 断线时发送会静默失败：给用户明确反馈（高频的 look 不弹，避免刷屏）。
+    if (!sendMsg(msg) && msg?.type !== 'look') get().showToast('连接已断开，正在重连…');
   },
 
   setChatOpen(v) { set({ chatOpen: v }); },

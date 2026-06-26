@@ -53,12 +53,12 @@ export const DEFAULT_CONFIG = {
   },
 
   // --- 连接 ---
-  reconnectGraceSec: 60,      // 断线保留座位时长
+  reconnectGraceSec: 0,       // 断线保座时长；0 = 永不超时（永久保座，离线由 autoActForOffline 兜底）。>0 则超时降级观战
   autoActForOffline: true,    // 离线玩家自动准备/确认，避免卡住流程
   heartbeatSec: 30,
 
   // --- 聊天/语音 ---
-  channels: ['public', 'farmer'],
+  channels: ['public', 'farmer', 'spectator'], // spectator：观战者专属频道，仅观战者可读写（防上帝视角泄密）
   voiceEnabled: false,        // 语音联机预留开关
 
   // --- 竞技模式（角色技能系统，见 docs/GAME_SPEC.md §8） ---

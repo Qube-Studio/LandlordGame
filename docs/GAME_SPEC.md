@@ -43,7 +43,8 @@ Room 构造时按 `mode` 取描述符；不可用模式拒绝创建房间。
 ### 2.2 在线检查
 - WebSocket 连接成功即"在线"，断开即"离线"；`GET /api/online` 返回在线人数与名单。
 - 服务端每 `heartbeatSec` 发 ping，浏览器自动回 pong，超时连接被清理。
-- **断线重连**：游戏中的玩家断线后座位保留 `reconnectGraceSec` 秒，期间重新登录并 `join_room` 同一房间会回到原座位、原余额；离线玩家需要的"准备/确认"自动视为通过（`autoActForOffline`），避免卡住全场。
+- **断线重连**：游戏中的玩家断线后保留座位，重新登录并 `join_room` 同一房间会回到原座位、原余额；离线玩家需要的"准备/确认"自动视为通过（`autoActForOffline`），避免卡住全场。`reconnectGraceSec` 默认 **0 = 永不超时（永久保座）**；若设为 >0，则断线超过该秒数会降级为观战者（仅在按房重新启用时生效）。
+- **客户端活性自检**：客户端自发应用级 `ping`（服务端回 `pong`），并跟踪最近入站时间；超过约 `2×PING_MS` 无任何入站即判定连接已死、强制重连——避免浏览器迟迟不报 `onclose` 时卡死在"已死但仍 OPEN"的连接上（详见 `client/src/net/socket.js`）。
 
 ### 2.3 房间
 - REST 创建（名称 + 模式），6 位房间号；大厅 REST 列表轮询（房间号、名称、模式、阶段、人数）。
@@ -133,9 +134,11 @@ LOBBY ──房主开始──► DISCUSSION ──全员准备──► BETTING
 
 **正面（地主胜）：**
 - `pot ≥ target`：地主拿走 `target`；多出的 `R = pot − target` 地主再拿 `floor(R × 0.5)`（`surplusLandlordShare`，取整方式 `rounding: 'floor'`，**预留改 ceil 或进入协商分配**），剩余归农民平分（最大余数法取整）。
-- `pot < target`：地主先拿走整个 `pot`；缺口 `shortfall = target − pot` 由农民**用手里余额共同补足**（"补足不够的部分"）。
+- `pot < target`：地主先拿走整个 `pot`；缺口**按乘数放大后**由农民**用手里余额共同补足**。
+  - 基础缺口 `base = target − pot`；**实际债 `shortfall = floor(base × landlordWinMultiplier)`**（即缺口再乘一次乘数——农民桌面押得越少、补窟窿越狠，惩罚消极下注；地主最终可拿到超过 `target`）。
   - 债务分摊默认 **`inverseBet`（谁出的多谁补的少）**：以 `wᵢ = 1 / betᵢ` 为权重做**最大余数法**整数分摊（科学分摊、只出整数、误差最小）。可配置为 `equal`（均摊）/ `proportionalBet`（出得多摊得多）。
   - 每人实际支付 `min(份额, 余额)`；付不起的人付光破产，残余缺口在未封顶的农民间按同法递归重摊；全员都付不起则地主只拿到实际收到的部分。
+  - 竞技投资人减债 `debtWaiver` **作用于乘后债额**：`waived = min(shortfall, debtWaiver)`，再按 `inverseBet` 分摊 `shortfall − waived`。
   - **补偿精确入账**：地主拿到 `pot + 农民实际补偿`，补偿多少地主就多拿多少；FINALIZE 时按最终（可能经协商）的债务实收重算 `uncovered = max(0, shortfall − collected)`，使展示与入账一致。
 - 协商阶段农民可以在彼此之间转移"分到的钱"（take）或"分摊的债"（debt）。
   - **债务可压垮队友**：不限制对方余额，允许把全部债务堆给一名农民使其破产；落账时该农民只付出全部余额，地主只收到这点钱，其余缺口作废。
@@ -255,7 +258,7 @@ data/              运行时数据（gitignore）
 | timing.settleViewMs | 3500 | 系统结算展示时长 |
 | timing.finalizeMs | 2600 | 正式结算动画时长 |
 | timing.negotiateTimeoutMs | 120000 | 协商超时（0=不超时） |
-| reconnectGraceSec | 60 | 断线保座 |
+| reconnectGraceSec | 0 | 断线保座；0=永久保座（永不超时降级），>0=超时降级观战 |
 | autoActForOffline | true | 离线玩家自动准备/确认 |
 | heartbeatSec | 30 | 心跳 |
 

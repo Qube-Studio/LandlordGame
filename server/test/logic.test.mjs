@@ -72,26 +72,43 @@ test('正面盈余：landlordTake + Σtakes == pot 不变量', () => {
   });
   assert.equal(settlement.landlordTake + sumVals(settlement.takes), settlement.pot);
 });
-test('正面缺口·全覆盖：地主恰好拿到双倍 = pot + 补偿', () => {
-  // L=8 → target=16；pot=10；shortfall=6；两农民各余 5，可全补
+test('正面缺口·乘数放大·全覆盖：地主拿到 pot + floor(base×乘数)', () => {
+  // L=8 → target=16；pot=10；base=16−10=6；乘数2 → 实际债 floor(6×2)=12；两农民各余 8，可全补
   const { result, settlement } = runRound({
-    coinResult: 'heads', bets: { L: 8, A: 1, B: 1 }, postBetBalances: { L: 0, A: 5, B: 5 },
+    coinResult: 'heads', bets: { L: 8, A: 1, B: 1 }, postBetBalances: { L: 0, A: 8, B: 8 },
     landlordId: 'L', farmerIds: ['A', 'B'], config: cfgWin2,
   });
   assert.equal(settlement.pot, 10);
-  assert.equal(result.collected, 6);
-  assert.equal(result.after.L, 16); // pot 10 + 补偿 6 = 双倍 16
+  assert.equal(settlement.shortfall, 12);    // 乘后债额（base 6 × 乘数 2）
+  assert.equal(result.collected, 12);
+  assert.equal(result.after.L, 22);          // pot 10 + 乘后缺口 12（超过 target 16）
+  assert.equal(result.after.A, 2);           // 8 − 分摊 6
+  assert.equal(result.after.B, 2);
 });
-test('正面缺口·付不起：地主只拿到实收，农民付光破产', () => {
-  // 两农民余额不足以补足 6
-  const { result } = runRound({
+test('正面缺口·付不起：地主只拿到实收，农民付光破产，余缺口 uncovered', () => {
+  // 乘后债 12（base6×2），两农民仅余 2/1，远不足补 → 付光破产，uncovered=9
+  const { result, settlement } = runRound({
     coinResult: 'heads', bets: { L: 8, A: 1, B: 1 }, postBetBalances: { L: 0, A: 2, B: 1 },
     landlordId: 'L', farmerIds: ['A', 'B'], config: cfgWin2,
   });
+  assert.equal(settlement.shortfall, 12);     // 乘后债额
+  assert.equal(settlement.uncovered, 9);      // 12 − 实收 3
   assert.equal(result.collected, 3);          // 2 + 1
   assert.equal(result.after.L, 13);           // pot 10 + 实收 3
   assert.equal(result.after.A, 0);
   assert.equal(result.after.B, 0);
+});
+test('正面缺口·默认 1.5×：base×乘数（L=10,F=2 → 缺口 4）', () => {
+  // 默认乘数 1.5：target=⌊10×1.5⌋=15；pot=12；base=3；实际债=floor(3×1.5)=4
+  const { result, settlement } = runRound({
+    coinResult: 'heads', bets: { L: 10, A: 1, B: 1 }, postBetBalances: { L: 0, A: 3, B: 3 },
+    landlordId: 'L', farmerIds: ['A', 'B'], // 默认 cfg（1.5×）
+  });
+  assert.equal(settlement.target, 15);
+  assert.equal(settlement.shortfall, 4);      // floor(3 × 1.5)
+  assert.equal(result.collected, 4);
+  assert.equal(result.after.L, 16);           // pot 12 + 缺口 4
+  assert.equal(result.after.A + result.after.B, 2); // 6 − 4 = 2
 });
 test('任务 7+8：债务全压给一名农民→他破产，地主只收到他最后的钱', () => {
   // 系统默认会把 6 的缺口在 A/B 间分摊；这里模拟协商后全压给 A（A 仅余 2）。
@@ -228,14 +245,15 @@ test('投资人减债 = waiveMultiplier × Σ担保（默认 2n）', () => {
   assert.equal(investorWaiver(3, comp), 6);
   assert.equal(investorWaiver(0, comp), 0);
 });
-test('settleRound：投资人担保把缺口减 2n（地主据实少收）', () => {
-  // L=8 → target ⌊8×1.5⌋=12；pot=10；rawShortfall=2；担保 n=1 → 减 2 → shortfall=0
+test('settleRound：投资人担保作用于【乘后】缺口（减 2n 后再分摊）', () => {
+  // L=8 → target ⌊8×1.5⌋=12；pot=10；base=2 → ×1.5=3（乘后债）；担保 n=1 → 减 2n=2 → shortfall=1
   const s = settleRound({
     coinResult: 'heads', bets: { L: 8, A: 1, B: 1 }, balances: { L: 0, A: 5, B: 5 },
     landlordId: 'L', farmerIds: ['A', 'B'], config: comp, debtWaiver: investorWaiver(1, comp),
   });
   assert.equal(s.target, 12);
-  assert.equal(s.debts.A + s.debts.B, 0); // 缺口被完全免除，农民无需补
+  assert.equal(s.shortfall, 1);            // 乘后 3 − 担保 2 = 1
+  assert.equal(s.debts.A + s.debts.B, 1);  // 剩余 1 由农民补
 });
 test('资本家税：max(taxMin, ⌊pool×10%⌋)，pool≤0 不扣', () => {
   assert.equal(computeTax(30, comp), 3);   // floor(3)
