@@ -6,6 +6,7 @@ import { getArt } from '../assets/registry';
 import PixelText from '../assets/pixelfont/PixelText';
 import MoneyHand from './MoneyHand';
 import NegotiationBoard from './NegotiationBoard';
+import PhaseCoachmark from './PhaseCoachmark';
 import { decompose } from '../game/notes';
 import { projectPoint } from '../scene/projection';
 import {
@@ -584,6 +585,7 @@ export default function UiLayer() {
       <TopBar />
       {!connected && <div className="hud-disconnect"><PixelText size={2} color="var(--danger)">连接已断开，正在重连…</PixelText></div>}
       {meta.hint && <div className="hud-banner"><PixelText size={2}>{meta.hint}</PixelText></div>}
+      <PhaseCoachmark />
       <PlayerRail />
       <div className="corner-stack">
         <GoalHud />

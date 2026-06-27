@@ -1,0 +1,14 @@
+{
+  "name": "地主与农民",
+  "short_name": "地主与农民",
+  "description": "实时多人「破产竞速」下注游戏",
+  "lang": "zh-CN",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#08090d",
+  "theme_color": "#08090d",
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

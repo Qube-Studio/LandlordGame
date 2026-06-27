@@ -299,6 +299,37 @@ body {
   padding: 7px 18px; text-align: center; z-index: 50; pointer-events: none;
 }
 
+/* ---- 新手引导卡（一次性阶段讲解，O0） ---- */
+.coachmark {
+  position: absolute; top: 96px; left: 50%; transform: translateX(-50%);
+  width: min(420px, 86vw);
+  background: rgba(10, 11, 15, 0.94);
+  border: 2px solid var(--px-gold);
+  box-shadow: inset 2px 2px 0 var(--px-bevel-l), inset -2px -2px 0 var(--px-bevel-d), 0 6px 0 rgba(0,0,0,0.5);
+  padding: 10px 14px; z-index: 55;
+  display: flex; flex-direction: column; gap: 8px; align-items: flex-start;
+  pointer-events: auto;
+}
+.coachmark-body { margin: 0; font-size: 13px; line-height: 1.55; color: var(--ink); }
+.coachmark .btn { align-self: flex-end; }
+
+/* ---- 移动端：全屏按钮 + 竖屏覆盖层（ViewportGuard，仅触屏渲染） ---- */
+.fs-btn {
+  position: absolute; top: max(8px, env(safe-area-inset-top, 0px)); left: 50%; transform: translateX(-50%);
+  z-index: 70; padding: 6px 12px;
+  background: rgba(10, 11, 15, 0.85); border: 2px solid var(--px-gold); color: var(--px-gold);
+}
+.orient-overlay {
+  position: fixed; inset: 0; z-index: 200;
+  background: rgba(6, 7, 11, 0.97);
+  display: flex; align-items: center; justify-content: center;
+}
+.orient-card { text-align: center; color: var(--ink); display: flex; flex-direction: column; gap: 10px; }
+.orient-icon { font-size: 52px; animation: orient-rock 1.6s ease-in-out infinite; }
+.orient-card p { margin: 0; font-size: 16px; }
+.orient-card .orient-hint { font-size: 12px; color: var(--ink-dim); }
+@keyframes orient-rock { 0%, 100% { transform: rotate(-15deg); } 50% { transform: rotate(75deg); } }
+
 /* ---- 底部动作区 ---- */
 .hud-bottom {
   position: absolute; left: 0; right: 0; bottom: 12px;

@@ -4,6 +4,7 @@ import { useGameStore } from './store/gameStore';
 import LoginScreen from './screens/LoginScreen';
 import LobbyScreen from './screens/LobbyScreen';
 import GameScreen from './screens/GameScreen';
+import ViewportGuard from './ui/ViewportGuard';
 
 export default function App() {
   const token = useAuthStore(s => s.token);
@@ -48,6 +49,7 @@ export default function App() {
           </div>
         </div>
       )}
+      <ViewportGuard />
     </>
   );
 }

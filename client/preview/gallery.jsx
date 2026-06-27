@@ -139,6 +139,17 @@ const spectatorChatLog = [
   { channel: 'spectator', from: 'x', name: '吃瓜群众', text: '稳了', ts: 3 },
 ];
 
+// 新手即时教学卡（O0，本次新增）：quick 模式首次进入某阶段的一次性讲解。
+const coachmarkScene = mk({
+  phase: 'BETTING', mode: 'quick',
+  players: [
+    { id: 'me', name: '我', role: 'farmer', seat: 0, online: true, isHost: true, hasBet: false, bet: null, balance: 8 },
+    opp('l', '地主张', 'landlord', { bet: 6 }),
+    opp('f', '农民周', 'farmer'),
+  ],
+  me: { id: 'me', role: 'farmer', balance: 8, bet: null, bounds: { minStake: 1, min: 1, max: 7, forceAllIn: false } },
+});
+
 const SCENES = [
   { key: 'avatars', label: '角色形象', kind: 'grid' },
   { key: 'notes', label: '钱牌', kind: 'grid' },
@@ -153,6 +164,7 @@ const SCENES = [
   { key: 'balance', label: '资金增长动画', kind: 'game', state: balance, controls: 'balance' },
   { key: 'disconnected', label: '断线横幅', kind: 'game', state: disconnected, connected: false, note: '!connected → 顶部红色「连接已断开，正在重连…」横幅' },
   { key: 'spectatorChat', label: '观战聊天频道', kind: 'game', state: spectatorChat, chat: spectatorChatLog, chatOpen: true, note: '观战者只能发观战频道；〔观战〕标签 + 观> 前缀，活跃玩家看不到' },
+  { key: 'coachmark', label: '新手讲解卡', kind: 'game', state: coachmarkScene, note: 'quick 模式首次进入阶段的一次性讲解(O0)；清 localStorage llg_onboarding 可重看' },
 ];
 
 // ---------- 纯 props 网格 ----------
