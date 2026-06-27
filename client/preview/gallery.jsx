@@ -112,6 +112,33 @@ const insDrop = mk({
   me: { id: 'me', role: 'investor', balance: 8, ready: false, bounds: { minStake: 1 } },
 });
 
+// 断线横幅（本次新增）：!connected 时 UiLayer 顶部红色「连接已断开，正在重连…」横幅。
+const disconnected = mk({
+  phase: 'DISCUSSION',
+  players: [
+    { id: 'me', name: '我', role: 'farmer', seat: 0, online: true, isHost: true, balance: 12, ready: false },
+    opp('l', '地主张', 'landlord', { hasBet: false, bet: null }),
+    opp('f', '农民周', 'farmer', { hasBet: false, bet: null }),
+  ],
+  me: { id: 'me', role: 'farmer', balance: 12, ready: false, bounds: { minStake: 1 } },
+});
+
+// 观战者聊天频道（本次新增）：me 破产 → 只能发观战频道；〔观战〕标签 + 观> 前缀，活跃玩家看不到。
+const spectatorChat = mk({
+  phase: 'BETTING',
+  players: [
+    { id: 'me', name: '我', role: 'farmer', seat: 0, online: true, isHost: true, bankrupt: true, spectator: true, balance: 0 },
+    opp('l', '地主张', 'landlord', { bet: 6 }),
+    opp('f', '农民周', 'farmer'),
+  ],
+  me: { id: 'me', role: 'farmer', balance: 0, bankrupt: true, spectator: true },
+});
+const spectatorChatLog = [
+  { channel: 'public', from: 'l', name: '地主张', text: '快下注', ts: 1 },
+  { channel: 'spectator', from: 'me', name: '我', text: '（观战）地主只剩 2 块，农民梭哈！', ts: 2 },
+  { channel: 'spectator', from: 'x', name: '吃瓜群众', text: '稳了', ts: 3 },
+];
+
 const SCENES = [
   { key: 'avatars', label: '角色形象', kind: 'grid' },
   { key: 'notes', label: '钱牌', kind: 'grid' },
@@ -124,6 +151,8 @@ const SCENES = [
   { key: 'finalize', label: '结算播报', kind: 'game', state: finalize },
   { key: 'coin', label: '硬币', kind: 'game', state: coin },
   { key: 'balance', label: '资金增长动画', kind: 'game', state: balance, controls: 'balance' },
+  { key: 'disconnected', label: '断线横幅', kind: 'game', state: disconnected, connected: false, note: '!connected → 顶部红色「连接已断开，正在重连…」横幅' },
+  { key: 'spectatorChat', label: '观战聊天频道', kind: 'game', state: spectatorChat, chat: spectatorChatLog, chatOpen: true, note: '观战者只能发观战频道；〔观战〕标签 + 观> 前缀，活跃玩家看不到' },
 ];
 
 // ---------- 纯 props 网格 ----------
@@ -220,8 +249,8 @@ function BalanceControls() {
 // ---------- 画廊外壳 ----------
 function applyGameScene(scene) {
   useGameStore.setState({
-    state: scene.state, playerId: 'me', connected: true, joining: false,
-    chat: [], chatOpen: false, flights: [], insuranceDrops: [], betFlight: null, myStack: null, looks: {},
+    state: scene.state, playerId: 'me', connected: scene.connected ?? true, joining: false,
+    chat: scene.chat ?? [], chatOpen: scene.chatOpen ?? false, flights: [], insuranceDrops: [], betFlight: null, myStack: null, looks: {},
     send: (m) => console.log('[preview send]', m), // 预览不连后端：发送变 no-op，确认下注只跑动画
   });
 }
