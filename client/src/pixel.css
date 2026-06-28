@@ -311,7 +311,9 @@ body {
   pointer-events: auto;
 }
 .coachmark-body { margin: 0; font-size: 13px; line-height: 1.55; color: var(--ink); }
-.coachmark .btn { align-self: flex-end; }
+.coachmark-foot { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.coachmark-hint { font-size: 11px; color: var(--ink-dim); letter-spacing: 0.5px; }
+.coachmark .btn { flex: none; }
 
 /* ---- 移动端：全屏按钮 + 竖屏覆盖层（ViewportGuard，仅触屏渲染） ---- */
 .fs-btn {
