@@ -24,7 +24,7 @@ for (const scene of scenes) {
     await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
     await page.waitForTimeout(waitMs);
     const file = `${outDir}/${scene}.png`;
-    await page.screenshot({ path: file });
+    await page.screenshot({ path: file, timeout: 60000, animations: 'disabled' });
     console.log('OK  ', scene, '->', file);
   } catch (e) {
     console.log('FAIL', scene, e.message.slice(0, 160));
