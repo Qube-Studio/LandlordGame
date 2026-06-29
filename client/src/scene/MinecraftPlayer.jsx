@@ -73,6 +73,60 @@ export default function MinecraftPlayer({ player, expression, seed = 0, look = n
   });
 
   const mat = (color) => <meshStandardMaterial color={color} roughness={1} flatShading />;
+  // 道具材质：与身体分开，方便各风格分支单独调（霓虹发光 / 卡通描边 / 暖光哑光）。
+  const pmat = (color) => <meshStandardMaterial color={color} roughness={0.85} flatShading />;
+
+  // 五角色头顶/身上的辨识道具（共享几何，破产时不渲染）。坐标基于头中心 y=1.675、头顶≈1.95。
+  const roleProp = (role) => {
+    switch (role) {
+      case 'landlord': // 真皇冠：冠圈 + 五尖 + 正面红宝石
+        return (
+          <group position={[0, 2.0, 0]}>
+            <mesh><boxGeometry args={[0.5, 0.1, 0.5]} />{pmat('#f0d060')}</mesh>
+            {[[-0.2, 0.2], [0.2, 0.2], [-0.2, -0.2], [0.2, -0.2], [0, 0]].map(([x, z], i) => (
+              <mesh key={i} position={[x, i === 4 ? 0.15 : 0.12, z]}>
+                <boxGeometry args={[0.1, i === 4 ? 0.22 : 0.16, 0.1]} />{pmat('#f0d060')}
+              </mesh>
+            ))}
+            <mesh position={[0, 0.02, 0.26]}><boxGeometry args={[0.1, 0.1, 0.04]} />{pmat('#c4423a')}</mesh>
+          </group>
+        );
+      case 'capitalist': // 礼帽 + 金带
+        return (
+          <group position={[0, 2.0, 0]}>
+            <mesh><boxGeometry args={[0.6, 0.05, 0.6]} />{pmat('#1e1a24')}</mesh>
+            <mesh position={[0, 0.07, 0]}><boxGeometry args={[0.42, 0.05, 0.42]} />{pmat('#d8b86a')}</mesh>
+            <mesh position={[0, 0.18, 0]}><boxGeometry args={[0.4, 0.28, 0.4]} />{pmat('#23232c')}</mesh>
+          </group>
+        );
+      case 'farmer': // 草帽：宽檐 + 矮顶
+        return (
+          <group position={[0, 1.97, 0]}>
+            <mesh><boxGeometry args={[0.74, 0.05, 0.74]} />{pmat('#cda861')}</mesh>
+            <mesh position={[0, 0.11, 0]}><boxGeometry args={[0.4, 0.18, 0.4]} />{pmat('#c09a4e')}</mesh>
+          </group>
+        );
+      case 'investor': // 圆框眼镜 + 围巾（账房/担保人）
+        return (
+          <group>
+            <mesh position={[-0.12, 1.7, 0.29]}><boxGeometry args={[0.15, 0.15, 0.03]} />{pmat('#cfd4dc')}</mesh>
+            <mesh position={[0.12, 1.7, 0.29]}><boxGeometry args={[0.15, 0.15, 0.03]} />{pmat('#cfd4dc')}</mesh>
+            <mesh position={[0, 1.7, 0.29]}><boxGeometry args={[0.1, 0.03, 0.03]} />{pmat('#cfd4dc')}</mesh>
+            <mesh position={[0, 1.33, 0]}><boxGeometry args={[0.64, 0.12, 0.34]} />{pmat(sleeve)}</mesh>
+          </group>
+        );
+      case 'glutton': // 厨师帽 + 围裙
+        return (
+          <group>
+            <mesh position={[0, 2.0, 0]}><boxGeometry args={[0.46, 0.1, 0.46]} />{pmat('#f2ece0')}</mesh>
+            <mesh position={[0, 2.16, 0]}><boxGeometry args={[0.5, 0.22, 0.5]} />{pmat('#f8f4ea')}</mesh>
+            <mesh position={[0, 1.0, 0.16]}><boxGeometry args={[0.5, 0.6, 0.04]} />{pmat('#b85a3a')}</mesh>
+          </group>
+        );
+      default:
+        return null;
+    }
+  };
 
   return (
     <group ref={root}>
@@ -92,17 +146,8 @@ export default function MinecraftPlayer({ player, expression, seed = 0, look = n
       <mesh ref={head} position={[0, 1.675, 0]} material={headMats}>
         <boxGeometry args={[0.55, 0.55, 0.55]} />
       </mesh>
-      {/* 地主：头顶皇冠 */}
-      {player.role === 'landlord' && !bankrupt && (
-        <mesh position={[0, 2.0, 0]}><boxGeometry args={[0.5, 0.14, 0.5]} />{mat('#e2c044')}</mesh>
-      )}
-      {/* 资本家：头顶礼帽（区别于地主皇冠） */}
-      {player.role === 'capitalist' && !bankrupt && (
-        <group position={[0, 2.0, 0]}>
-          <mesh><boxGeometry args={[0.6, 0.05, 0.6]} />{mat('#1b1b22')}</mesh>
-          <mesh position={[0, 0.16, 0]}><boxGeometry args={[0.4, 0.28, 0.4]} />{mat('#23232c')}</mesh>
-        </group>
-      )}
+      {/* 角色专属道具（共享几何，各风格分支只换材质/配色） */}
+      {!bankrupt && roleProp(player.role)}
 
       {/* 头顶名牌 */}
       <Html position={[0, 2.45, 0]} center distanceFactor={10} zIndexRange={[30, 0]}>
