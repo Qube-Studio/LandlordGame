@@ -4,7 +4,8 @@
 /* eslint-disable react-hooks/immutability */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { Html, OrbitControls } from '@react-three/drei';
+import { Html, OrbitControls, ContactShadows } from '@react-three/drei';
+import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import { useGameStore } from '../store/gameStore';
 import { decompose } from '../game/notes';
@@ -49,21 +50,21 @@ function CameraRig({ look }) {
 function Table() {
   return (
     <group>
-      {/* 桌面毡布 */}
+      {/* 桌面毡布：暖酒红毡（金色筹码/钱牌压在暗红上对比最佳） */}
       <mesh position={[0, TABLE_TOP - 0.06, 0]} receiveShadow>
         <boxGeometry args={[6.6, 0.12, 4.0]} />
-        <meshStandardMaterial color="#2c6b3f" roughness={1} flatShading />
+        <meshStandardMaterial color="#7a4a3a" roughness={0.95} flatShading />
       </mesh>
-      {/* 木框 */}
+      {/* 木框：暖橡木 */}
       <mesh position={[0, 0.78, 0]}>
         <boxGeometry args={[7.0, 0.34, 4.4]} />
-        <meshStandardMaterial color="#3a2a18" roughness={1} flatShading />
+        <meshStandardMaterial color="#5a3d26" roughness={1} flatShading />
       </mesh>
       {/* 桌腿 */}
       {[[-3.2, -1.9], [3.2, -1.9], [-3.2, 1.9], [3.2, 1.9]].map(([x, z], i) => (
         <mesh key={i} position={[x, 0.3, z]}>
           <boxGeometry args={[0.32, 0.8, 0.32]} />
-          <meshStandardMaterial color="#2c2014" roughness={1} flatShading />
+          <meshStandardMaterial color="#412c1a" roughness={1} flatShading />
         </mesh>
       ))}
     </group>
@@ -249,19 +250,32 @@ function SceneContents({ look, freeCam = false }) {
 
   return (
     <>
-      <color attach="background" args={['#0a0b0f']} />
-      <fog attach="fog" args={['#0a0b0f', 9, 20]} />
-      <ambientLight intensity={0.75} />
-      <directionalLight position={[4, 9, 6]} intensity={1.0} castShadow />
-      <pointLight position={[0, 4, 0]} intensity={18} distance={12} color="#ffe9b0" />
+      {/* 暖光酒馆：暖棕背景 + 远雾把墙根融进暖色，消灭黑虚空 */}
+      <color attach="background" args={['#2a1d14']} />
+      <fog attach="fog" args={['#3a2817', 8, 28]} />
+      {/* 三点暖光：压低环境染暖 + 暖金主光(投影) + 冷补光提暗部 + 暖白逆光勾边 + 桌心吊灯热点 */}
+      <ambientLight intensity={0.36} color="#5a4636" />
+      <directionalLight
+        position={[5, 8.5, 4]} intensity={1.5} color="#ffcf8a"
+        castShadow shadow-mapSize={[2048, 2048]}
+        shadow-camera-near={1} shadow-camera-far={30}
+        shadow-camera-left={-9} shadow-camera-right={9}
+        shadow-camera-top={9} shadow-camera-bottom={-9}
+        shadow-bias={-0.0004}
+      />
+      <directionalLight position={[-6, 4, -5]} intensity={0.4} color="#6f86b8" />
+      <directionalLight position={[0, 6, -7]} intensity={0.55} color="#ffe6c0" />
+      <pointLight position={[0, 4.2, 0]} intensity={20} distance={11} decay={2} color="#ffd28a" />
 
-      {/* 地面 */}
+      {/* 地面：暖木地板 */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
         <planeGeometry args={[40, 40]} />
-        <meshStandardMaterial color="#14161c" roughness={1} />
+        <meshStandardMaterial color="#3d2c1c" roughness={1} />
       </mesh>
 
       <Table />
+      {/* 柔和接触阴影：把角色/桌腿"坐落"在地上，体量感的关键 */}
+      <ContactShadows position={[0, 0.02, 0]} scale={18} blur={2.6} opacity={0.5} far={4.5} color="#1c0f06" />
       {freeCam ? <OrbitControls target={[0, 1.05, 0]} makeDefault /> : <CameraRig look={look} />}
       <Projector />
 
@@ -312,6 +326,12 @@ function SceneContents({ look, freeCam = false }) {
         <Coin key={`flip-${state.round}`} mode="flip" result={state.coinResult ?? 'heads'} tableTop={TABLE_TOP} />
       )}
       {showRest && <Coin key={`rest-${state.round}`} mode="rest" result={state.coinResult} tableTop={TABLE_TOP} />}
+
+      {/* 后处理：吊灯/金皇冠/金色¥微微发光 + 画面暗角，营造围炉灯火气 */}
+      <EffectComposer disableNormalPass>
+        <Bloom intensity={0.5} luminanceThreshold={0.72} luminanceSmoothing={0.2} mipmapBlur />
+        <Vignette eskil={false} offset={0.28} darkness={0.62} />
+      </EffectComposer>
     </>
   );
 }

@@ -8,15 +8,15 @@
   --bg-3: #1f2533;
   --line: rgba(245, 247, 250, 0.16);
   --line-strong: rgba(245, 247, 250, 0.45);
-  --ink: #f5f7fa;
-  --ink-dim: #9aa3b2;
-  --ink-faint: #5d6675;
-  --gold: #d8b86a;
-  --gold-dim: #8a7644;
-  --danger: #e36262;
-  --ok: #67c587;
-  --landlord: #d8b86a;
-  --farmer: #7fb88a;
+  --ink: #f6ecd8;          /* 暖象牙白(冷白在暖场景里发灰) */
+  --ink-dim: #b8a585;
+  --ink-faint: #6d6047;
+  --gold: #e0bf72;
+  --gold-dim: #9a7e44;
+  --danger: #e36262;       /* 破产/扣钱保留冷红做功能性警示 */
+  --ok: #8fc77a;
+  --landlord: #e8c25a;
+  --farmer: #9ec47a;
   --shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
   --radius: 10px;
   --font: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
@@ -34,9 +34,9 @@ body {
   font-family: var(--font);
   color: var(--ink);
   background:
-    radial-gradient(1200px 600px at 70% -10%, rgba(80, 90, 160, 0.14), transparent 60%),
-    radial-gradient(900px 500px at 10% 110%, rgba(120, 80, 150, 0.10), transparent 60%),
-    linear-gradient(180deg, var(--bg-1), var(--bg-0) 70%);
+    radial-gradient(1200px 600px at 70% -10%, rgba(120, 80, 40, 0.16), transparent 60%),
+    radial-gradient(900px 500px at 10% 110%, rgba(90, 50, 30, 0.12), transparent 60%),
+    linear-gradient(180deg, #1c130c, #100a06 70%);
   background-attachment: fixed;
   overflow: hidden;
   overscroll-behavior: none;             /* 禁移动端下拉刷新/橡皮筋 */

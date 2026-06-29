@@ -8,15 +8,16 @@ import { faceTexture } from './textures';
 import PixelText from '../assets/pixelfont/PixelText';
 import { ROLE_LABEL, factionOf } from '../game/roles';
 
+// 暖光酒馆：整体提暖、降饱和；暴食者脱离橄榄绿改暖棕橙(配厨师设定)。
 const ROLE_COLORS = {
-  landlord:   { shirt: '#c79a3a', pants: '#5a4a22', sleeve: '#b88c30' },
-  capitalist: { shirt: '#7a4fae', pants: '#3a2a55', sleeve: '#6c43a0' }, // 资本家：紫金
-  farmer:     { shirt: '#5a8a4a', pants: '#394a2c', sleeve: '#4e7a40' },
-  investor:   { shirt: '#3a8a86', pants: '#2c4a48', sleeve: '#308079' }, // 投资人：青绿
-  glutton:    { shirt: '#7f8a3a', pants: '#44482c', sleeve: '#727a30' }, // 暴食者：橄榄绿
-  none:       { shirt: '#6c707b', pants: '#45484f', sleeve: '#5a5e68' },
+  landlord:   { shirt: '#caa24a', pants: '#5a4424', sleeve: '#b8902f' },
+  capitalist: { shirt: '#6e4a92', pants: '#3a2a4e', sleeve: '#5e3f80' }, // 资本家：葡萄酒紫
+  farmer:     { shirt: '#7a9a4e', pants: '#4a5230', sleeve: '#6c8a44' },
+  investor:   { shirt: '#3f8a82', pants: '#2c4a48', sleeve: '#368079' }, // 投资人：青绿
+  glutton:    { shirt: '#9a6a3a', pants: '#5a3e26', sleeve: '#8a5e32' }, // 暴食者：暖棕橙(厨子)
+  none:       { shirt: '#8a7a64', pants: '#54483a', sleeve: '#7a6a54' },
 };
-const SKIN = '#e0ac69';
+const SKIN = '#e8b878';
 
 function gray(hex) {
   const c = new THREE.Color(hex);
