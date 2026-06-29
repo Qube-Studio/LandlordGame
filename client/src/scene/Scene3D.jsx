@@ -21,6 +21,10 @@ const PAYOUT_PHASES = ['SETTLE', 'NEGOTIATE', 'FINALIZE'];
 
 // 任务③：仅本地测试（import.meta.env.DEV）才暴露的辅助开关。
 const DEV = import.meta.env.DEV;
+// 临时性能排查开关：?nofx=1 关后处理 / ?noshadow=1 关阴影（仅用于定位卡顿来源）。
+const PARAMS = typeof location !== 'undefined' ? new URLSearchParams(location.search) : new URLSearchParams();
+const NO_FX = PARAMS.get('nofx') === '1';
+const NO_SHADOW = PARAMS.get('noshadow') === '1';
 
 // 对手座位（仅对手；自己≈相机视角，不建模）：{x,z} 桌外环绕，朝向桌心。
 // 桌框约 ±3.5(x)/±2.2(z)，座位需留身体+手臂余量(~0.6)，否则人物会扎进桌子（穿模）。
@@ -257,7 +261,7 @@ function SceneContents({ look, freeCam = false }) {
       <ambientLight intensity={0.36} color="#5a4636" />
       <directionalLight
         position={[5, 8.5, 4]} intensity={1.5} color="#ffcf8a"
-        castShadow shadow-mapSize={[2048, 2048]}
+        castShadow={!NO_SHADOW} shadow-mapSize={[1024, 1024]}
         shadow-camera-near={1} shadow-camera-far={30}
         shadow-camera-left={-9} shadow-camera-right={9}
         shadow-camera-top={9} shadow-camera-bottom={-9}
@@ -274,21 +278,9 @@ function SceneContents({ look, freeCam = false }) {
       </mesh>
 
       <Table />
-      {/* 柔和接触阴影：把角色/桌腿"坐落"在地上，体量感的关键 */}
-      <ContactShadows position={[0, 0.02, 0]} scale={18} blur={2.6} opacity={0.5} far={4.5} color="#1c0f06" />
+      {/* 柔和接触阴影：低分辨率(够糊)，避免每帧高分重渲拖帧 */}
+      <ContactShadows position={[0, 0.02, 0]} scale={18} blur={2.6} opacity={0.5} far={4.5} resolution={256} color="#1c0f06" />
 
-      {/* 远景：角落炉火微光(动机光，推进暖雾里) + 暗色家具剪影，去掉空旷感 */}
-      <mesh position={[-7.0, 0.4, -8.8]}>
-        <boxGeometry args={[1.0, 0.7, 0.4]} />
-        <meshStandardMaterial color="#3a2414" emissive="#ff7a2a" emissiveIntensity={0.6} roughness={1} flatShading />
-      </mesh>
-      <pointLight position={[-6.2, 0.9, -7.8]} intensity={5} distance={8} decay={2} color="#ff8a3a" />
-      {[[-8.2, -3.5, 1.3, 1.6], [8.0, -4.0, 1.4, 1.4], [-8.6, 3.0, 1.2, 1.2], [8.4, 2.2, 1.3, 1.8]].map(([x, z, w, h], i) => (
-        <mesh key={`far${i}`} position={[x, h / 2, z]}>
-          <boxGeometry args={[w, h, w]} />
-          <meshStandardMaterial color="#2e2014" roughness={1} flatShading />
-        </mesh>
-      ))}
       {freeCam ? <OrbitControls target={[0, 1.05, 0]} makeDefault /> : <CameraRig look={look} />}
       <Projector />
 
@@ -341,10 +333,12 @@ function SceneContents({ look, freeCam = false }) {
       {showRest && <Coin key={`rest-${state.round}`} mode="rest" result={state.coinResult} tableTop={TABLE_TOP} />}
 
       {/* 后处理：吊灯/金皇冠/金色¥微微发光 + 画面暗角，营造围炉灯火气 */}
-      <EffectComposer disableNormalPass>
-        <Bloom intensity={0.5} luminanceThreshold={0.72} luminanceSmoothing={0.2} mipmapBlur />
-        <Vignette eskil={false} offset={0.28} darkness={0.62} />
-      </EffectComposer>
+      {!NO_FX && (
+        <EffectComposer disableNormalPass multisampling={0}>
+          <Bloom intensity={0.5} luminanceThreshold={0.72} luminanceSmoothing={0.2} mipmapBlur />
+          <Vignette eskil={false} offset={0.28} darkness={0.62} />
+        </EffectComposer>
+      )}
     </>
   );
 }
@@ -387,8 +381,8 @@ export default function Scene3D() {
   return (
     <div className="r3f-scene">
       <Canvas
-        shadows
-        dpr={[1, 2]}
+        shadows={!NO_SHADOW}
+        dpr={[1, 1.5]}
         camera={{ position: [0, 2.7, 6.4], fov: 50, near: 0.1, far: 100 }}
         gl={{ antialias: false }}
       >
