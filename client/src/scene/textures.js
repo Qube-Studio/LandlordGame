@@ -26,8 +26,8 @@ export function faceTexture(expression = 'idle', skin = '#e0ac69') {
     const px = (x, y, w, h, color) => { ctx.fillStyle = color; ctx.fillRect(x * u, y * u, w * u, h * u); };
     // 底色（肤色）
     px(0, 0, 16, 16, skin);
-    // 头发（顶部 + 鬓角）
-    const hair = '#3a2a18';
+    // 头发（顶部 + 鬓角）—— 暖一档
+    const hair = '#4a3420';
     px(0, 0, 16, 4, hair);
     px(0, 0, 2, 9, hair); px(14, 0, 2, 9, hair);
     // 眼睛
@@ -51,11 +51,14 @@ export function faceTexture(expression = 'idle', skin = '#e0ac69') {
     }
     // 眉/腮
     if (expression === 'lose') { px(3, 5, 3, 1, hair); px(10, 5, 3, 1, hair); }
+    // 腮红（暖光酒馆的人情味；破产/沮丧不画）
+    if (!['bankrupt', 'lose'].includes(expression)) { px(2, 9, 2, 1, '#e09478'); px(12, 9, 2, 1, '#e09478'); }
     // 嘴
     const mouth = '#7a4a36';
     if (expression === 'win') px(6, 11, 4, 2, mouth);
     else if (expression === 'lose') { px(6, 12, 4, 1, mouth); px(5, 11, 1, 1, mouth); px(10, 11, 1, 1, mouth); }
     else if (expression === 'ready') px(6, 11, 4, 1, mouth);
+    else if (expression === 'bet') { px(6, 11, 4, 1, mouth); px(9, 10, 1, 1, mouth); } // 赌徒坏笑：右嘴角上扬
     else if (expression === 'bankrupt') { px(6, 12, 4, 2, '#4b4f57'); }
     else px(6, 11, 4, 1, mouth);
   });

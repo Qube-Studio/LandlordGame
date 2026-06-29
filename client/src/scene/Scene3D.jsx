@@ -276,6 +276,19 @@ function SceneContents({ look, freeCam = false }) {
       <Table />
       {/* 柔和接触阴影：把角色/桌腿"坐落"在地上，体量感的关键 */}
       <ContactShadows position={[0, 0.02, 0]} scale={18} blur={2.6} opacity={0.5} far={4.5} color="#1c0f06" />
+
+      {/* 远景：角落炉火微光(动机光，推进暖雾里) + 暗色家具剪影，去掉空旷感 */}
+      <mesh position={[-7.0, 0.4, -8.8]}>
+        <boxGeometry args={[1.0, 0.7, 0.4]} />
+        <meshStandardMaterial color="#3a2414" emissive="#ff7a2a" emissiveIntensity={0.6} roughness={1} flatShading />
+      </mesh>
+      <pointLight position={[-6.2, 0.9, -7.8]} intensity={5} distance={8} decay={2} color="#ff8a3a" />
+      {[[-8.2, -3.5, 1.3, 1.6], [8.0, -4.0, 1.4, 1.4], [-8.6, 3.0, 1.2, 1.2], [8.4, 2.2, 1.3, 1.8]].map(([x, z, w, h], i) => (
+        <mesh key={`far${i}`} position={[x, h / 2, z]}>
+          <boxGeometry args={[w, h, w]} />
+          <meshStandardMaterial color="#2e2014" roughness={1} flatShading />
+        </mesh>
+      ))}
       {freeCam ? <OrbitControls target={[0, 1.05, 0]} makeDefault /> : <CameraRig look={look} />}
       <Projector />
 

@@ -12,11 +12,14 @@ export default function Coin({ result = 'heads', mode = 'flip', tableTop = 1.0 }
   const ref = useRef();
   const rest = tableTop + COIN_H; // 平放时圆心高度（最低点恰好贴桌面）
   const startRef = useRef(null);
+  const restStartRef = useRef(null); // rest 出现时刻：用于一次性金光脉冲
 
   const mats = useMemo(() => {
-    const side = new THREE.MeshStandardMaterial({ color: '#a89058', roughness: 0.55, metalness: 0.35, flatShading: true });
-    const top = new THREE.MeshStandardMaterial({ map: coinFaceTexture('heads'), roughness: 0.45, metalness: 0.25, flatShading: true });
-    const bottom = new THREE.MeshStandardMaterial({ map: coinFaceTexture('tails'), roughness: 0.45, metalness: 0.25, flatShading: true });
+    // 暖光酒馆：暖金属硬币，在暖主光下出金属反光 + 落定时一次性金光脉冲(配 Bloom)
+    const e = { emissive: '#ffcf6a', emissiveIntensity: 0 };
+    const side = new THREE.MeshStandardMaterial({ color: '#c89a4e', roughness: 0.4, metalness: 0.55, flatShading: true, ...e });
+    const top = new THREE.MeshStandardMaterial({ map: coinFaceTexture('heads'), roughness: 0.35, metalness: 0.5, flatShading: true, ...e });
+    const bottom = new THREE.MeshStandardMaterial({ map: coinFaceTexture('tails'), roughness: 0.35, metalness: 0.5, flatShading: true, ...e });
     return [side, top, bottom];
   }, []);
 
@@ -38,6 +41,11 @@ export default function Coin({ result = 'heads', mode = 'flip', tableTop = 1.0 }
       const r = getCoinRest();
       c.position.set(r ? r.x : 0, rest + Math.sin(st.clock.elapsedTime * 2) * 0.01, r ? r.z : 0);
       c.rotation.set(result === 'heads' ? 0 : Math.PI, r ? r.ry : 0, 0);
+      // 落定瞬间一次性金光脉冲（0→峰→0，约 0.45s），配 Bloom 出"叮"一亮
+      if (restStartRef.current == null) restStartRef.current = st.clock.elapsedTime;
+      const rt = st.clock.elapsedTime - restStartRef.current;
+      const glow = rt < 0.45 ? Math.sin((rt / 0.45) * Math.PI) * 1.4 : 0;
+      for (const m of mats) m.emissiveIntensity = glow;
       return;
     }
 

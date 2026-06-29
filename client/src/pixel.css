@@ -499,3 +499,45 @@ body {
   padding: 2px 6px; font-family: var(--font-cjk); font-size: 11px;
 }
 .mc-chan-btn.active { color: #fff; border-color: var(--px-gold); }
+
+/* ============================================================
+   暖光酒馆精修（置于末尾）：统一铜框金边内描边 + 资金/目标暖金辉光
+   ============================================================ */
+.panel, .phase-panel, .money-hand .hand-info, .nego-col {
+  box-shadow:
+    inset 2px 2px 0 var(--px-bevel-l),
+    inset -2px -2px 0 var(--px-bevel-d),
+    inset 0 0 0 1px rgba(232, 194, 90, 0.22),
+    0 6px 0 rgba(0, 0, 0, 0.4);
+}
+.px-chip, .rail-row, .goal-hud, .hud-banner, .mc-chat-input {
+  box-shadow:
+    inset 2px 2px 0 var(--px-bevel-l),
+    inset -2px -2px 0 var(--px-bevel-d),
+    inset 0 0 0 1px rgba(232, 194, 90, 0.20);
+}
+/* 自己资金大字 + 地主目标 + 角色金牌：暖金辉光 */
+.balance-hud .bh-value svg { filter: drop-shadow(0 0 8px rgba(232, 194, 90, 0.45)); }
+.np-role.landlord, .rail-dot.landlord { filter: drop-shadow(0 0 3px rgba(232, 194, 90, 0.5)); }
+
+/* 结算跳字 juice：本回合 ±N 蹦出(back-out) + 输赢辉光；播报行错峰入场 */
+.delta-big { display: inline-block; animation: delta-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+.delta-big.ok { filter: drop-shadow(0 0 10px rgba(232, 194, 90, 0.55)); }
+.delta-big.danger { filter: drop-shadow(0 0 10px rgba(227, 98, 98, 0.55)); }
+@keyframes delta-pop {
+  0%   { transform: scale(0.4); opacity: 0; }
+  60%  { transform: scale(1.18); opacity: 1; }
+  100% { transform: scale(1); }
+}
+.settle-line { animation: settle-line-in 0.42s ease-out both; }
+.settle-line:nth-child(2) { animation-delay: 0.08s; }
+.settle-line:nth-child(3) { animation-delay: 0.16s; }
+.settle-line:nth-child(4) { animation-delay: 0.24s; }
+.settle-line:nth-child(5) { animation-delay: 0.32s; }
+@keyframes settle-line-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .delta-big, .settle-line { animation: none; }
+}
