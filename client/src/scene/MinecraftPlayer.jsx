@@ -7,17 +7,11 @@ import * as THREE from 'three';
 import { faceTexture } from './textures';
 import PixelText from '../assets/pixelfont/PixelText';
 import { ROLE_LABEL, factionOf } from '../game/roles';
+import { P, ROLE_CLOTH } from '../assets/palette';
 
-// 暖光酒馆：整体提暖、降饱和；暴食者脱离橄榄绿改暖棕橙(配厨师设定)。
-const ROLE_COLORS = {
-  landlord:   { shirt: '#caa24a', pants: '#5a4424', sleeve: '#b8902f' },
-  capitalist: { shirt: '#6e4a92', pants: '#3a2a4e', sleeve: '#5e3f80' }, // 资本家：葡萄酒紫
-  farmer:     { shirt: '#7a9a4e', pants: '#4a5230', sleeve: '#6c8a44' },
-  investor:   { shirt: '#3f8a82', pants: '#2c4a48', sleeve: '#368079' }, // 投资人：青绿
-  glutton:    { shirt: '#9a6a3a', pants: '#5a3e26', sleeve: '#8a5e32' }, // 暴食者：暖棕橙(厨子)
-  none:       { shirt: '#8a7a64', pants: '#54483a', sleeve: '#7a6a54' },
-};
-const SKIN = '#e8b878';
+// 暖光酒馆：整体提暖、降饱和；暴食者脱离橄榄绿改暖棕橙(配厨师设定)。色值真源在 palette.js。
+const ROLE_COLORS = ROLE_CLOTH;
+const SKIN = P.skin;
 
 function gray(hex) {
   const c = new THREE.Color(hex);

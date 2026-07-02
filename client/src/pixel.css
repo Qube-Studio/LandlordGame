@@ -6,17 +6,17 @@
    ============================================================ */
 
 :root {
-  /* 暖光酒馆：石质冷灰 → 暖木/铜调 */
-  --px-stone:   #7a5a3e;
-  --px-stone-d: #4e3826;
-  --px-dirt:    #342518;
-  --px-dark:    #1c130c;
-  --px-darker:  #120b06;
-  --px-panel:   #2a1d15;
+  /* 暖光酒馆:全部降级为 palette.js 单一真源(--c-*)的别名,不再自持颜色值 */
+  --px-stone:   var(--c-wood-300, #7a5a3e);
+  --px-stone-d: var(--c-wood-500, #4e3826);
+  --px-dirt:    var(--c-wood-700, #342518);
+  --px-dark:    var(--c-wood-800, #1c130c);
+  --px-darker:  var(--c-wood-950, #120b06);
+  --px-panel:   var(--c-wood-700, #2a1d15);
   --px-bevel-l: rgba(255, 224, 170, 0.22);
   --px-bevel-d: rgba(0, 0, 0, 0.55);
-  --px-gold:    #e8c25a;
-  --px-grass:   #a0c468;
+  --px-gold:    var(--c-brass-hi, #e8c25a);
+  --px-grass:   var(--c-grass, #a0c468);
   /* 中文像素字体栈：优先常见免费像素中文字体，缺失则退回等宽 */
   --font-cjk: 'Zpix', 'Fusion Pixel 12px SC', 'Ark Pixel 12px SC', 'Cubic 11',
               'WenQuanYi Bitmap Song', '宋体', 'SimSun', monospace;
@@ -27,7 +27,7 @@ body {
   background:
     repeating-linear-gradient(0deg, rgba(0,0,0,0.16) 0 2px, transparent 2px 4px),
     radial-gradient(900px 500px at 70% -10%, rgba(120, 80, 40, 0.12), transparent 60%),
-    linear-gradient(180deg, #1c130c, var(--px-darker) 80%);
+    linear-gradient(180deg, var(--px-dark), var(--px-darker) 80%);
   image-rendering: pixelated;
   -webkit-font-smoothing: none;
   font-smooth: never;

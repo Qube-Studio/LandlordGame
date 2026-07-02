@@ -1,22 +1,23 @@
-/* 全局主题：深黑基调（多层次，不单调）+ 白色 UI + 低饱和金色点缀。
-   所有组件只允许引用这些变量，禁止写死颜色（docs/GAME_SPEC.md §4.5）。 */
+/* 全局主题:暖木酒馆基调。真源在 assets/palette.js(injectPalette 注入 --c-*),
+   这里的旧变量全部降级为别名——组件类名与变量名零改动(docs/ART_BIBLE.md §1.1)。
+   所有组件只允许引用这些变量,禁止写死颜色(docs/GAME_SPEC.md §4.5)。 */
 
 :root {
-  --bg-0: #08090d;
-  --bg-1: #0e1118;
-  --bg-2: #161b26;
-  --bg-3: #1f2533;
+  --bg-0: var(--c-bg-deep, #08090d);
+  --bg-1: var(--c-wood-900, #0e1118);
+  --bg-2: var(--c-wood-700, #161b26);
+  --bg-3: var(--c-wood-500, #1f2533);
   --line: rgba(245, 247, 250, 0.16);
   --line-strong: rgba(245, 247, 250, 0.45);
-  --ink: #f6ecd8;          /* 暖象牙白(冷白在暖场景里发灰) */
-  --ink-dim: #b8a585;
-  --ink-faint: #6d6047;
-  --gold: #e0bf72;
-  --gold-dim: #9a7e44;
-  --danger: #e36262;       /* 破产/扣钱保留冷红做功能性警示 */
-  --ok: #8fc77a;
-  --landlord: #e8c25a;
-  --farmer: #9ec47a;
+  --ink: var(--c-ink, #f6ecd8);          /* 暖象牙白(冷白在暖场景里发灰) */
+  --ink-dim: var(--c-ink-dim, #b8a585);
+  --ink-faint: var(--c-ink-faint, #6d6047);
+  --gold: var(--c-brass-hi, #e0bf72);
+  --gold-dim: var(--c-brass-dim, #9a7e44);
+  --danger: var(--c-danger, #e36262);    /* 破产/扣钱保留冷红做功能性警示 */
+  --ok: var(--c-ok, #8fc77a);
+  --landlord: var(--c-brass-hi, #e8c25a);
+  --farmer: var(--c-grass, #9ec47a);
   --shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
   --radius: 10px;
   --font: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
@@ -36,7 +37,7 @@ body {
   background:
     radial-gradient(1200px 600px at 70% -10%, rgba(120, 80, 40, 0.16), transparent 60%),
     radial-gradient(900px 500px at 10% 110%, rgba(90, 50, 30, 0.12), transparent 60%),
-    linear-gradient(180deg, #1c130c, #100a06 70%);
+    linear-gradient(180deg, var(--c-wood-800, #1c130c), var(--c-bg-deep, #100a06) 70%);
   background-attachment: fixed;
   overflow: hidden;
   overscroll-behavior: none;             /* 禁移动端下拉刷新/橡皮筋 */

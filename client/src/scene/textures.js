@@ -2,6 +2,7 @@
 // 全部用 NearestFilter，保持硬像素边缘。
 import * as THREE from 'three';
 import { noteCanvas } from '../assets/pixelnote';
+import { P } from '../assets/palette';
 
 function pixelTexture(draw, size = 16) {
   const c = document.createElement('canvas');
@@ -18,7 +19,7 @@ function pixelTexture(draw, size = 16) {
 
 // ---- 人物脸（16×16） ----
 const FACE_CACHE = new Map();
-export function faceTexture(expression = 'idle', skin = '#e0ac69') {
+export function faceTexture(expression = 'idle', skin = P.skin) {
   const key = `${expression}|${skin}`;
   if (FACE_CACHE.has(key)) return FACE_CACHE.get(key);
   const t = pixelTexture((ctx, s) => {
@@ -27,7 +28,7 @@ export function faceTexture(expression = 'idle', skin = '#e0ac69') {
     // 底色（肤色）
     px(0, 0, 16, 16, skin);
     // 头发（顶部 + 鬓角）—— 暖一档
-    const hair = '#4a3420';
+    const hair = P.hair;
     px(0, 0, 16, 4, hair);
     px(0, 0, 2, 9, hair); px(14, 0, 2, 9, hair);
     // 眼睛

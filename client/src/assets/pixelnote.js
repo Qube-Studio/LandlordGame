@@ -1,18 +1,14 @@
 // 唯一权威的钞票视觉：用 canvas 画一张像素钞票，2D（手牌/飞行/协商）与 3D（桌面贴图）共用同一张，
 // 保证手上与桌上的钞票完全一致。数字用自制点阵字体绘制。
 import { glyphPoints, GLYPH_ADVANCE } from './pixelfont/glyphs';
+import { DENOM_COLORS } from './palette';
 
 export const NOTE_ASPECT = 1.4; // 高/宽
 const NW = 44, NH = 62;         // 低分辨率像素网格（放大显示=硬像素）
 
-const DENOM = {
-  10: { bg: '#caa84e', ink: '#403211', accent: '#ecd78d' },
-  5:  { bg: '#6fa87e', ink: '#1d3726', accent: '#abd7b9' },
-  2:  { bg: '#5f93b5', ink: '#152e3d', accent: '#abd1e6' },
-  1:  { bg: '#b8a07a', ink: '#382e1b', accent: '#decba8' },
-};
-const DEBT = { bg: '#c45048', ink: '#360f0b', accent: '#eaa39d' };
-const BACK = { bg: '#23262f', ink: '#7d8696', accent: '#363b46' };
+const DENOM = { 10: DENOM_COLORS[10], 5: DENOM_COLORS[5], 2: DENOM_COLORS[2], 1: DENOM_COLORS[1] };
+const DEBT = DENOM_COLORS.DEBT;
+const BACK = DENOM_COLORS.BACK;
 
 function rect(ctx, x, y, w, h, c) { ctx.fillStyle = c; ctx.fillRect(x, y, w, h); }
 
