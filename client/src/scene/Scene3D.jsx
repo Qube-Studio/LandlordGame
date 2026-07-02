@@ -164,8 +164,10 @@ function FlyingNote({ item, startRef, delay, duration, onDone }) {
       a * a * item.s.y + 2 * a * e * item.c.y + e * e * item.end.y,
       a * a * item.s.z + 2 * a * e * item.c.z + e * e * item.end.z,
     );
-    // 正面朝相机(≈1.15) → 反面朝上(π)；附带轻微自旋与摆动
-    m.rotation.set(1.15 + (Math.PI - 1.15) * e, item.yaw * e + e * 0.6, Math.sin(t * Math.PI * 2) * (1 - t) * 0.3);
+    // 正面朝相机(≈1.15) → 反面朝上(π)；附带轻微自旋与摆动。
+    // yaw 必须在落定(e=1)时正好等于 cardYaw(i)，否则接力给静态钱堆的瞬间会突跳(~34°看着像左右翻转)。
+    // 额外自旋用 sin(eπ) 做成中途隆起、两端归零的驼峰：保留飞行中的旋转手感，落点严丝合缝。
+    m.rotation.set(1.15 + (Math.PI - 1.15) * e, item.yaw * e + Math.sin(e * Math.PI) * 0.6, Math.sin(t * Math.PI * 2) * (1 - t) * 0.3);
     if (t >= 1 && !done.current) { done.current = true; onDone(); }
   });
   return (
