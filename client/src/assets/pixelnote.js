@@ -47,12 +47,12 @@ function draw(ctx, { value = 1, faceDown = false, debt = false, locked = false }
   ctx.clearRect(0, 0, NW, NH);
   const theme = faceDown ? BACK : debt ? DEBT : (DENOM[value] || DENOM[1]);
   rect(ctx, 0, 0, NW, NH, theme.bg);
-  // 纸张噪声(±5% 细颗粒,确定性伪随机——同参数永远同图,缓存友好)
+  // 纸张噪声(轻,确定性伪随机——同参数永远同图,缓存友好;密度压低保持版面干净)
   let s = value * 131 + (faceDown ? 7 : 0) + (debt ? 13 : 0) + 1;
   const rnd = () => ((s = (s * 16807) % 2147483647) / 2147483647);
   for (let y = 2; y < NH - 2; y += 2) for (let x = 2; x < NW - 2; x += 2) {
-    if (rnd() < 0.26) {
-      ctx.fillStyle = rnd() < 0.5 ? 'rgba(0,0,0,0.05)' : 'rgba(255,255,255,0.05)';
+    if (rnd() < 0.10) {
+      ctx.fillStyle = rnd() < 0.5 ? 'rgba(0,0,0,0.035)' : 'rgba(255,255,255,0.035)';
       ctx.fillRect(x, y, 2, 2);
     }
   }
@@ -100,17 +100,14 @@ function draw(ctx, { value = 1, faceDown = false, debt = false, locked = false }
     return;
   }
 
-  // 中央大数字:凸版三层(右下暗影 → 左上高光 → 主体)
+  // 中央大数字:凸版两层(右下暗影 → 主体)。水印极淡垫底,不与数字抢戏。
   const label = (debt ? '-' : '') + value;
-  drawWatermark(ctx, value, debt ? shade(theme.bg, -8) : shade(theme.bg, 8)); // 水印垫底
+  drawWatermark(ctx, value, debt ? shade(theme.bg, -4) : shade(theme.bg, 4)); // 水印垫底(极淡)
   drawGlyphText(ctx, label, NW / 2 + 1, NH / 2, 3, shade(theme.ink, -35));
-  drawGlyphText(ctx, label, NW / 2 - 1, NH / 2 - 2, 3, theme.accent);
   drawGlyphText(ctx, label, NW / 2, NH / 2 - 1, 3, theme.ink);
   drawGlyphText(ctx, String(value), 9, 10, 1, theme.ink);                // 左上角标
   drawGlyphText(ctx, String(value), NW - 9, NH - 10, 1, theme.ink);      // 右下角标
   drawGlyphText(ctx, debt ? 'DEBT' : 'YUAN', NW / 2, NH - 9, 1, theme.ink);
-  // 序列号行(确定性,每面额一号)
-  drawGlyphText(ctx, `NO${String((value * 7919) % 10000).padStart(4, '0')}`, NW / 2, NH - 16, 1, shade(theme.ink, 25));
 
   if (locked) {
     rect(ctx, 0, 0, NW, NH, 'rgba(8,9,13,0.55)');

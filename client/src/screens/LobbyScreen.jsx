@@ -3,6 +3,7 @@ import { api } from '../api';
 import { useAuthStore } from '../store/authStore';
 import { useGameStore } from '../store/gameStore';
 import { getArt } from '../assets/registry';
+import PixelText from '../assets/pixelfont/PixelText';
 
 const Icon = getArt('icon');
 
@@ -47,7 +48,7 @@ export default function LobbyScreen() {
   return (
     <div className="lobby">
       <header className="lobby-header">
-        <h1>地主与农民</h1>
+        <h1><PixelText size={4} color="var(--px-gold)">F.A.T.E.</PixelText></h1>
         <div className="lobby-header-right">
           <span className="online-chip"><Icon name="users" size={15} /> 在线 {online.count}</span>
           <span className="dim">{username}</span>

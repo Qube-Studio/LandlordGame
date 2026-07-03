@@ -26,7 +26,7 @@ function partMats(role, part, bankrupt, expression = 'idle') {
   return arr;
 }
 
-export default function MinecraftPlayer({ player, expression, seed = 0, look = null }) {
+export default function MinecraftPlayer({ player, expression, seed = 0, look = null, seated = false }) {
   const root = useRef();
   const lArm = useRef();
   const rArm = useRef();
@@ -40,11 +40,13 @@ export default function MinecraftPlayer({ player, expression, seed = 0, look = n
   const armMats = useMemo(() => partMats(role, 'arm', bankrupt), [role, bankrupt]);
   const legMats = useMemo(() => partMats(role, 'leg', bankrupt), [role, bankrupt]);
 
+  const baseY = seated ? -0.16 : 0; // 坐姿:臀部落到凳面(凳高≈0.5,髋部 0.7→0.54)
+
   useFrame((st) => {
     const t = st.clock.elapsedTime + seed;
     if (!bankrupt) {
       if (root.current) {
-        root.current.position.y = Math.sin(t * 1.6) * 0.03;
+        root.current.position.y = baseY + Math.sin(t * 1.6) * 0.03;
         // 复活/重开后清除破产瘫倒倾斜（任务④：之前只在破产时写 z，从不归零）
         root.current.rotation.z += (0 - root.current.rotation.z) * 0.15;
       }
@@ -73,7 +75,7 @@ export default function MinecraftPlayer({ player, expression, seed = 0, look = n
         }
       }
     } else if (root.current) {
-      root.current.position.y = 0;
+      root.current.position.y = baseY;
       root.current.rotation.z += (0.12 - root.current.rotation.z) * 0.15; // 平滑瘫倒
     }
   });
@@ -84,13 +86,13 @@ export default function MinecraftPlayer({ player, expression, seed = 0, look = n
     <meshStandardMaterial color={color} roughness={0.55} metalness={0.3} flatShading emissive={color} emissiveIntensity={0.35} />
   );
 
-  // 五角色头顶/身上的辨识道具（共享几何，破产时不渲染）。坐标基于头中心 y=1.675、头顶≈1.95。
-  // 围裙/马甲/袖套等布面已烘进皮肤纹理;这里只留立体件。
-  const roleProp = (r) => {
+  // 头戴道具(挂进头部组,随转头/低头一起动;破产时不渲染)。坐标为头部局部系(头中心=原点)。
+  // 围裙/马甲/袖套等布面已烘进皮肤纹理;手持件(算盘/鸡腿)挂在臂组里。
+  const headProp = (r) => {
     switch (r) {
       case 'landlord': // 真皇冠：冠圈 + 五尖 + 正面红宝石(金件发光)
         return (
-          <group position={[0, 2.0, 0]}>
+          <group position={[0, 0.325, 0]}>
             <mesh><boxGeometry args={[0.5, 0.1, 0.5]} />{pmatGlow(PROP_COLORS.crown)}</mesh>
             {[[-0.2, 0.2], [0.2, 0.2], [-0.2, -0.2], [0.2, -0.2], [0, 0]].map(([x, z], i) => (
               <mesh key={i} position={[x, i === 4 ? 0.15 : 0.12, z]}>
@@ -102,7 +104,7 @@ export default function MinecraftPlayer({ player, expression, seed = 0, look = n
         );
       case 'capitalist': // 礼帽 + 金带
         return (
-          <group position={[0, 2.0, 0]}>
+          <group position={[0, 0.325, 0]}>
             <mesh><boxGeometry args={[0.6, 0.05, 0.6]} />{pmat(PROP_COLORS.hatBrim)}</mesh>
             <mesh position={[0, 0.07, 0]}><boxGeometry args={[0.42, 0.05, 0.42]} />{pmatGlow(PROP_COLORS.hatBand)}</mesh>
             <mesh position={[0, 0.18, 0]}><boxGeometry args={[0.4, 0.28, 0.4]} />{pmat(PROP_COLORS.hatTop)}</mesh>
@@ -110,7 +112,7 @@ export default function MinecraftPlayer({ player, expression, seed = 0, look = n
         );
       case 'farmer': // 草帽：宽檐 + 矮顶(草编织纹)
         return (
-          <group position={[0, 1.97, 0]}>
+          <group position={[0, 0.295, 0]}>
             <mesh>
               <boxGeometry args={[0.74, 0.05, 0.74]} />
               <meshStandardMaterial map={tex('fabric', { color: PROP_COLORS.straw, pattern: 'stripe' })} roughness={1} flatShading />
@@ -124,16 +126,16 @@ export default function MinecraftPlayer({ player, expression, seed = 0, look = n
       case 'investor': // 圆框眼镜(马甲/领带/袖套已烘进皮肤)
         return (
           <group>
-            <mesh position={[-0.12, 1.7, 0.29]}><boxGeometry args={[0.15, 0.15, 0.03]} />{pmat(PROP_COLORS.lens)}</mesh>
-            <mesh position={[0.12, 1.7, 0.29]}><boxGeometry args={[0.15, 0.15, 0.03]} />{pmat(PROP_COLORS.lens)}</mesh>
-            <mesh position={[0, 1.7, 0.29]}><boxGeometry args={[0.1, 0.03, 0.03]} />{pmat(PROP_COLORS.lens)}</mesh>
+            <mesh position={[-0.12, 0.025, 0.29]}><boxGeometry args={[0.15, 0.15, 0.03]} />{pmat(PROP_COLORS.lens)}</mesh>
+            <mesh position={[0.12, 0.025, 0.29]}><boxGeometry args={[0.15, 0.15, 0.03]} />{pmat(PROP_COLORS.lens)}</mesh>
+            <mesh position={[0, 0.025, 0.29]}><boxGeometry args={[0.1, 0.03, 0.03]} />{pmat(PROP_COLORS.lens)}</mesh>
           </group>
         );
       case 'glutton': // 厨师帽(围裙已烘进皮肤)
         return (
           <group>
-            <mesh position={[0, 2.0, 0]}><boxGeometry args={[0.46, 0.1, 0.46]} />{pmat(PROP_COLORS.chefWhite)}</mesh>
-            <mesh position={[0, 2.16, 0]}><boxGeometry args={[0.5, 0.22, 0.5]} />{pmat(PROP_COLORS.chefWhite2)}</mesh>
+            <mesh position={[0, 0.325, 0]}><boxGeometry args={[0.46, 0.1, 0.46]} />{pmat(PROP_COLORS.chefWhite)}</mesh>
+            <mesh position={[0, 0.485, 0]}><boxGeometry args={[0.5, 0.22, 0.5]} />{pmat(PROP_COLORS.chefWhite2)}</mesh>
           </group>
         );
       default:
@@ -141,11 +143,17 @@ export default function MinecraftPlayer({ player, expression, seed = 0, look = n
     }
   };
 
+  const legRot = seated ? -1.5 : 0; // 坐姿:大腿前伸(髋部铰链,伸进桌下)
+
   return (
     <group ref={root}>
-      {/* 腿 */}
-      <mesh position={[-0.14, 0.35, 0]} material={legMats}><boxGeometry args={[0.26, 0.7, 0.26]} /></mesh>
-      <mesh position={[0.14, 0.35, 0]} material={legMats}><boxGeometry args={[0.26, 0.7, 0.26]} /></mesh>
+      {/* 腿(髋部铰链组,支持坐姿前伸) */}
+      <group position={[-0.14, 0.7, 0]} rotation={[legRot, 0, 0]}>
+        <mesh position={[0, -0.35, 0]} material={legMats}><boxGeometry args={[0.26, 0.7, 0.26]} /></mesh>
+      </group>
+      <group position={[0.14, 0.7, 0]} rotation={[legRot, 0, 0]}>
+        <mesh position={[0, -0.35, 0]} material={legMats}><boxGeometry args={[0.26, 0.7, 0.26]} /></mesh>
+      </group>
       {/* 身体 */}
       <mesh position={[0, 1.05, 0]} material={bodyMats}><boxGeometry args={[0.6, 0.7, 0.3]} /></mesh>
       {/* 手臂（绕肩旋转摆动;手持道具挂在臂组里随摆动） */}
@@ -167,12 +175,13 @@ export default function MinecraftPlayer({ player, expression, seed = 0, look = n
           </group>
         )}
       </group>
-      {/* 头 */}
-      <mesh ref={head} position={[0, 1.675, 0]} material={headMats}>
-        <boxGeometry args={[0.55, 0.55, 0.55]} />
-      </mesh>
-      {/* 角色专属道具（共享几何，各风格分支只换材质/配色） */}
-      {!bankrupt && roleProp(role)}
+      {/* 头(组化:头戴道具随转头/低头一起动) */}
+      <group ref={head} position={[0, 1.675, 0]}>
+        <mesh material={headMats}>
+          <boxGeometry args={[0.55, 0.55, 0.55]} />
+        </mesh>
+        {!bankrupt && headProp(role)}
+      </group>
 
       {/* 头顶名牌 */}
       <Html position={[0, 2.45, 0]} center distanceFactor={10} zIndexRange={[30, 0]}>

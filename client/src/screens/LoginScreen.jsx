@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useAuthStore } from '../store/authStore';
 import { getArt } from '../assets/registry';
+import PixelText from '../assets/pixelfont/PixelText';
 
 const Coin = getArt('coin');
 
@@ -37,7 +38,7 @@ export default function LoginScreen() {
       <div className="auth-card panel">
         <div className="auth-brand">
           <Coin face="heads" size={56} />
-          <h1>地主与农民</h1>
+          <h1><PixelText size={5} color="var(--px-gold)">F.A.T.E.</PixelText></h1>
           <p className="dim">破产竞速 · 心理博弈</p>
         </div>
         <div className="tabs">

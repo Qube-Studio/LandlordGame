@@ -274,6 +274,11 @@ const FELT_FLIP_Z = false;
 function feltU(x) { return (x / 6.6 + 0.5) * FELT_W; }
 function feltV(z) { return ((FELT_FLIP_Z ? -z : z) / 4.0 + 0.5) * FELT_H; }
 
+// 世界系正圆 → 纹理系椭圆的纵横比补偿:纹理 512² 铺在 6.6×4.0 桌面上,
+// x 向 512/6.6≈77.6 px/单位、z 向 512/4.0=128 px/单位,直接画圆会被拉成椭圆(玩家反馈⑦)。
+const feltRU = (r) => r * (FELT_W / 6.6);
+const feltRV = (r) => r * (FELT_H / 4.0);
+
 function drawTableFelt(ctx, w, h, spots, rnd) {
   drawFelt(ctx, w, h, P.feltTable, rnd, 4);
   // 四周金色缝线边(双线内缩)
@@ -283,27 +288,27 @@ function drawTableFelt(ctx, w, h, spots, rnd) {
   ctx.strokeRect(12, 12, w - 24, h - 24);
   ctx.setLineDash([]);
   ctx.strokeRect(18, 18, w - 36, h - 36);
-  // 中央硬币双环(世界半径 0.55/0.75)+ 环内王/禾对半暗纹
+  // 中央硬币双环(世界半径 0.55/0.75 的正圆)+ 环内王/禾对半暗纹
   const cx = feltU(0), cy = feltV(0);
-  const rIn = 0.55 * (w / 6.6), rOut = 0.75 * (w / 6.6);
   ctx.fillStyle = 'rgba(0,0,0,0.08)';
-  ctx.beginPath(); ctx.arc(cx, cy, rIn, Math.PI / 2, Math.PI * 3 / 2); ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(cx, cy, feltRU(0.55), feltRV(0.55), 0, Math.PI / 2, Math.PI * 3 / 2); ctx.closePath(); ctx.fill();
   ctx.fillStyle = 'rgba(255,255,255,0.04)';
-  ctx.beginPath(); ctx.arc(cx, cy, rIn, -Math.PI / 2, Math.PI / 2); ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(cx, cy, feltRU(0.55), feltRV(0.55), 0, -Math.PI / 2, Math.PI / 2); ctx.closePath(); ctx.fill();
   ctx.strokeStyle = 'rgba(202,160,78,0.5)';
   ctx.setLineDash([6, 5]);
-  for (const r of [rIn, rOut]) { ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke(); }
+  for (const r of [0.55, 0.75]) {
+    ctx.beginPath(); ctx.ellipse(cx, cy, feltRU(r), feltRV(r), 0, 0, Math.PI * 2); ctx.stroke();
+  }
   ctx.setLineDash([]);
   ctx.fillStyle = 'rgba(0,0,0,0.15)';
-  ctx.fillRect(cx | 0, (cy - rIn) | 0, 1, rIn * 2 | 0); // 对半分隔线
-  // 每个钱堆落点一个虚线椭圆下注位(世界半轴 x=0.62 / z=0.50)
-  const ex = 0.62 * (w / 6.6), ez = 0.50 * (h / 4.0);
+  ctx.fillRect(cx | 0, (cy - feltRV(0.55)) | 0, 1, feltRV(0.55) * 2 | 0); // 对半分隔线
+  // 每个钱堆落点一个虚线正圆下注位(世界半径 0.45,收进缝线边内不压线)
   ctx.strokeStyle = 'rgba(202,160,78,0.5)';
   ctx.lineWidth = 2;
   ctx.setLineDash([6, 5]);
   for (const s of spots) {
     ctx.beginPath();
-    ctx.ellipse(feltU(s.x), feltV(s.z), ex, ez, 0, 0, Math.PI * 2);
+    ctx.ellipse(feltU(s.x), feltV(s.z), feltRU(0.45), feltRV(0.45), 0, 0, Math.PI * 2);
     ctx.stroke();
   }
   ctx.setLineDash([]);
@@ -320,13 +325,14 @@ function drawFlame(ctx, w, h, frame) {
   ];
   for (const { color, sw } of layers) {
     ctx.fillStyle = color;
-    for (let y = 0; y < h - 4; y += 2) {
-      const p = y / h;                                  // 0 顶 → 1 底
+    // 画布 y 向下:焰尖在顶部(窄)、焰基在底部炭床上方(宽)
+    for (let y = 0; y < h - 6; y += 2) {
+      const p = y / (h - 6);                            // 0 顶(尖) → 1 底(宽)
       const base = (1 - Math.pow(1 - p, 1.6)) * (w / 2) * sw;
-      const wob = Math.sin(p * 9 + frame * 2.1) * 2.2 * (1 - p) + (rnd() * 2 - 1) * 1.4;
+      const wob = Math.sin((1 - p) * 9 + frame * 2.1) * 2.2 * (1 - p) + (rnd() * 2 - 1) * 1.4;
       const half = Math.max(0, base + wob * sw);
       if (half < 0.5) continue;
-      ctx.fillRect(Math.round(w / 2 - half), h - 6 - y, Math.round(half * 2), 2);
+      ctx.fillRect(Math.round(w / 2 - half), y, Math.round(half * 2), 2);
     }
   }
   // 炭床
@@ -469,7 +475,8 @@ function drawExpression(px, expression) {
   if (!['bankrupt', 'lose'].includes(expression)) { px(2, 9, 2, 1, '#e09478'); px(12, 9, 2, 1, '#e09478'); }
   const mouth = '#7a4a36';
   if (expression === 'win') px(6, 11, 4, 2, mouth);
-  else if (expression === 'lose') { px(6, 12, 4, 1, mouth); px(5, 11, 1, 1, mouth); px(10, 11, 1, 1, mouth); }
+  else if (expression === 'lose') { px(6, 12, 4, 1, mouth); px(5, 13, 1, 1, mouth); px(10, 13, 1, 1, mouth); } // 嘴角下垂=丧气脸
+
   else if (expression === 'ready') px(6, 11, 4, 1, mouth);
   else if (expression === 'bet') { px(6, 11, 4, 1, mouth); px(9, 10, 1, 1, mouth); } // 赌徒坏笑
   else if (expression === 'bankrupt') px(6, 12, 4, 2, '#4b4f57');

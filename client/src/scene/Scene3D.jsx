@@ -30,17 +30,50 @@ const NO_FX = PARAMS.get('nofx') === '1';
 const NO_SHADOW = PARAMS.get('noshadow') === '1';
 // 减少动态:压光/金屑/镜头震直接跳终态或不演(CSS 侧由 pixel.css 的 media query 兜底)
 const REDUCED = typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+// 自适应渲染分辨率(反馈②操作延迟多为大屏掉帧感):按像素总量预算折算 DPR。
+// 2K/4K 全屏时把渲染像素压回 ≈1920×1250 量级——像素美学下低 DPR 几乎无感,帧率立涨。
+const PIXEL_BUDGET = 2_400_000;
+function adaptiveDpr() {
+  if (typeof window === 'undefined') return 1;
+  const base = Math.min(window.devicePixelRatio || 1, 1.5);
+  const budget = Math.sqrt(PIXEL_BUDGET / Math.max(1, window.innerWidth * window.innerHeight));
+  return Math.max(0.75, Math.min(base, budget));
+}
 
-// 对手座位（仅对手；自己≈相机视角，不建模）：{x,z} 桌外环绕，朝向桌心。
-// 桌框约 ±3.5(x)/±2.2(z)，座位需留身体+手臂余量(~0.6)，否则人物会扎进桌子（穿模）。
-const SEATS = {
-  0: [],
-  1: [{ x: 0, z: -3.0 }],
-  2: [{ x: -2.8, z: -2.8 }, { x: 2.8, z: -2.8 }],
-  3: [{ x: -4.1, z: -1.2 }, { x: 0, z: -3.0 }, { x: 4.1, z: -1.2 }],
-  4: [{ x: -4.3, z: -0.9 }, { x: -2.1, z: -2.9 }, { x: 2.1, z: -2.9 }, { x: 4.3, z: -0.9 }],
+// 绝对座位系统(玩家反馈⑫⑮):每个玩家按 players[] 序固定坐在桌边某个位置(人人所见一致),
+// 渲染时把整个场景绕 Y 旋转,让「我的座位」永远转到相机近侧——不同玩家看到自己坐在不同的桌边。
+// 座位贴桌(坐凳,大腿伸进桌下),桌框 ±3.5(x)/±2.2(z)。
+const SEAT_LAYOUTS = {
+  1: [{ x: 0, z: 2.65 }],
+  2: [{ x: 0, z: 2.65 }, { x: 0, z: -2.65 }],
+  3: [{ x: 0, z: 2.65 }, { x: -1.9, z: -2.65 }, { x: 1.9, z: -2.65 }],
+  4: [{ x: 0, z: 2.65 }, { x: 0, z: -2.65 }, { x: -3.95, z: 0 }, { x: 3.95, z: 0 }],
+  5: [{ x: 0, z: 2.65 }, { x: -1.9, z: -2.65 }, { x: 1.9, z: -2.65 }, { x: -3.95, z: 0 }, { x: 3.95, z: 0 }],
 };
-const SELF_SEAT = { x: 0, z: 3.0 }; // 自由相机下渲染自己用的近端座位
+const seatOf = (count, idx) => (SEAT_LAYOUTS[Math.min(5, Math.max(1, count))] ?? [])[idx] ?? { x: 0, z: -2.65 };
+// 座位前方毡面上的钱堆落点(同一公式喂 MoneyStack 摆放与 tableFelt 烘焙圆圈,保证严丝合缝)
+const spotOf = (seat) => ({ x: seat.x * 0.56, z: seat.z * 0.52 });
+// 把「我的座位」旋到 +z 近侧的场景旋转角
+const rotFor = (seat) => -Math.atan2(seat.x, seat.z);
+
+// 木凳(每个入座玩家一张)
+function Stool({ x, z, ry = 0 }) {
+  const wood = tex('wood', { tone: P.wood500 });
+  return (
+    <group position={[x, 0, z]} rotation={[0, ry, 0]}>
+      <mesh position={[0, 0.46, 0]}>
+        <boxGeometry args={[0.52, 0.08, 0.52]} />
+        <meshStandardMaterial map={wood} roughness={1} flatShading />
+      </mesh>
+      {[[-0.18, -0.18], [0.18, -0.18], [-0.18, 0.18], [0.18, 0.18]].map(([lx, lz], i) => (
+        <mesh key={i} position={[lx, 0.21, lz]}>
+          <boxGeometry args={[0.08, 0.42, 0.08]} />
+          <meshStandardMaterial color={P.wood700} roughness={1} flatShading />
+        </mesh>
+      ))}
+    </group>
+  );
+}
 
 function CameraRig({ look, shakeRef }) {
   const { camera } = useThree();
@@ -257,7 +290,8 @@ function Chandelier() {
   // y=3.3(圣经 3.6 在默认相机视锥上缘外,降 0.3 让形体入画;点光同步下移并按距离平方补偿强度)
   return (
     <group position={[0, 3.3, 0]}>
-      <mesh castShadow>
+      {/* 不投影:开口圆环在主光下会投出一圈细边多边形,很出戏 */}
+      <mesh>
         <cylinderGeometry args={[1.1, 1.1, 0.12, 8, 1, true]} />
         <meshStandardMaterial map={wood} roughness={1} flatShading side={THREE.DoubleSide} />
       </mesh>
@@ -290,15 +324,8 @@ function Rug() {
 }
 
 // 赌桌(ART_BIBLE §1.4):毡面烘金描线下注区(与钱堆落点同源对位)+ 橡木框 + 黄铜嵌线 + 横撑
-function Table({ oppCount = 0 }) {
-  const feltTex = useMemo(() => {
-    const layout = SEATS[Math.min(oppCount, 4)] ?? [];
-    const spots = [
-      ...layout.map(s => ({ x: s.x * 0.42, z: s.z * 0.42 + 0.1 })), // 对手钱堆落点(与 MoneyStack position 同一公式)
-      { x: SELF_STACK[0], z: SELF_STACK[2] },                       // 自己钱堆落点
-    ];
-    return tex('tableFelt', { spots });
-  }, [oppCount]);
+function Table({ spots = [] }) {
+  const feltTex = useMemo(() => tex('tableFelt', { spots }), [spots]);
   const frameWood = tex('wood', { tone: P.wood500 });
   const legWood = tex('wood', { tone: P.wood700 });
   const brass = tex('brass');
@@ -345,7 +372,6 @@ function Table({ oppCount = 0 }) {
 
 // 双面钞票卡材质：+y(顶)=正面值，-y(底)=反面；正/反由 rotation.x（0 / π）决定。按面额缓存。
 const CARD_W = 0.42, CARD_T = 0.05, CARD_D = 0.58;
-const SELF_STACK = [0, 0, 1.5]; // 自己桌面钱堆的组原点
 const CARD_MATS = new Map();
 function cardMaterials(value) {
   if (CARD_MATS.has(value)) return CARD_MATS.get(value);
@@ -460,7 +486,8 @@ function FlyingNote({ item, startRef, delay, duration, onDone }) {
   );
 }
 
-function FlyingNotes({ betFlight }) {
+const UP = new THREE.Vector3(0, 1, 0);
+function FlyingNotes({ betFlight, target, rot = 0 }) {
   const { camera, size } = useThree();
   const finalize = useGameStore(s => s.finalizeBetFlight);
   const startRef = useRef(null);
@@ -471,12 +498,13 @@ function FlyingNotes({ betFlight }) {
   const items = useMemo(() => betFlight.items.map((it, i) => {
     const ndcX = (it.fromScreen.x / size.width) * 2 - 1;
     const ndcY = -(it.fromScreen.y / size.height) * 2 + 1;
-    const s = new THREE.Vector3(ndcX, ndcY, 0.86).unproject(camera);   // 手牌屏幕点→世界
+    // 手牌屏幕点→世界→座位旋转组的局部坐标(本组件渲染在旋转组内)
+    const s = new THREE.Vector3(ndcX, ndcY, 0.86).unproject(camera).applyAxisAngle(UP, -rot);
     const lp = cardLocal(i);
-    const end = new THREE.Vector3(SELF_STACK[0] + lp[0], lp[1], SELF_STACK[2] + lp[2]);
+    const end = new THREE.Vector3(target.x + lp[0], lp[1], target.z + lp[2]);
     const c = new THREE.Vector3((s.x + end.x) / 2, Math.max(s.y, end.y) + 1.3, (s.z + end.z) / 2); // 弧顶
     return { id: it.id, value: it.value, s, end, c, yaw: cardYaw(i) };
-  }), [betFlight, camera, size]);
+  }), [betFlight, camera, size, target, rot]);
 
   return items.map((it, i) => (
     <FlyingNote
@@ -518,9 +546,14 @@ function SceneContents({ look, freeCam = false }) {
 
   const players = state.players;
   const meIdx = Math.max(0, players.findIndex(p => p.id === playerId));
-  const opponents = [...players.slice(meIdx + 1), ...players.slice(0, meIdx)];
-  const layout = SEATS[Math.min(opponents.length, 4)] ?? [];
   const me = players.find(p => p.id === playerId);
+  // 绝对座位:players[] 序 → 桌边固定位;整个场景旋转把我的座位转到相机近侧
+  const N = Math.max(1, players.length);
+  const seats = players.map((_, i) => seatOf(N, i));
+  const mySeat = seats[meIdx] ?? { x: 0, z: 2.65 };
+  const rot = rotFor(mySeat);
+  const mySpot = spotOf(mySeat);
+  const spots = seats.map(spotOf);
 
   // 有人破产的瞬间:镜头注视点微震 300ms(§1.9)
   const bankruptCount = players.filter(p => p.bankrupt).length;
@@ -562,74 +595,82 @@ function SceneContents({ look, freeCam = false }) {
         shadow-bias={-0.0004}
       />
       <ChandelierLight />
-      <FireLight />
       <directionalLight position={[-6, 4, 6]} intensity={0.30} color={P.coolFill} />
-
-      {/* 造景:房间(墙/地/天花/梁) + 壁炉 + 酒桶 + 吊灯 + 圆毯 */}
-      <Room />
-      <Fireplace />
-      <Barrels />
-      <Chandelier />
-      <Rug />
-
-      <Table oppCount={Math.min(opponents.length, 4)} />
-      {/* 柔和接触阴影：低分辨率(够糊)，避免每帧高分重渲拖帧 */}
-      <ContactShadows position={[0, 0.02, 0]} scale={18} blur={2.6} opacity={0.5} far={4.5} resolution={256} color={P.wood900} />
 
       {freeCam ? <OrbitControls target={[0, 1.05, 0]} makeDefault /> : <CameraRig look={look} shakeRef={shakeRef} />}
       <Projector />
 
-      {/* 对手 */}
-      {opponents.map((p, i) => {
-        const seat = layout[i];
-        if (!seat) return null;
-        const ry = Math.atan2(-seat.x, -seat.z);
-        return (
-          <group key={p.id} position={[seat.x, 0, seat.z]} rotation={[0, ry, 0]}>
-            <MinecraftPlayer player={p} expression={expressionFor(p, state)} seed={i * 1.7} look={looks[p.id]} />
-          </group>
-        );
-      })}
+      {/* 场景旋转组:把「我的座位」转到 +z 近侧——不同玩家看到自己坐在桌边不同位置(反馈⑫)。
+          炉火点光跟着壁炉走(在组内);主光/环境/吊灯点光留在世界系(灯光戏剧性对所有人一致)。 */}
+      <group rotation={[0, rot, 0]}>
+        {/* 造景:房间(墙/地/天花/梁) + 壁炉 + 酒桶 + 吊灯 + 圆毯 */}
+        <Room />
+        <Fireplace />
+        <FireLight />
+        <Barrels />
+        <Chandelier />
+        <Rug />
 
-      {/* 自由相机下额外渲染自己（正常视角里自己≈相机，不建模） */}
-      {freeCam && me && (
-        <group position={[SELF_SEAT.x, 0, SELF_SEAT.z]} rotation={[0, Math.atan2(-SELF_SEAT.x, -SELF_SEAT.z), 0]}>
-          <MinecraftPlayer player={me} expression={expressionFor(me, state)} seed={7} />
-        </group>
-      )}
+        <Table spots={spots} />
 
-      {/* 对手桌面钱堆 */}
-      {opponents.map((p, i) => {
-        const seat = layout[i];
-        if (!seat || !p.hasBet) return null;
-        return (
-          <MoneyStack
-            key={`m-${p.id}`}
-            notes={betsVisible ? decompose(p.bet) : blankNotes(p.betCount)}
-            amount={betsVisible ? p.bet : null}
-            faceUp={betsVisible}
-            position={[seat.x * 0.42, 0, seat.z * 0.42 + 0.1]}
-          />
-        );
-      })}
+        {/* 全员入座(含自己的空凳;非自由相机时自己≈相机不建模) */}
+        {seats.map((seat, i) => (
+          <Stool key={`stool-${i}`} x={seat.x} z={seat.z} ry={Math.atan2(-seat.x, -seat.z)} />
+        ))}
+        {players.map((p, i) => {
+          if (p.id === playerId && !freeCam) return null;
+          const seat = seats[i];
+          const ry = Math.atan2(-seat.x, -seat.z);
+          return (
+            <group key={p.id} position={[seat.x, 0, seat.z]} rotation={[0, ry, 0]}>
+              <MinecraftPlayer
+                player={p}
+                expression={expressionFor(p, state)}
+                seed={i * 1.7}
+                look={p.id === playerId ? null : looks[p.id]}
+                seated
+              />
+            </group>
+          );
+        })}
 
-      {/* 下注飞行中的牌（手牌→桌面，弧线落位） */}
-      {flightActive && <FlyingNotes betFlight={betFlight} />}
+        {/* 桌面钱堆(每人落在自己座位前的烘焙圆圈里;自己的堆飞行中隐藏,落定后无缝接力) */}
+        {players.map((p, i) => {
+          if (!p.hasBet) return null;
+          const spot = spots[i];
+          if (p.id === playerId) {
+            if (flightActive || !(selfNotes?.length || selfBetCount > 0)) return null;
+            return (
+              <MoneyStack key={`m-${p.id}`} notes={selfNotes ?? []} amount={selfBet} faceUp={betsVisible} position={[spot.x, 0, spot.z]} />
+            );
+          }
+          return (
+            <MoneyStack
+              key={`m-${p.id}`}
+              notes={betsVisible ? decompose(p.bet) : blankNotes(p.betCount)}
+              amount={betsVisible ? p.bet : null}
+              faceUp={betsVisible}
+              position={[spot.x, 0, spot.z]}
+            />
+          );
+        })}
 
-      {/* 自己桌面钱堆（近边）：飞行中隐藏，落定后即飞出去那批牌 */}
-      {me?.hasBet && !flightActive && (selfNotes?.length || selfBetCount > 0) && (
-        <MoneyStack notes={selfNotes ?? []} amount={selfBet} faceUp={betsVisible} position={SELF_STACK} />
-      )}
+        {/* 下注飞行中的牌（手牌屏幕位→世界→组内坐标，弧线落进自己的圆圈） */}
+        {flightActive && <FlyingNotes betFlight={betFlight} target={mySpot} rot={rot} />}
 
-      {/* 硬币 */}
-      {showFlip && (
-        <Coin key={`flip-${state.round}`} mode="flip" result={state.coinResult ?? 'heads'} tableTop={TABLE_TOP} />
-      )}
-      {showRest && <Coin key={`rest-${state.round}`} mode="rest" result={state.coinResult} tableTop={TABLE_TOP} />}
-      {/* 落定瞬间的金环 + 金屑(按 回合|结果 重挂,一次性演出) */}
-      {showRest && !REDUCED && (
-        <CoinBurst key={`burst-${state.round}-${state.coinResult}`} tableTop={TABLE_TOP} />
-      )}
+        {/* 硬币 */}
+        {showFlip && (
+          <Coin key={`flip-${state.round}`} mode="flip" result={state.coinResult ?? 'heads'} tableTop={TABLE_TOP} />
+        )}
+        {showRest && <Coin key={`rest-${state.round}`} mode="rest" result={state.coinResult} tableTop={TABLE_TOP} />}
+        {/* 落定瞬间的金环 + 金屑(按 回合|结果 重挂,一次性演出) */}
+        {showRest && !REDUCED && (
+          <CoinBurst key={`burst-${state.round}-${state.coinResult}`} tableTop={TABLE_TOP} />
+        )}
+      </group>
+
+      {/* 柔和接触阴影：低分辨率(够糊)，避免每帧高分重渲拖帧 */}
+      <ContactShadows position={[0, 0.02, 0]} scale={18} blur={2.6} opacity={0.5} far={4.5} resolution={256} color={P.wood900} />
 
       {/* 后处理：吊灯/金皇冠/金色¥微微发光 + 画面暗角，营造围炉灯火气 */}
       {!NO_FX && (
@@ -681,9 +722,9 @@ export default function Scene3D() {
     <div className="r3f-scene">
       <Canvas
         shadows={!NO_SHADOW}
-        dpr={[1, 1.5]}
+        dpr={adaptiveDpr()}
         camera={{ position: [0, 2.7, 6.4], fov: 50, near: 0.1, far: 100 }}
-        gl={{ antialias: false }}
+        gl={{ antialias: false, powerPreference: 'high-performance' }}
       >
         <SceneContents look={look} freeCam={freeCam} />
       </Canvas>

@@ -538,6 +538,7 @@ function EndedPanel() {
         {me?.isHost && <button className="btn primary" onClick={() => send({ type: 'restart_game' })}>再来一局 <span className="keycap">⏎</span></button>}
         <button className="btn" onClick={leaveRoom}>离开房间</button>
       </div>
+      {!me?.isHost && <p className="dim">等待房主开启「再来一局」(重选角色重新开局),或自行离开</p>}
     </div>
   );
 }

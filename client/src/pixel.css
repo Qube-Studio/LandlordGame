@@ -5,6 +5,14 @@
    - 容器/按钮：厚描边 + 斜角凹凸（无圆角）。
    ============================================================ */
 
+/* 像素中文字体(缝合像素字体 12px 简中子集,OFL 许可,见 assets/fonts/FUSION-PIXEL-OFL.txt)。
+   家族名对齐 --font-cjk 栈里既有的 'Fusion Pixel 12px SC',其余声明零改动。 */
+@font-face {
+  font-family: 'Fusion Pixel 12px SC';
+  src: url('./assets/fonts/fusion-pixel-12px-proportional-zh_hans.otf.woff2') format('woff2');
+  font-display: swap;
+}
+
 :root {
   /* 暖光酒馆:全部降级为 palette.js 单一真源(--c-*)的别名,不再自持颜色值 */
   --px-stone:   var(--c-wood-300, #7a5a3e);
@@ -722,14 +730,19 @@ body {
     var(--tex-parchment);
   border-color: var(--c-wood-950);
   box-shadow: inset 0 0 0 1px rgba(58, 42, 24, 0.25), 0 6px 0 rgba(0, 0, 0, 0.4);
-  transition: transform var(--t-fast) var(--e-enter);
+  /* 鼠标离开:纸片落回时衰减回弹(linear() 多次过冲;不支持的浏览器退回上一行的 back-out 单次回弹) */
+  transition: transform 420ms var(--e-pop);
+  transition: transform 560ms linear(0, 0.62, 0.98, 1.12, 1.04, 0.982, 1.006, 0.998, 1);
 }
 .mode-card h3 { color: var(--c-parch-ink); }
 .mode-card p.dim { color: var(--c-parch-ink); opacity: 0.75; }
 .mode-row .mode-card:nth-child(1) { transform: rotate(-1.2deg); }
 .mode-row .mode-card:nth-child(2) { transform: rotate(0.8deg); }
 .mode-row .mode-card:nth-child(3) { transform: rotate(-0.6deg); }
-.mode-row .mode-card:hover:not(.disabled) { transform: rotate(0deg) translateY(-2px); }
+.mode-row .mode-card:hover:not(.disabled) {
+  transform: rotate(0deg) translateY(-2px);
+  transition: transform var(--t-fast) var(--e-enter); /* 抬起要快,落下走回弹 */
+}
 
 /* 房间列表 = 账本(羊皮底 + 墨线行) */
 .room-list {
