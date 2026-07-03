@@ -316,7 +316,7 @@ function BalanceHud() {
   return (
     <div className={`balance-hud ${low ? 'low' : ''}`}>
       <div className="bh-value" style={style}>
-        <PixelText size={4} color={candleColor}>¥</PixelText>
+        <PixelText size={8} color={candleColor}>¥</PixelText>
         <PixelText size={9} color={numColor}>{String(display)}</PixelText>
       </div>
     </div>
