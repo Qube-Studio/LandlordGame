@@ -2,7 +2,7 @@
 // 全部用 NearestFilter，保持硬像素边缘。
 import * as THREE from 'three';
 import { noteCanvas } from '../assets/pixelnote';
-import { P } from '../assets/palette';
+import { P, PROP_COLORS, shade } from '../assets/palette';
 
 function pixelTexture(draw, size = 16) {
   const c = document.createElement('canvas');
@@ -67,25 +67,84 @@ export function faceTexture(expression = 'idle', skin = P.skin) {
   return t;
 }
 
-// ---- 硬币正反面（64×64） ----
+// ---- 硬币正反面（128²,ART_BIBLE §1.6:浮雕 + 32 刻齿 + 点阵字符双绘,弃字体渲染） ----
+// 王(heads):三横一竖;禾(tails):撇 + 横 + 竖 + 两捺。均以 4px 格手绘,带 +1px 暗底浮雕。
 const COIN_CACHE = new Map();
 export function coinFaceTexture(face = 'heads') {
   if (COIN_CACHE.has(face)) return COIN_CACHE.get(face);
   const t = pixelTexture((ctx, s) => {
     const heads = face === 'heads';
-    // 正反两面用明显不同的颜色：正面(王)暖金，反面(禾)冷蓝青。
-    ctx.fillStyle = heads ? '#e8bf3c' : '#5f9ec2';
-    ctx.beginPath(); ctx.arc(s / 2, s / 2, s / 2, 0, Math.PI * 2); ctx.fill();
-    // 内圈描边
-    ctx.strokeStyle = heads ? 'rgba(90,60,0,0.4)' : 'rgba(10,40,60,0.45)'; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.arc(s / 2, s / 2, s / 2 - 6, 0, Math.PI * 2); ctx.stroke();
-    // 字
-    ctx.fillStyle = heads ? '#5a4408' : '#103445';
-    ctx.font = `bold ${Math.floor(s * 0.5)}px "Microsoft YaHei", sans-serif`;
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(heads ? '王' : '禾', s / 2, s / 2 + 2);
-  }, 64);
+    const base = heads ? PROP_COLORS.coinGold : PROP_COLORS.coinTails;
+    const dark = shade(base, -55);
+    const lite = shade(base, 22);
+    const c = s / 2;
+    ctx.fillStyle = base;
+    ctx.beginPath(); ctx.arc(c, c, c, 0, Math.PI * 2); ctx.fill();
+    // 边缘环 + 内圈描边
+    ctx.strokeStyle = shade(base, -30); ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(c, c, c - 3, 0, Math.PI * 2); ctx.stroke();
+    ctx.strokeStyle = shade(base, -18); ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(c, c, c - 13, 0, Math.PI * 2); ctx.stroke();
+    // 圆周 32 刻齿(珠点)
+    ctx.fillStyle = dark;
+    for (let i = 0; i < 32; i++) {
+      const a = (i / 32) * Math.PI * 2;
+      ctx.fillRect(Math.round(c + Math.cos(a) * (c - 8)) - 1, Math.round(c + Math.sin(a) * (c - 8)) - 1, 3, 3);
+    }
+    // 字符:4px 格点阵,先 +1 格暗底再主体(压铸浮雕感),左上 1px 高光
+    const cell = 4;
+    const glyph = heads
+      ? [ // 王 16×18 格
+        [2, 2, 12, 2], [7, 4, 2, 4], [4, 8, 8, 2], [7, 10, 2, 4], [2, 14, 12, 2],
+      ]
+      : [ // 禾:撇/横/竖/两捺(格块化)
+        [8, 1, 4, 2], [5, 3, 4, 2], [2, 5, 12, 2], [7, 7, 2, 8],
+        [5, 9, 2, 2], [3, 11, 2, 2], [9, 9, 2, 2], [11, 11, 2, 2],
+      ];
+    const ox = c - 8 * cell, oy = c - (heads ? 9 : 8.5) * cell; // 字符区左上角(16 格宽居中)
+    ctx.fillStyle = dark;
+    for (const [x, y, w2, h2] of glyph) ctx.fillRect(ox + x * cell + 3, oy + y * cell + 3, w2 * cell, h2 * cell);
+    ctx.fillStyle = shade(base, -62);
+    for (const [x, y, w2, h2] of glyph) ctx.fillRect(ox + x * cell, oy + y * cell, w2 * cell, h2 * cell);
+    ctx.fillStyle = lite;
+    for (const [x, y, w2] of glyph) ctx.fillRect(ox + x * cell - 1, oy + y * cell - 1, Math.min(w2 * cell, 3), 2);
+    // 顶部小皇冠浮雕(仅王面):高光在上、暗影在下
+    if (heads) {
+      const cw = 5;
+      const crown = [[2, 2, 8, 2], [2, 0, 2, 2], [5, 0, 2, 2], [8, 0, 2, 2]];
+      const cx0 = c - 6 * cw, cy0 = 16;
+      ctx.fillStyle = dark;
+      for (const [x, y, w2, h2] of crown) ctx.fillRect(cx0 + x * cw + 2, cy0 + y * cw + 2, w2 * cw, h2 * cw);
+      ctx.fillStyle = lite;
+      for (const [x, y, w2, h2] of crown) ctx.fillRect(cx0 + x * cw, cy0 + y * cw, w2 * cw, h2 * cw);
+    } else {
+      // 禾面:底部麦穗束
+      ctx.fillStyle = shade(base, -35);
+      for (let i = -2; i <= 2; i++) {
+        ctx.fillRect(c + i * 8 - 1, s - 30 + Math.abs(i) * 3, 2, 12 - Math.abs(i) * 3);
+        ctx.fillRect(c + i * 8 - 3, s - 32 + Math.abs(i) * 3, 6, 3);
+      }
+    }
+  }, 128);
   return COIN_CACHE.set(face, t).get(face);
+}
+
+// 硬币侧壁 reeded 直齿纹(64×8,绕圆周平铺)
+let COIN_EDGE = null;
+export function coinEdgeTexture() {
+  if (COIN_EDGE) return COIN_EDGE;
+  COIN_EDGE = pixelTexture((ctx) => {
+    for (let x = 0; x < 64; x += 4) {
+      ctx.fillStyle = shade(PROP_COLORS.coinGold, -18);
+      ctx.fillRect(x, 0, 4, 8);
+      ctx.fillStyle = shade(PROP_COLORS.coinGold, 14);
+      ctx.fillRect(x, 0, 2, 8);
+    }
+  }, 64);
+  // pixelTexture 是方形画布;侧壁纹理用重复包裹增密
+  COIN_EDGE.wrapS = THREE.RepeatWrapping;
+  COIN_EDGE.repeat.set(6, 1);
+  return COIN_EDGE;
 }
 
 // ---- 桌面钞票贴图（复用 2D 同一张 canvas） ----

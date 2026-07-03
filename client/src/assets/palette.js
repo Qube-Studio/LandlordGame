@@ -57,6 +57,19 @@ export const ROLE_CLOTH = {
   none:       { shirt: '#8a7a64', pants: '#54483a', sleeve: '#7a6a54' },
 };
 
+// 道具/小件专色(收编 roleProp 现值 + ART_BIBLE 指定值)
+export const PROP_COLORS = {
+  crown: '#f0d060', ruby: '#c4423a',          // 地主皇冠
+  hatTop: '#23232c', hatBrim: '#1e1a24', hatBand: '#d8b86a', // 资本家礼帽
+  straw: '#cda861', straw2: '#c09a4e',        // 农民草帽
+  lens: '#cfd4dc',                            // 投资人镜框
+  chefWhite: '#f2ece0', chefWhite2: '#f8f4ea',// 厨师帽
+  drumSkin: '#c9a36a', drumBone: '#8a5a30',   // 暴食者鸡腿
+  wax: '#7a2020',                             // 火漆印章/酱渍
+  coinGold: '#e8bf3c', coinTails: '#5f9ec2',  // 硬币双面底色
+  coinGlow: '#6a4a10',                        // 硬币常驻微 emissive
+};
+
 // 面额(bg/ink/accent)——pixelnote(2D+3D 钞票)唯一色源
 export const DENOM_COLORS = {
   10:   { bg: '#caa84e', ink: '#403211', accent: '#ecd78d' },

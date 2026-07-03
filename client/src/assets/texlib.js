@@ -5,7 +5,7 @@
 //   - NearestFilter 硬像素;每张最外圈压暗 25% 烘成描边(像素勾线,零几何成本)
 // 消费方:3D 用 tex(kind, opts, rx, ry);HUD 用 injectTextures() 写好的 --tex-* CSS 变量。
 import * as THREE from 'three';
-import { P, shade } from './palette';
+import { P, ROLE_CLOTH, shade } from './palette';
 
 export function mulberry32(seed) {
   return function () {
@@ -347,7 +347,25 @@ const SIZES = {
   wood: [128, 128], felt: [128, 128], fabric: [32, 32], brass: [64, 64],
   parchment: [128, 128], chalk: [64, 64], wall: [256, 256], floor: [128, 128],
   rug: [128, 128], barrel: [64, 128], tableFelt: [FELT_W, FELT_H], flame: [32, 48],
+  abacus: [32, 24],
 };
+
+// 投资人手持算盘(1 plane,珠纹烘死)
+function drawAbacus(ctx, w, h, rnd) {
+  ctx.fillStyle = P.wood500; ctx.fillRect(0, 0, w, h);
+  ctx.fillStyle = P.wood900;
+  ctx.fillRect(0, 0, w, 2); ctx.fillRect(0, h - 2, w, 2);
+  ctx.fillRect(0, 0, 2, h); ctx.fillRect(w - 2, 0, 2, h);
+  ctx.fillRect(2, 8, w - 4, 1); // 梁
+  for (let x = 5; x < w - 4; x += 5) {
+    ctx.fillStyle = 'rgba(0,0,0,0.4)';
+    ctx.fillRect(x, 2, 1, h - 4);               // 杆
+    ctx.fillStyle = P.brassHi;
+    ctx.fillRect(x - 1, 3 + (rnd() * 3 | 0), 3, 2);   // 上珠
+    ctx.fillStyle = shade(P.wood300, 25);
+    for (let i = 0; i < 3; i++) ctx.fillRect(x - 1, 10 + i * 4 + (rnd() < 0.5 ? 1 : 0), 3, 2); // 下珠
+  }
+}
 
 function canvasKey(kind, o = {}) {
   switch (kind) {
@@ -383,6 +401,7 @@ export function canvasFor(kind, o = {}) {
     case 'barrel': drawBarrel(ctx, w, h, rnd); break;
     case 'tableFelt': drawTableFelt(ctx, w, h, o.spots ?? [], rnd); break;
     case 'flame': drawFlame(ctx, w, h, o.frame ?? 0); break;
+    case 'abacus': drawAbacus(ctx, w, h, rnd); break;
     default: throw new Error(`texlib: unknown kind ${kind}`);
   }
   if (kind !== 'flame') edgeLine(ctx, w, h); // 透明火焰不描边
@@ -416,6 +435,171 @@ function cssVariant(kind, o, baseHex, strength) {
   ctx.drawImage(src, 0, 0);
   ctx.globalAlpha = 1;
   return c.toDataURL();
+}
+
+// ============================================================
+// 角色全身皮肤(ART_BIBLE §1.5):每个身体 box 的每个面一张 16×16,按四元组缓存。
+// 通用:织纹 ±5%、顶面+8%/底面−10% AO、最外圈压暗 25%(烘焙描边);
+// 角色个性烘在布料里;破产在 canvas 内烘灰(保留织纹层次)。
+// ============================================================
+
+const SKIN_CACHE = new Map();
+
+// 16 格画笔
+function px16(ctx) {
+  return (x, y, w, h, color) => { ctx.fillStyle = color; ctx.fillRect(x, y, w, h); };
+}
+
+// 表情(原 textures.js#faceTexture 的分支逻辑并入 head/front)
+function drawExpression(px, expression) {
+  const dark = '#21262e';
+  const eyeY = 6;
+  if (expression === 'bankrupt') {
+    px(3, 5, 1, 1, dark); px(5, 7, 1, 1, dark); px(3, 7, 1, 1, dark); px(5, 5, 1, 1, dark); px(4, 6, 1, 1, dark);
+    px(10, 5, 1, 1, dark); px(12, 7, 1, 1, dark); px(10, 7, 1, 1, dark); px(12, 5, 1, 1, dark); px(11, 6, 1, 1, dark);
+  } else if (expression === 'win') {
+    px(3, 6, 1, 1, dark); px(4, 5, 1, 1, dark); px(5, 6, 1, 1, dark);
+    px(10, 6, 1, 1, dark); px(11, 5, 1, 1, dark); px(12, 6, 1, 1, dark);
+  } else if (expression === 'bet') {
+    px(3, eyeY, 3, 1, dark); px(10, eyeY, 3, 1, dark);
+  } else {
+    px(3, eyeY, 2, 2, '#ffffff'); px(4, eyeY, 1, 2, dark);
+    px(11, eyeY, 2, 2, '#ffffff'); px(11, eyeY, 1, 2, dark);
+  }
+  if (expression === 'lose') { px(3, 5, 3, 1, P.hair); px(10, 5, 3, 1, P.hair); }
+  if (!['bankrupt', 'lose'].includes(expression)) { px(2, 9, 2, 1, '#e09478'); px(12, 9, 2, 1, '#e09478'); }
+  const mouth = '#7a4a36';
+  if (expression === 'win') px(6, 11, 4, 2, mouth);
+  else if (expression === 'lose') { px(6, 12, 4, 1, mouth); px(5, 11, 1, 1, mouth); px(10, 11, 1, 1, mouth); }
+  else if (expression === 'ready') px(6, 11, 4, 1, mouth);
+  else if (expression === 'bet') { px(6, 11, 4, 1, mouth); px(9, 10, 1, 1, mouth); } // 赌徒坏笑
+  else if (expression === 'bankrupt') px(6, 12, 4, 2, '#4b4f57');
+  else px(6, 11, 4, 1, mouth);
+}
+
+// 头部各面:发/耳/颈影
+function drawHeadFace(ctx, px, face, expression, rnd) {
+  noiseFill(ctx, 16, 16, P.skin, 0.03, rnd, 2);
+  if (face === 'top') { px(0, 0, 16, 16, P.hair); px(3, 3, 4, 3, shade(P.hair, 12)); }
+  else if (face === 'bottom') px(0, 0, 16, 16, shade(P.skin, -14));
+  else if (face === 'front') {
+    px(0, 0, 16, 4, P.hair);
+    px(0, 0, 2, 9, P.hair); px(14, 0, 2, 9, P.hair);
+    drawExpression(px, expression);
+  } else if (face === 'back') {
+    px(0, 0, 16, 10, P.hair);
+    for (let x = 0; x < 16; x += 3) px(x, 10, 2, 1 + (x % 2), P.hair); // 发脚参差
+  } else {
+    // 左/右侧:发带 + 耳朵
+    px(0, 0, 16, 5, P.hair);
+    px(0, 0, 3, 9, P.hair); px(13, 0, 3, 9, P.hair);
+    px(7, 7, 3, 4, shade(P.skin, -8)); px(8, 8, 1, 2, shade(P.skin, -18)); // 耳
+  }
+}
+
+// 身体正面的角色个性(布料即人设)
+function drawBodyFront(px, role, cloth) {
+  if (role === 'landlord') {
+    for (let y = 2; y < 12; y += 4) for (let x = (y / 4 % 2) * 2 + 1; x < 15; x += 4) { // 金锦缎菱格
+      px(x, y, 1, 1, P.brassHi); px(x - 1, y + 1, 1, 1, P.brassHi); px(x + 1, y + 1, 1, 1, P.brassHi); px(x, y + 2, 1, 1, P.brassHi);
+    }
+    px(0, 12, 16, 3, shade(cloth.pants, -20));       // 深色腰带
+    px(7, 12, 2, 3, shade(P.ok, -15));               // 玉佩
+  } else if (role === 'capitalist') {
+    for (let x = 2; x < 16; x += 3) px(x, 0, 1, 16, shade(cloth.shirt, 18)); // 细条纹
+    px(5, 0, 6, 2, '#f0ede4'); px(6, 2, 4, 2, '#f0ede4'); px(7, 4, 2, 1, '#f0ede4'); // 白 V 领
+    px(7, 2, 2, 8, '#1c1a20');                        // 领带
+    px(3, 8, 1, 1, P.brassHi); px(4, 9, 1, 1, P.brassHi); px(5, 10, 1, 1, P.brassHi); px(6, 10, 1, 1, P.brassHi); // 怀表链
+    px(2, 8, 2, 2, shade(P.brassHi, -10));            // 怀表
+  } else if (role === 'farmer') {
+    px(2, 3, 5, 4, shade(cloth.shirt, -18)); px(2, 3, 5, 1, shade(cloth.shirt, -35)); // 补丁1
+    px(10, 8, 4, 3, shade(cloth.shirt, 16)); px(10, 8, 1, 3, shade(cloth.shirt, -25)); // 补丁2
+    for (let x = 0; x < 16; x += 3) px(x, 13, 2, 2, P.wood300); // 草绳腰带
+  } else if (role === 'investor') {
+    px(0, 0, 3, 16, shade(cloth.shirt, -22)); px(13, 0, 3, 16, shade(cloth.shirt, -22)); // 马甲对襟
+    px(6, 0, 4, 3, '#f0ede4'); px(7, 3, 2, 2, '#f0ede4');  // 衬衫
+    px(7, 2, 2, 7, shade(cloth.pants, -25));           // 领带
+    px(11, 3, 1, 4, '#f0ede4'); px(11, 2, 1, 1, P.brassHi); // 胸袋钢笔
+  } else if (role === 'glutton') {
+    px(3, 3, 10, 13, shade(P.parchment, -8));          // 围裙
+    px(3, 3, 10, 1, shade(P.parchment, -30));
+    px(5, 6, 2, 2, P.wax); px(9, 9, 1, 2, P.wax); px(7, 12, 2, 1, P.wax); px(11, 5, 1, 1, P.wax); // 酱渍飞溅
+  }
+}
+
+// 每面 16² 皮肤画布:part∈head/body/arm/leg,face∈front/back/left/right/top/bottom
+export function skinCanvas({ role = 'none', part, face, expression = 'idle', bankrupt = false }) {
+  const key = `${role}|${part}|${face}|${part === 'head' ? expression : ''}|${bankrupt ? 1 : 0}`;
+  if (SKIN_CACHE.has(key)) return SKIN_CACHE.get(key);
+  const [c, ctx] = makeCanvas(16, 16);
+  let seed = 5;
+  for (let i = 0; i < key.length; i++) seed = (seed * 33 + key.charCodeAt(i)) | 0;
+  const rnd = mulberry32(seed);
+  const px = px16(ctx);
+  const cloth = ROLE_CLOTH[role] ?? ROLE_CLOTH.none;
+
+  if (part === 'head') {
+    drawHeadFace(ctx, px, face, expression, rnd);
+  } else {
+    const base = part === 'body' ? cloth.shirt : part === 'arm' ? cloth.sleeve : cloth.pants;
+    // 织纹底(2×2 交错 ±5%)
+    const [r, g, b] = hexRgb(base);
+    for (let y = 0; y < 16; y += 2) for (let x = 0; x < 16; x += 2) {
+      const f = 1 + (((x + y) / 2) % 2 === 0 ? 0.05 : -0.05) + (rnd() * 2 - 1) * 0.02;
+      ctx.fillStyle = `rgb(${Math.min(255, r * f) | 0},${Math.min(255, g * f) | 0},${Math.min(255, b * f) | 0})`;
+      ctx.fillRect(x, y, 2, 2);
+    }
+    if (part === 'body' && face === 'front') drawBodyFront(px, role, cloth);
+    if (part === 'body' && face === 'back' && role === 'glutton') { // 围裙系带
+      px(4, 4, 8, 1, shade(P.parchment, -8)); px(7, 5, 2, 3, shade(P.parchment, -8));
+    }
+    if (part === 'arm') {
+      if (face !== 'top') px(0, 13, 16, 3, P.skin);   // 手
+      if (face === 'bottom') px(0, 0, 16, 16, P.skin);
+      if (role === 'glutton' && face !== 'bottom') { px(0, 9, 16, 1, '#f0ede4'); px(0, 11, 16, 1, '#f0ede4'); } // 条纹卷袖
+      if (role === 'investor' && face !== 'bottom') { px(0, 8, 16, 4, shade(cloth.sleeve, -25)); px(0, 8, 16, 1, shade(cloth.sleeve, -40)); } // 袖套
+    }
+    if (part === 'leg') {
+      if (face !== 'top' && face !== 'bottom') px(0, 14, 16, 2, P.wood900); // 鞋
+      if (face === 'bottom') px(0, 0, 16, 16, P.wood900);
+      if (role === 'farmer' && face === 'front') { px(3, 11, 1, 1, P.wood300); px(9, 12, 2, 1, P.wood300); px(13, 11, 1, 1, P.wood300); } // 泥点
+    }
+  }
+
+  // 顶面受光/底面 AO
+  if (face === 'top') { ctx.fillStyle = 'rgba(255,255,255,0.08)'; ctx.fillRect(0, 0, 16, 16); }
+  if (face === 'bottom') { ctx.fillStyle = 'rgba(0,0,0,0.10)'; ctx.fillRect(0, 0, 16, 16); }
+  edgeLine(ctx, 16, 16);
+
+  // 破产:canvas 内烘灰(保层次) + 衣料裂纹
+  if (bankrupt) {
+    const img = ctx.getImageData(0, 0, 16, 16);
+    const d = img.data;
+    for (let i = 0; i < d.length; i += 4) {
+      const l = d[i] * 0.3 + d[i + 1] * 0.59 + d[i + 2] * 0.11;
+      d[i] = l * 0.52; d[i + 1] = l * 0.52; d[i + 2] = l * 0.56;
+    }
+    ctx.putImageData(img, 0, 0);
+    if (part !== 'head') {
+      ctx.fillStyle = 'rgba(0,0,0,0.3)';
+      ctx.fillRect(3, 2, 1, 5); ctx.fillRect(4, 7, 1, 3); ctx.fillRect(11, 5, 1, 6);
+    }
+  }
+  SKIN_CACHE.set(key, c);
+  return c;
+}
+
+// 皮肤 THREE 纹理(与 skinCanvas 同 key 缓存)
+const SKIN_TEX_CACHE = new Map();
+export function skinTex(o) {
+  const key = `${o.role}|${o.part}|${o.face}|${o.part === 'head' ? (o.expression ?? 'idle') : ''}|${o.bankrupt ? 1 : 0}`;
+  if (SKIN_TEX_CACHE.has(key)) return SKIN_TEX_CACHE.get(key);
+  const t = new THREE.CanvasTexture(skinCanvas(o));
+  t.magFilter = THREE.NearestFilter;
+  t.minFilter = THREE.NearestFilter;
+  t.colorSpace = THREE.SRGBColorSpace;
+  SKIN_TEX_CACHE.set(key, t);
+  return t;
 }
 
 // 把共享材质写进 CSS 变量:HUD 面板与 3D 桌框字面同一张纹理(§1.1 第 4 路)

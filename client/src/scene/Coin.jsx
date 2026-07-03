@@ -5,8 +5,9 @@
 import { useMemo, useRef, useLayoutEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { coinFaceTexture } from './textures';
+import { coinFaceTexture, coinEdgeTexture } from './textures';
 import { pickFlip, restTransform, setCoinRest, getCoinRest, COIN_R, COIN_H, COIN_SEGMENTS } from './coinSim';
+import { PROP_COLORS } from '../assets/palette';
 
 export default function Coin({ result = 'heads', mode = 'flip', tableTop = 1.0 }) {
   const ref = useRef();
@@ -15,11 +16,12 @@ export default function Coin({ result = 'heads', mode = 'flip', tableTop = 1.0 }
   const restStartRef = useRef(null); // rest 出现时刻：用于一次性金光脉冲
 
   const mats = useMemo(() => {
-    // 暖光酒馆：暖金属硬币，在暖主光下出金属反光 + 落定时一次性金光脉冲(配 Bloom)
-    const e = { emissive: '#ffcf6a', emissiveIntensity: 0 };
-    const side = new THREE.MeshStandardMaterial({ color: '#c89a4e', roughness: 0.4, metalness: 0.55, flatShading: true, ...e });
-    const top = new THREE.MeshStandardMaterial({ map: coinFaceTexture('heads'), roughness: 0.35, metalness: 0.5, flatShading: true, ...e });
-    const bottom = new THREE.MeshStandardMaterial({ map: coinFaceTexture('tails'), roughness: 0.35, metalness: 0.5, flatShading: true, ...e });
+    // 全剧最亮道具(ART_BIBLE §1.6):暖金属 + 常驻微 emissive(0.25 基线,翻飞金闪被 Bloom 捕获)
+    // + 落定时一次性金光脉冲。侧壁贴 reeded 直齿纹。
+    const e = { emissive: PROP_COLORS.coinGlow, emissiveIntensity: 0.25 };
+    const side = new THREE.MeshStandardMaterial({ map: coinEdgeTexture(), roughness: 0.4, metalness: 0.55, flatShading: true, ...e });
+    const top = new THREE.MeshStandardMaterial({ map: coinFaceTexture('heads'), roughness: 0.4, metalness: 0.55, flatShading: true, ...e });
+    const bottom = new THREE.MeshStandardMaterial({ map: coinFaceTexture('tails'), roughness: 0.4, metalness: 0.55, flatShading: true, ...e });
     return [side, top, bottom];
   }, []);
 
@@ -41,11 +43,12 @@ export default function Coin({ result = 'heads', mode = 'flip', tableTop = 1.0 }
       const r = getCoinRest();
       c.position.set(r ? r.x : 0, rest + Math.sin(st.clock.elapsedTime * 2) * 0.01, r ? r.z : 0);
       c.rotation.set(result === 'heads' ? 0 : Math.PI, r ? r.ry : 0, 0);
-      // 落定瞬间一次性金光脉冲（0→峰→0，约 0.45s），配 Bloom 出"叮"一亮
+      // 落定瞬间一次性金光脉冲（基线→峰→基线，约 0.45s），配 Bloom 出"叮"一亮
+      // (emissive 换成了深金 coinGlow,峰值系数相应加大)
       if (restStartRef.current == null) restStartRef.current = st.clock.elapsedTime;
       const rt = st.clock.elapsedTime - restStartRef.current;
-      const glow = rt < 0.45 ? Math.sin((rt / 0.45) * Math.PI) * 1.4 : 0;
-      for (const m of mats) m.emissiveIntensity = glow;
+      const glow = rt < 0.45 ? Math.sin((rt / 0.45) * Math.PI) * 3.2 : 0;
+      for (const m of mats) m.emissiveIntensity = 0.25 + glow;
       return;
     }
 

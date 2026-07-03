@@ -15,7 +15,7 @@ import { noteTexture } from './textures';
 import { setProjector } from './projection';
 import { expressionFor } from './expression';
 import PixelText from '../assets/pixelfont/PixelText';
-import { P } from '../assets/palette';
+import { P, DENOM_COLORS } from '../assets/palette';
 import { tex } from '../assets/texlib';
 
 const TABLE_TOP = 1.0;
@@ -243,7 +243,8 @@ function cardMaterials(value) {
   if (CARD_MATS.has(value)) return CARD_MATS.get(value);
   const face = new THREE.MeshStandardMaterial({ map: noteTexture({ value }), roughness: 0.85, flatShading: true });
   const back = new THREE.MeshStandardMaterial({ map: noteTexture({ faceDown: true }), roughness: 0.85, flatShading: true });
-  const edge = new THREE.MeshStandardMaterial({ color: '#d9c9a0', roughness: 1, flatShading: true });
+  // 边缘按面额 accent 色带(银行捆钞感,侧看一眼识面额)
+  const edge = new THREE.MeshStandardMaterial({ color: (DENOM_COLORS[value] ?? DENOM_COLORS[1]).accent, roughness: 1, flatShading: true });
   const mats = [edge, edge, face, back, edge, edge]; // px,nx,py(正),ny(反),pz,nz
   CARD_MATS.set(value, mats);
   return mats;
