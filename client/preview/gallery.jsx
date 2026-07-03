@@ -76,6 +76,24 @@ const huds = mk({
   capitalist: { id: 'me', personal: 12, pool: 18, taxRate: 0.1, taxMin: 2 },
 });
 
+// 资本家资金蜡烛盈亏变色(bug 修复回归):个人本金恒定,deltas 恒 0——蜡烛须改用资金池净变动判色。
+// 这局上一回合池亏损(poolDelta -3 − 税 2 = 净 -5),右下角蜡烛应为红。
+const capitalistLoss = mk({
+  phase: 'DISCUSSION',
+  players: [
+    { id: 'me', name: '我', role: 'capitalist', seat: 0, online: true, isHost: true, balance: 12 },
+    opp('f', '农民周', 'farmer', { hasBet: false, bet: null }),
+    opp('g', '暴食李', 'glutton', { hasBet: false, bet: null }),
+  ],
+  me: { id: 'me', role: 'capitalist', balance: 12, pool: 13, bounds: { minStake: 1 } },
+  capitalist: { id: 'me', personal: 12, pool: 13, taxRate: 0.1, taxMin: 2 },
+  history: [{
+    round: 1, coinResult: 'tails', deltas: { me: 0, f: 4, g: -2 },
+    capitalistPool: 13, capitalistPoolDelta: -3, capitalistTax: 2,
+    landlordGoalValue: null, landlordPenalty: 0, uncovered: 0, newlyBankrupt: [],
+  }],
+});
+
 const finalize = mk({
   phase: 'FINALIZE', coinResult: 'tails',
   players: [
@@ -209,6 +227,7 @@ const SCENES = [
   { key: 'insDrop', label: '投保掉落动画', kind: 'game', state: insDrop, note: '保单牌一张张掉出屏幕（循环演示）' },
   { key: 'reflip', label: '暴食者重掷/放弃', kind: 'game', state: reflip },
   { key: 'huds', label: '四类 HUD', kind: 'game', state: huds },
+  { key: 'capitalistLoss', label: '资本家蜡烛变色', kind: 'game', state: capitalistLoss, note: '资本家上回合池亏损→右下角蜡烛应为红(个人本金恒定,须按资金池净变动判色)' },
   { key: 'finalize', label: '结算播报', kind: 'game', state: finalize },
   { key: 'coin', label: '硬币', kind: 'game', state: coin },
   { key: 'balance', label: '资金增长动画', kind: 'game', state: balance, controls: 'balance' },

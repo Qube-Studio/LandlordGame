@@ -304,8 +304,14 @@ function BalanceHud() {
     : undefined;
   const numColor = flash > 0 ? balanceFlashColor(flash) : (low ? 'var(--danger)' : 'var(--px-gold)');
   // 蜡烛(货币符)按上一回合盈亏染色：亏损→红，盈利/持平/尚无回合→绿(默认盈利绿)。
-  const history = state.history ?? [];
-  const lastDelta = history.length ? (history[history.length - 1].deltas?.[playerId] ?? 0) : null;
+  // 资本家个人本金恒定(deltas 恒 0),盈亏体现在资金池——改用池净变动(下注盈亏 − 税)判色。
+  const last = state.history?.length ? state.history[state.history.length - 1] : null;
+  let lastDelta = null;
+  if (last) {
+    lastDelta = (me.role === 'capitalist' && last.capitalistPoolDelta != null)
+      ? last.capitalistPoolDelta - (last.capitalistTax ?? 0)
+      : (last.deltas?.[playerId] ?? 0);
+  }
   const candleColor = lastDelta != null && lastDelta < 0 ? 'var(--danger)' : 'var(--ok)';
   return (
     <div className={`balance-hud ${low ? 'low' : ''}`}>
