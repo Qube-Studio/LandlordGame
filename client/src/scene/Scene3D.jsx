@@ -15,6 +15,8 @@ import { noteTexture } from './textures';
 import { setProjector } from './projection';
 import { expressionFor } from './expression';
 import PixelText from '../assets/pixelfont/PixelText';
+import { P } from '../assets/palette';
+import { tex } from '../assets/texlib';
 
 const TABLE_TOP = 1.0;
 const PAYOUT_PHASES = ['SETTLE', 'NEGOTIATE', 'FINALIZE'];
@@ -51,24 +53,182 @@ function CameraRig({ look }) {
   return null;
 }
 
-function Table() {
+// ---- 酒馆房间(ART_BIBLE §1.4):内翻盒 24×10×24,墙贴烘焙酒馆纹理(酒架/画框/鹿角剪影都在纹理里,零几何) ----
+function Room() {
+  const wall = tex('wall', {}, 3, 1);
+  const floor = tex('floor', {}, 6, 6);
+  const ceil = tex('wood', { tone: P.wood700 }, 4, 4);
   return (
     <group>
-      {/* 桌面毡布：暖酒红毡（金色筹码/钱牌压在暗红上对比最佳） */}
+      {/* 地板 */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
+        <planeGeometry args={[24, 24]} />
+        <meshStandardMaterial map={floor} roughness={1} />
+      </mesh>
+      {/* 四墙(法线朝内) */}
+      <mesh position={[0, 5, -12]}>
+        <planeGeometry args={[24, 10]} />
+        <meshStandardMaterial map={wall} roughness={1} />
+      </mesh>
+      <mesh position={[0, 5, 12]} rotation={[0, Math.PI, 0]}>
+        <planeGeometry args={[24, 10]} />
+        <meshStandardMaterial map={wall} roughness={1} />
+      </mesh>
+      <mesh position={[-12, 5, 0]} rotation={[0, Math.PI / 2, 0]}>
+        <planeGeometry args={[24, 10]} />
+        <meshStandardMaterial map={wall} roughness={1} />
+      </mesh>
+      <mesh position={[12, 5, 0]} rotation={[0, -Math.PI / 2, 0]}>
+        <planeGeometry args={[24, 10]} />
+        <meshStandardMaterial map={wall} roughness={1} />
+      </mesh>
+      {/* 天花 + 房梁(梁投影,在桌面/地板上落出暗条纹的进深感) */}
+      <mesh position={[0, 10, 0]} rotation={[Math.PI / 2, 0, 0]}>
+        <planeGeometry args={[24, 24]} />
+        <meshStandardMaterial map={ceil} roughness={1} />
+      </mesh>
+      {[-9, -3, 3, 9].map((z) => (
+        <mesh key={z} position={[0, 6, z]} castShadow>
+          <boxGeometry args={[24, 0.4, 0.4]} />
+          <meshStandardMaterial color={P.beam} roughness={1} flatShading />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
+// 壁炉:石框 + 炉膛 + 双交叉火焰面片(3 帧预烘纹理做 map 引用轮换,400ms,永不重画)
+function Fireplace() {
+  const flameMat = useRef([]);
+  const frames = useMemo(() => [0, 1, 2].map(f => tex('flame', { frame: f })), []);
+  useFrame((st) => {
+    const i = Math.floor(st.clock.elapsedTime * 2.5) % 3;
+    for (const m of flameMat.current) {
+      if (m && m.map !== frames[i]) { m.map = frames[i]; m.emissiveMap = frames[i]; }
+    }
+  });
+  const stone = tex('wood', { tone: P.wood900, plankW: 16 });
+  return (
+    <group position={[0, 0, -11.6]}>
+      {/* 石框:两柱一楣 */}
+      <mesh position={[-0.85, 0.6, 0]}><boxGeometry args={[0.35, 1.2, 0.35]} /><meshStandardMaterial map={stone} roughness={1} flatShading /></mesh>
+      <mesh position={[0.85, 0.6, 0]}><boxGeometry args={[0.35, 1.2, 0.35]} /><meshStandardMaterial map={stone} roughness={1} flatShading /></mesh>
+      <mesh position={[0, 1.3, 0]}><boxGeometry args={[2.1, 0.35, 0.35]} /><meshStandardMaterial map={stone} roughness={1} flatShading /></mesh>
+      {/* 炉膛(纯黑腔) */}
+      <mesh position={[0, 0.55, -0.05]}><boxGeometry args={[1.4, 1.1, 0.2]} /><meshStandardMaterial color={P.wood900} roughness={1} /></mesh>
+      {/* 火焰:两片交叉,emissive 走 Bloom(threshold 0.72) */}
+      {[0, Math.PI / 2].map((ry, i) => (
+        <mesh key={i} position={[0, 0.62, 0.08]} rotation={[0, ry, 0]}>
+          <planeGeometry args={[0.9, 1.3]} />
+          <meshStandardMaterial
+            ref={(m) => { if (m) flameMat.current[i] = m; }}
+            map={frames[0]} emissiveMap={frames[0]} emissive={'#ffffff'} emissiveIntensity={2}
+            transparent alphaTest={0.4} depthWrite={false} side={THREE.DoubleSide}
+          />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
+// 沿墙酒桶 ×3(圆柱侧面裹桶板纹理)
+function Barrels() {
+  const t = tex('barrel');
+  return [[-9, 0.75, -8], [-10, 0.75, -4], [9.5, 0.75, -7]].map((pos, i) => (
+    <mesh key={i} position={pos} rotation={[0, i * 1.3, 0]}>
+      <cylinderGeometry args={[0.55, 0.55, 1.5, 8]} />
+      <meshStandardMaterial map={t} roughness={1} flatShading />
+    </mesh>
+  ));
+}
+
+// 桌上方木轮吊灯:八角木环 + 4 蜡烛 + 4 emissive 火苗(给「唯一光池」一个形体归属;真灯在灯 rig 里)
+function Chandelier() {
+  const wood = tex('wood', { tone: P.wood700 });
+  const candleAngles = [0, Math.PI / 2, Math.PI, Math.PI * 1.5];
+  // y=3.3(圣经 3.6 在默认相机视锥上缘外,降 0.3 让形体入画;点光同步下移并按距离平方补偿强度)
+  return (
+    <group position={[0, 3.3, 0]}>
+      <mesh castShadow>
+        <cylinderGeometry args={[1.1, 1.1, 0.12, 8, 1, true]} />
+        <meshStandardMaterial map={wood} roughness={1} flatShading side={THREE.DoubleSide} />
+      </mesh>
+      {/* 吊绳(挂到 y=6 房梁) */}
+      <mesh position={[0, 1.4, 0]}>
+        <boxGeometry args={[0.04, 2.7, 0.04]} />
+        <meshStandardMaterial color={P.wood900} roughness={1} />
+      </mesh>
+      {candleAngles.map((a, i) => (
+        <group key={i} position={[Math.cos(a) * 0.95, 0.1, Math.sin(a) * 0.95]}>
+          <mesh><boxGeometry args={[0.08, 0.16, 0.08]} /><meshStandardMaterial color={P.parchment} roughness={1} flatShading /></mesh>
+          <mesh position={[0, 0.14, 0]}>
+            <boxGeometry args={[0.05, 0.09, 0.05]} />
+            <meshStandardMaterial color={P.candle} emissive={P.candle} emissiveIntensity={2.2} />
+          </mesh>
+        </group>
+      ))}
+    </group>
+  );
+}
+
+// 桌下圆毯
+function Rug() {
+  return (
+    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.01, 0]} receiveShadow>
+      <circleGeometry args={[5, 24]} />
+      <meshStandardMaterial map={tex('rug')} roughness={1} />
+    </mesh>
+  );
+}
+
+// 赌桌(ART_BIBLE §1.4):毡面烘金描线下注区(与钱堆落点同源对位)+ 橡木框 + 黄铜嵌线 + 横撑
+function Table({ oppCount = 0 }) {
+  const feltTex = useMemo(() => {
+    const layout = SEATS[Math.min(oppCount, 4)] ?? [];
+    const spots = [
+      ...layout.map(s => ({ x: s.x * 0.42, z: s.z * 0.42 + 0.1 })), // 对手钱堆落点(与 MoneyStack position 同一公式)
+      { x: SELF_STACK[0], z: SELF_STACK[2] },                       // 自己钱堆落点
+    ];
+    return tex('tableFelt', { spots });
+  }, [oppCount]);
+  const frameWood = tex('wood', { tone: P.wood500 });
+  const legWood = tex('wood', { tone: P.wood700 });
+  const brass = tex('brass');
+  return (
+    <group>
+      {/* 桌面毡布:下注区/硬币圈直接烘死在纹理里,零文字锚定 */}
       <mesh position={[0, TABLE_TOP - 0.06, 0]} receiveShadow>
         <boxGeometry args={[6.6, 0.12, 4.0]} />
-        <meshStandardMaterial color="#7a4a3a" roughness={0.95} flatShading />
+        <meshStandardMaterial map={feltTex} roughness={0.95} flatShading />
       </mesh>
-      {/* 木框：暖橡木 */}
+      {/* 木框 */}
       <mesh position={[0, 0.78, 0]}>
         <boxGeometry args={[7.0, 0.34, 4.4]} />
-        <meshStandardMaterial color="#5a3d26" roughness={1} flatShading />
+        <meshStandardMaterial map={frameWood} roughness={1} flatShading />
       </mesh>
-      {/* 桌腿 */}
+      {/* 内缘黄铜嵌线(微 emissive,Bloom 下泛柔光) */}
+      {[
+        { pos: [0, 0.952, -2.06], args: [6.72, 0.03, 0.06] },
+        { pos: [0, 0.952, 2.06], args: [6.72, 0.03, 0.06] },
+        { pos: [-3.36, 0.952, 0], args: [0.06, 0.03, 4.06] },
+        { pos: [3.36, 0.952, 0], args: [0.06, 0.03, 4.06] },
+      ].map((b, i) => (
+        <mesh key={i} position={b.pos}>
+          <boxGeometry args={b.args} />
+          <meshStandardMaterial map={brass} emissive={P.brass} emissiveIntensity={0.15} roughness={0.5} metalness={0.4} flatShading />
+        </mesh>
+      ))}
+      {/* 桌腿 + 横撑 */}
       {[[-3.2, -1.9], [3.2, -1.9], [-3.2, 1.9], [3.2, 1.9]].map(([x, z], i) => (
         <mesh key={i} position={[x, 0.3, z]}>
           <boxGeometry args={[0.32, 0.8, 0.32]} />
-          <meshStandardMaterial color="#412c1a" roughness={1} flatShading />
+          <meshStandardMaterial map={legWood} roughness={1} flatShading />
+        </mesh>
+      ))}
+      {[-1.9, 1.9].map((z) => (
+        <mesh key={z} position={[0, 0.22, z]}>
+          <boxGeometry args={[6.4, 0.1, 0.14]} />
+          <meshStandardMaterial map={legWood} roughness={1} flatShading />
         </mesh>
       ))}
     </group>
@@ -108,6 +268,18 @@ const stackTopY = (count) => TABLE_TOP + 0.06 + Math.min(count, COL_H) * 0.045;
 // 反面占位牌（下注阶段对手只露张数，不露面额）
 const blankNotes = (n) => Array.from({ length: Math.max(0, Math.min(n, STACK_CAP)) }, (_, i) => ({ id: `b${i}`, value: 1 }));
 
+// 炉火点光:双正弦叠加闪烁(每帧只写 1 个 number,零分配)
+function FireLight() {
+  const ref = useRef();
+  useFrame((st) => {
+    if (ref.current) {
+      const t = st.clock.elapsedTime;
+      ref.current.intensity = 7 + Math.sin(t * 2.3) * 1.2 + Math.sin(t * 5.1) * 0.6;
+    }
+  });
+  return <pointLight ref={ref} position={[0, 1.7, -10.5]} intensity={7} distance={9} decay={2} color={P.fire} />;
+}
+
 function Projector() {
   const { camera, size } = useThree();
   useEffect(() => {
@@ -139,7 +311,7 @@ function MoneyStack({ notes, faceUp, position, amount = null }) {
       {/* 不显示张数；金额仅在可见时标注（自己的堆始终可见，他人堆揭牌后可见） */}
       {amount != null && (
         <Html position={[0, topY + 0.3, 0]} center distanceFactor={11} zIndexRange={[20, 0]}>
-          <div className="money-3d-amount"><PixelText size={2} color="#e2c044">{`¥${amount}`}</PixelText></div>
+          <div className="money-3d-amount"><PixelText size={2} color={P.gold}>{`¥${amount}`}</PixelText></div>
         </Html>
       )}
     </group>
@@ -256,32 +428,33 @@ function SceneContents({ look, freeCam = false }) {
 
   return (
     <>
-      {/* 暖光酒馆：暖棕背景 + 远雾把墙根融进暖色，消灭黑虚空 */}
-      <color attach="background" args={['#2a1d14']} />
-      <fog attach="fog" args={['#3a2817', 8, 28]} />
-      {/* 三点暖光：压低环境染暖 + 暖金主光(投影) + 冷补光提暗部 + 暖白逆光勾边 + 桌心吊灯热点 */}
-      <ambientLight intensity={0.36} color="#5a4636" />
+      {/* 打烊后的酒馆账房:墙落进雾里,黑虚空消失(ART_BIBLE §1.2) */}
+      <color attach="background" args={[P.sceneBg]} />
+      <fog attach="fog" args={[P.sceneFog, 10, 26]} />
+      {/* 灯 rig(5 盏):环境 + 暖金主光(投影) + 吊灯唯一光池 + 炉火(闪烁) + 冷补 */}
+      <ambientLight intensity={0.30} color={P.sceneAmbient} />
       <directionalLight
-        position={[5, 8.5, 4]} intensity={1.5} color="#ffcf8a"
+        position={[4, 9, 3]} intensity={1.35} color={P.key}
         castShadow={!NO_SHADOW} shadow-mapSize={[1024, 1024]}
         shadow-camera-near={1} shadow-camera-far={30}
         shadow-camera-left={-9} shadow-camera-right={9}
         shadow-camera-top={9} shadow-camera-bottom={-9}
         shadow-bias={-0.0004}
       />
-      <directionalLight position={[-6, 4, -5]} intensity={0.4} color="#6f86b8" />
-      <directionalLight position={[0, 6, -7]} intensity={0.55} color="#ffe6c0" />
-      <pointLight position={[0, 4.2, 0]} intensity={20} distance={11} decay={2} color="#ffd28a" />
+      <pointLight position={[0, 3.3, 0]} intensity={21} distance={10} decay={2} color={P.candle} />
+      <FireLight />
+      <directionalLight position={[-6, 4, 6]} intensity={0.30} color={P.coolFill} />
 
-      {/* 地面：暖木地板 */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
-        <planeGeometry args={[40, 40]} />
-        <meshStandardMaterial color="#3d2c1c" roughness={1} />
-      </mesh>
+      {/* 造景:房间(墙/地/天花/梁) + 壁炉 + 酒桶 + 吊灯 + 圆毯 */}
+      <Room />
+      <Fireplace />
+      <Barrels />
+      <Chandelier />
+      <Rug />
 
-      <Table />
+      <Table oppCount={Math.min(opponents.length, 4)} />
       {/* 柔和接触阴影：低分辨率(够糊)，避免每帧高分重渲拖帧 */}
-      <ContactShadows position={[0, 0.02, 0]} scale={18} blur={2.6} opacity={0.5} far={4.5} resolution={256} color="#1c0f06" />
+      <ContactShadows position={[0, 0.02, 0]} scale={18} blur={2.6} opacity={0.5} far={4.5} resolution={256} color={P.wood900} />
 
       {freeCam ? <OrbitControls target={[0, 1.05, 0]} makeDefault /> : <CameraRig look={look} />}
       <Projector />

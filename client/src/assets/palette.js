@@ -24,6 +24,7 @@ export const P = {
   fire:     '#ff8848', // 炉火
   ember:    '#ff9a4a', // 炭床 emissive/警示脉冲
   coolFill: '#5f78a8', // 冷补光
+  sceneAmbient: '#4a3828', // 环境光
   sceneBg:  '#1a120b',
   sceneFog: '#2c1c10',
   // 赌桌
