@@ -2,16 +2,15 @@
 // LOBBY 可点击应征/改选；开局后变成只读「角色手册」。占用状态用火漆印章表达。
 // 可选性判断与服务端 takeRole 同口径（地主阵营互斥 / 农民受 maxFarmers 上限）——
 // 只用于置灰提示，最终裁决仍在服务端。
-import { Canvas } from '@react-three/fiber';
 import { useGameStore } from '../store/gameStore';
 import PixelText from '../assets/pixelfont/PixelText';
-import RoleBust3D from '../scene/RoleBust3D';
+import { bustUrl } from '../scene/bustSnapshot';
 import {
-  ROLE_LABEL, ROLE_SHEET, factionOf,
+  ROLE_LABEL, factionOf,
   LANDLORD_SIDE_ROLES, FARMER_SIDE_ROLES,
 } from '../game/roles';
 
-function Poster({ role, mode, state, me, send, readonly }) {
+function Poster({ role, state, me, send, readonly }) {
   const takers = state.players.filter(p => p.role === role);
   const mine = me?.role === role;
   let blocked = false;
@@ -24,44 +23,27 @@ function Poster({ role, mode, state, me, send, readonly }) {
     }
   }
   const clickable = !readonly && !blocked && !mine && !me?.spectator;
-  const sheet = ROLE_SHEET[role] ?? { tagline: '', lines: [] };
-  const lines = [...sheet.lines, ...((mode === 'competitive' && sheet.competitiveLines) || [])];
   return (
     <div
       className={`poster ${mine ? 'mine' : ''} ${blocked ? 'blocked' : ''} ${clickable ? 'clickable' : ''}`}
       onClick={clickable ? () => send({ type: 'take_role', role }) : undefined}
     >
-      {/* 反馈:身体与饰品都用真 3D 模型(与桌边的人完全一致);去掉头,头位浮着标志性饰品。
-          frameloop="demand" 只渲一帧(静态半身像),多张招募令也近乎零持续开销。 */}
+      {/* 半身像 = bustSnapshot 预渲染静态素材(饰品正交正视 + 皮肤正面,拼接 dataURL):
+          <img> 即插即显无渲染空窗,身体与饰品都与桌边的人同源。 */}
       <div className="poster-relic">
-        <Canvas
-          className="poster-bust"
-          frameloop="demand"
-          dpr={[1, 2]}
-          camera={{ position: [0, 0, 2.25], fov: 30 }}
-          gl={{ antialias: true, alpha: true, powerPreference: 'low-power' }}
-        >
-          <RoleBust3D role={role} />
-        </Canvas>
+        <img className="poster-bust" src={bustUrl(role)} alt={ROLE_LABEL[role]} draggable={false} />
       </div>
       <div className="poster-name"><PixelText size={3} color="var(--c-wood-900)">{ROLE_LABEL[role]}</PixelText></div>
-      <div className="poster-tagline"><PixelText size={2} color="var(--c-parch-ink)">{sheet.tagline}</PixelText></div>
-      <div className="poster-lines">
-        {lines.map(([k, v]) => (
-          <div key={k + v} className="poster-line">
-            <span className="poster-k"><PixelText size={2} color="var(--c-wood-900)">{k}</PixelText></span>
-            <span className="poster-v">{v}</span>
-          </div>
-        ))}
-      </div>
+      {/* 介绍文案暂撤(待用户提供新文案) */}
       {takers.length > 0 && (
-        <>
-          <div className="poster-seal"><PixelText size={2} color="var(--c-parchment)">{mine ? '你' : '应征'}</PixelText></div>
-          <div className="poster-takers"><PixelText size={2} color="var(--c-wax)">{takers.map(p => p.name).join('、')}</PixelText></div>
-        </>
+        <div className="poster-seals">
+          {takers.map(p => (
+            <span key={p.id} className={`poster-seal ${p.id === me?.id ? 'mine' : ''}`} title={p.name}>{p.name}</span>
+          ))}
+        </div>
       )}
       {blocked && takers.length === 0 && (
-        <div className="poster-takers"><PixelText size={2} color="var(--c-parch-ink)">阵营已满</PixelText></div>
+        <div className="poster-note"><PixelText size={2} color="var(--c-parch-ink)">阵营已满</PixelText></div>
       )}
     </div>
   );
@@ -77,7 +59,7 @@ export default function RoleWall() {
   const farmers = state.players.filter(p => factionOf(p.role) === 'farmer').length;
   const landlords = state.players.filter(p => factionOf(p.role) === 'landlord').length;
   const maxF = state.config?.maxFarmers ?? 4;
-  const pass = { mode: state.mode, state, me, send, readonly };
+  const pass = { state, me, send, readonly };
   return (
     <div className="drawer role-wall">
       <div className="drawer-title">
