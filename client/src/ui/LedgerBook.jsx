@@ -5,6 +5,7 @@
 import { useState } from 'react';
 import { useGameStore } from '../store/gameStore';
 import PixelText from '../assets/pixelfont/PixelText';
+import CandleMark from '../assets/pixelfont/CandleMark';
 import { coinFaceTexture } from '../scene/textures';
 import { EVENT_TEXT } from '../game/settleText';
 import { P, shade } from '../assets/palette';
@@ -56,20 +57,20 @@ function Row({ h, players, myId, open, onToggle, showBalances }) {
             </div>
           )}
           {h.landlordGoalValue != null && (h.landlordPenalty > 0
-            ? <p className="ledger-line danger">地主未达目标 ¥{h.landlordGoalValue}，罚 ¥{h.landlordPenalty} 平分给农民</p>
-            : <p className="ledger-line ok">地主达成目标 ¥{h.landlordGoalValue}</p>)}
-          {h.debtWaiver > 0 && <p className="ledger-line ok">投资人担保免除了 ¥{h.debtWaiver} 债务</p>}
+            ? <p className="ledger-line danger">地主未达目标 <CandleMark />{h.landlordGoalValue}，罚 <CandleMark />{h.landlordPenalty} 平分给农民</p>
+            : <p className="ledger-line ok">地主达成目标 <CandleMark />{h.landlordGoalValue}</p>)}
+          {h.debtWaiver > 0 && <p className="ledger-line ok">投资人担保免除了 <CandleMark />{h.debtWaiver} 债务</p>}
           {h.wagePaid && Object.keys(h.wagePaid).length > 0 && (
             <p className="ledger-line ok">发工资：{Object.entries(h.wagePaid).map(([id, v]) => `${nameOf(id)} +${v}`).join('、')}</p>
           )}
           {h.allowanceCharged && Object.keys(h.allowanceCharged).length > 0 && (
             <p className="ledger-line danger">扣饭账：{Object.entries(h.allowanceCharged).map(([id, v]) => `${nameOf(id)} −${v}`).join('、')}</p>
           )}
-          {h.uncovered > 0 && <p className="ledger-line dim">仍有 ¥{h.uncovered} 缺口无人能补</p>}
+          {h.uncovered > 0 && <p className="ledger-line dim">仍有 <CandleMark />{h.uncovered} 缺口无人能补</p>}
           {h.newlyBankrupt?.length > 0 && <p className="ledger-line danger">{h.newlyBankrupt.map(nameOf).join('、')} 破产了</p>}
           {showBalances && h.balancesAfter && (
             <div className="settle-detail">
-              {Object.entries(h.balancesAfter).map(([id, b]) => <span key={id}>{nameOf(id)}：¥{b}</span>)}
+              {Object.entries(h.balancesAfter).map(([id, b]) => <span key={id}>{nameOf(id)}：<CandleMark />{b}</span>)}
             </div>
           )}
         </div>

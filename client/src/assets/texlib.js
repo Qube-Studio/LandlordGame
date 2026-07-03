@@ -676,24 +676,6 @@ export function skinTex(o) {
   return t;
 }
 
-// 半身像(选角墙招募令用):头正脸 + 躯干/双臂正面拼成 24×30 像素半身像,按角色缓存 dataURL。
-// 与 3D 人物字面同一批 skinCanvas 画布——招募令上的画像 = 桌边坐着的那个人。
-const PORTRAIT_CACHE = new Map();
-export function portraitUrl(role = 'none') {
-  if (PORTRAIT_CACHE.has(role)) return PORTRAIT_CACHE.get(role);
-  const [c, ctx] = makeCanvas(24, 30);
-  const head = skinCanvas({ role, part: 'head', face: 'front' });
-  const body = skinCanvas({ role, part: 'body', face: 'front' });
-  const arm = skinCanvas({ role, part: 'arm', face: 'front' });
-  ctx.drawImage(head, 4, 1);                          // 16×16 头
-  ctx.drawImage(arm, 0, 0, 16, 13, 0, 17, 4, 13);     // 左臂(压窄,裁到画布底=齐腰截断)
-  ctx.drawImage(body, 0, 0, 16, 13, 4, 17, 16, 13);   // 躯干
-  ctx.drawImage(arm, 0, 0, 16, 13, 20, 17, 4, 13);    // 右臂
-  const url = c.toDataURL();
-  PORTRAIT_CACHE.set(role, url);
-  return url;
-}
-
 // 把共享材质写进 CSS 变量:HUD 面板与 3D 桌框字面同一张纹理(§1.1 第 4 路)
 export function injectTextures() {
   if (typeof document === 'undefined') return;

@@ -2,9 +2,10 @@
 // LOBBY 可点击应征/改选；开局后变成只读「角色手册」。占用状态用火漆印章表达。
 // 可选性判断与服务端 takeRole 同口径（地主阵营互斥 / 农民受 maxFarmers 上限）——
 // 只用于置灰提示，最终裁决仍在服务端。
+import { Canvas } from '@react-three/fiber';
 import { useGameStore } from '../store/gameStore';
 import PixelText from '../assets/pixelfont/PixelText';
-import { portraitUrl } from '../assets/texlib';
+import RoleBust3D from '../scene/RoleBust3D';
 import {
   ROLE_LABEL, ROLE_SHEET, factionOf,
   LANDLORD_SIDE_ROLES, FARMER_SIDE_ROLES,
@@ -30,7 +31,19 @@ function Poster({ role, mode, state, me, send, readonly }) {
       className={`poster ${mine ? 'mine' : ''} ${blocked ? 'blocked' : ''} ${clickable ? 'clickable' : ''}`}
       onClick={clickable ? () => send({ type: 'take_role', role }) : undefined}
     >
-      <img className="poster-portrait" src={portraitUrl(role)} alt={ROLE_LABEL[role]} draggable={false} />
+      {/* 反馈:身体与饰品都用真 3D 模型(与桌边的人完全一致);去掉头,头位浮着标志性饰品。
+          frameloop="demand" 只渲一帧(静态半身像),多张招募令也近乎零持续开销。 */}
+      <div className="poster-relic">
+        <Canvas
+          className="poster-bust"
+          frameloop="demand"
+          dpr={[1, 2]}
+          camera={{ position: [0, 0, 2.25], fov: 30 }}
+          gl={{ antialias: true, alpha: true, powerPreference: 'low-power' }}
+        >
+          <RoleBust3D role={role} />
+        </Canvas>
+      </div>
       <div className="poster-name"><PixelText size={3} color="var(--c-wood-900)">{ROLE_LABEL[role]}</PixelText></div>
       <div className="poster-tagline"><PixelText size={2} color="var(--c-parch-ink)">{sheet.tagline}</PixelText></div>
       <div className="poster-lines">

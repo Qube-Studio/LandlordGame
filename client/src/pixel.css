@@ -868,11 +868,18 @@ body {
   border-color: var(--c-brass-hi);
   box-shadow: inset 0 0 0 1px rgba(58, 42, 24, 0.25), 0 4px 0 rgba(0, 0, 0, 0.35), 0 0 12px rgba(232, 194, 90, 0.35);
 }
-.poster-portrait {
-  width: 96px; height: 120px;
-  image-rendering: pixelated;
-  background: rgba(58, 42, 24, 0.12);
-  border: 2px solid rgba(58, 42, 24, 0.35);
+/* 无头 3D 半身像龛：躯干+双臂+浮空饰品(真 3D 模型);暖色光晕托底 */
+.poster-relic {
+  width: 100%; height: 126px;
+  display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(ellipse 56% 46% at 50% 40%, rgba(232, 194, 90, 0.20), rgba(58, 42, 24, 0) 72%);
+  border-bottom: 2px solid rgba(58, 42, 24, 0.22);
+  overflow: hidden;
+}
+/* 窄高画布(≈旧脸像 footprint),让身体在其中显大、撑满;两侧留白由光晕龛承接 */
+.poster-bust {
+  width: 118px !important; height: 132px !important;
+  display: block;
 }
 .poster-lines { width: 100%; display: flex; flex-direction: column; gap: 3px; margin-top: 2px; }
 .poster-line { display: flex; align-items: flex-start; gap: 6px; }
@@ -940,10 +947,18 @@ body {
 .ledger-empty { padding: 18px; text-align: center; }
 
 /* ---- 玩家条瘦身（反馈⑨）：常驻单行，悬停滑出详情卡 ---- */
-.player-rail { width: 172px; gap: 5px; }
-.rail-row { padding: 5px 8px 5px 12px; gap: 0; }
-.rail-main { display: flex; align-items: center; gap: 7px; min-height: 17px; }
+.player-rail { width: 182px; gap: 5px; }
+.rail-row { padding: 4px 6px 4px 10px; gap: 0; }
+.rail-main { display: flex; align-items: center; gap: 7px; min-height: 24px; }
 .rail-name { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; }
+/* 左：在线灯（绿=在线/灰=离线），不被挤掉 */
+.rail-main .rail-online { flex: 0 0 8px; width: 8px; height: 8px; }
+/* 右：角色身份图标（玩家素材，白色剪影加大到 24；描边+按阵营微染，暗底更清楚） */
+.rail-role-icon {
+  flex: 0 0 24px; width: 24px; height: 24px; margin-left: 5px;
+  filter: drop-shadow(1px 0 0 rgba(0, 0, 0, 0.7)) drop-shadow(-1px 0 0 rgba(0, 0, 0, 0.7))
+          drop-shadow(0 1px 0 rgba(0, 0, 0, 0.7)) drop-shadow(0 -1px 0 rgba(0, 0, 0, 0.7));
+}
 .rail-detail {
   display: flex; flex-direction: column; gap: 3px;
   max-height: 0; overflow: hidden; opacity: 0; margin-top: 0;

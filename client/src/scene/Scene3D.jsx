@@ -48,8 +48,9 @@ const SEAT_LAYOUTS = {
   1: [{ x: 0, z: 2.65 }],
   2: [{ x: 0, z: 2.65 }, { x: 0, z: -2.65 }],
   3: [{ x: 0, z: 2.65 }, { x: -1.9, z: -2.65 }, { x: 1.9, z: -2.65 }],
-  4: [{ x: 0, z: 2.65 }, { x: 0, z: -2.65 }, { x: -3.95, z: 0 }, { x: 3.95, z: 0 }],
-  5: [{ x: 0, z: 2.65 }, { x: -1.9, z: -2.65 }, { x: 1.9, z: -2.65 }, { x: -3.95, z: 0 }, { x: 3.95, z: 0 }],
+  // 桌子 X 收窄后侧位内收(±3.95→±3.6),仍贴桌边
+  4: [{ x: 0, z: 2.65 }, { x: 0, z: -2.65 }, { x: -3.6, z: 0 }, { x: 3.6, z: 0 }],
+  5: [{ x: 0, z: 2.65 }, { x: -1.9, z: -2.65 }, { x: 1.9, z: -2.65 }, { x: -3.6, z: 0 }, { x: 3.6, z: 0 }],
 };
 const seatOf = (count, idx) => (SEAT_LAYOUTS[Math.min(5, Math.max(1, count))] ?? [])[idx] ?? { x: 0, z: -2.65 };
 // 座位前方毡面上的钱堆落点(同一公式喂 MoneyStack 摆放与 tableFelt 烘焙圆圈,保证严丝合缝)。
@@ -615,22 +616,22 @@ function Table({ spots = [] }) {
   const brass = tex('brass');
   return (
     <group>
-      {/* 桌面毡布:下注区/硬币圈直接烘死在纹理里,零文字锚定 */}
+      {/* 桌面毡布:下注区/硬币圈直接烘死在纹理里,零文字锚定。X 收窄一点(用户反馈):6.6→6.0 */}
       <mesh position={[0, TABLE_TOP - 0.06, 0]} receiveShadow>
-        <boxGeometry args={[6.6, 0.12, 4.0]} />
+        <boxGeometry args={[6.0, 0.12, 4.0]} />
         <meshStandardMaterial map={feltTex} roughness={0.95} flatShading />
       </mesh>
       {/* 木框 */}
       <mesh position={[0, 0.78, 0]}>
-        <boxGeometry args={[7.0, 0.34, 4.4]} />
+        <boxGeometry args={[6.4, 0.34, 4.4]} />
         <meshStandardMaterial map={frameWood} roughness={1} flatShading />
       </mesh>
       {/* 内缘黄铜嵌线(微 emissive,Bloom 下泛柔光) */}
       {[
-        { pos: [0, 0.952, -2.06], args: [6.72, 0.03, 0.06] },
-        { pos: [0, 0.952, 2.06], args: [6.72, 0.03, 0.06] },
-        { pos: [-3.36, 0.952, 0], args: [0.06, 0.03, 4.06] },
-        { pos: [3.36, 0.952, 0], args: [0.06, 0.03, 4.06] },
+        { pos: [0, 0.952, -2.06], args: [6.12, 0.03, 0.06] },
+        { pos: [0, 0.952, 2.06], args: [6.12, 0.03, 0.06] },
+        { pos: [-3.06, 0.952, 0], args: [0.06, 0.03, 4.06] },
+        { pos: [3.06, 0.952, 0], args: [0.06, 0.03, 4.06] },
       ].map((b, i) => (
         <mesh key={i} position={b.pos}>
           <boxGeometry args={b.args} />
@@ -638,7 +639,7 @@ function Table({ spots = [] }) {
         </mesh>
       ))}
       {/* 桌腿 + 横撑 */}
-      {[[-3.2, -1.9], [3.2, -1.9], [-3.2, 1.9], [3.2, 1.9]].map(([x, z], i) => (
+      {[[-2.9, -1.9], [2.9, -1.9], [-2.9, 1.9], [2.9, 1.9]].map(([x, z], i) => (
         <mesh key={i} position={[x, 0.3, z]}>
           <boxGeometry args={[0.32, 0.8, 0.32]} />
           <meshStandardMaterial map={legWood} roughness={1} flatShading />
@@ -646,7 +647,7 @@ function Table({ spots = [] }) {
       ))}
       {[-1.9, 1.9].map((z) => (
         <mesh key={z} position={[0, 0.22, z]}>
-          <boxGeometry args={[6.4, 0.1, 0.14]} />
+          <boxGeometry args={[5.8, 0.1, 0.14]} />
           <meshStandardMaterial map={legWood} roughness={1} flatShading />
         </mesh>
       ))}

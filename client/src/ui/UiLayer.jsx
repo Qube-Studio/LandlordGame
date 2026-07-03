@@ -6,7 +6,9 @@
 import { useEffect, useState, useRef } from 'react';
 import { useGameStore } from '../store/gameStore';
 import { getArt } from '../assets/registry';
+import { RoleIcon } from '../assets/RoleIcon';
 import PixelText from '../assets/pixelfont/PixelText';
+import CandleMark from '../assets/pixelfont/CandleMark';
 import MoneyHand from './MoneyHand';
 import NegotiationBoard from './NegotiationBoard';
 import PhaseCoachmark from './PhaseCoachmark';
@@ -162,11 +164,12 @@ function PlayerRail() {
         return (
           <div key={p.id} className={`rail-row ${mine ? 'me' : ''} ${p.online ? '' : 'offline'} ${p.bankrupt ? 'gone' : ''}`}>
             <div className="rail-main">
-              <span className={`rail-dot ${factionOf(p.role) ?? 'none'}`} />
+              {/* 左：在线灯(绿=在线/灰=离线) 中：名字 右：角色身份图标(玩家素材,加大到 24)。状态放展开详情。 */}
+              <span className={`rail-online ${p.online ? '' : 'off'}`} title={p.online ? '在线' : '离线'} />
               <span className="rail-name"><PixelText size={2}>{`${p.name}${p.isHost ? ' ♔' : ''}`}</PixelText></span>
-              {lobby
-                ? <PixelText size={2} color={p.role ? 'var(--px-gold)' : 'var(--ink-dim)'}>{ROLE_LABEL[p.role] ?? '未选'}</PixelText>
-                : (st.text && <PixelText size={2} className={`rail-status ${st.cls}`}>{st.text}</PixelText>)}
+              {p.role
+                ? <RoleIcon role={p.role} size={24} className={`rail-role-icon ${factionOf(p.role) ?? 'none'}`} title={ROLE_LABEL[p.role]} />
+                : (lobby && <PixelText size={2} color="var(--ink-dim)">未选</PixelText>)}
             </div>
             <div className="rail-detail">
               <div className="rail-line2">
@@ -174,9 +177,8 @@ function PlayerRail() {
                 <PixelText size={2} color="var(--px-gold)">{p.balance != null ? `¥${p.balance}` : '¥??'}</PixelText>
               </div>
               {tag && <div className="rail-line2"><PixelText size={2} color="var(--ink-dim)">{tag}</PixelText></div>}
-              <div className="rail-line2">
-                <span className="rail-line1"><span className={`rail-online ${p.online ? '' : 'off'}`} /><PixelText size={2} color="var(--ink-dim)">{p.online ? '在线' : '离线'}</PixelText></span>
-              </div>
+              {/* 阶段状态(思考中/讨论中/已下注…)——原在线行删掉,在线已由主行左侧的灯表示 */}
+              {st.text && <div className="rail-line2"><PixelText size={2} className={`rail-status ${st.cls}`}>{st.text}</PixelText></div>}
             </div>
           </div>
         );
@@ -290,6 +292,7 @@ function useBalanceCount(target) {
 
 function BalanceHud() {
   const state = useGameStore(s => s.state);
+  const playerId = useGameStore(s => s.playerId);
   const me = state.me;
   const { display, tx, ty, scale, flash } = useBalanceCount(me?.balance ?? null);
   if (!me || me.balance == null) return null;
@@ -300,10 +303,14 @@ function BalanceHud() {
     ? { transform: `translate(${(tx || 0).toFixed(1)}px, ${(ty || 0).toFixed(1)}px) scale(${(scale || 1).toFixed(3)})`, transformOrigin: 'right bottom' }
     : undefined;
   const numColor = flash > 0 ? balanceFlashColor(flash) : (low ? 'var(--danger)' : 'var(--px-gold)');
+  // 蜡烛(货币符)按上一回合盈亏染色：亏损→红，盈利/持平/尚无回合→绿(默认盈利绿)。
+  const history = state.history ?? [];
+  const lastDelta = history.length ? (history[history.length - 1].deltas?.[playerId] ?? 0) : null;
+  const candleColor = lastDelta != null && lastDelta < 0 ? 'var(--danger)' : 'var(--ok)';
   return (
     <div className={`balance-hud ${low ? 'low' : ''}`}>
       <div className="bh-value" style={style}>
-        <PixelText size={4} color="var(--px-gold)">¥</PixelText>
+        <PixelText size={4} color={candleColor}>¥</PixelText>
         <PixelText size={9} color={numColor}>{String(display)}</PixelText>
       </div>
     </div>
@@ -495,10 +502,10 @@ function FinalizePanel() {
       </div>
       {last.landlordGoalValue != null && (
         last.landlordPenalty > 0
-          ? <p className="danger">地主未达目标 ¥{last.landlordGoalValue}，扣除惩罚 ¥{last.landlordPenalty}（平分给农民）！</p>
-          : <p className="ok">{landlordName ? `${landlordName} ` : '地主'}达成目标 ¥{last.landlordGoalValue}</p>
+          ? <p className="danger">地主未达目标 <CandleMark />{last.landlordGoalValue}，扣除惩罚 <CandleMark />{last.landlordPenalty}（平分给农民）！</p>
+          : <p className="ok">{landlordName ? `${landlordName} ` : '地主'}达成目标 <CandleMark />{last.landlordGoalValue}</p>
       )}
-      {last.debtWaiver > 0 && <p className="ok">投资人担保免除了 ¥{last.debtWaiver} 债务</p>}
+      {last.debtWaiver > 0 && <p className="ok">投资人担保免除了 <CandleMark />{last.debtWaiver} 债务</p>}
       {last.wagePaid && Object.keys(last.wagePaid).length > 0 && (
         <p className="ok">发工资：{Object.entries(last.wagePaid).map(([id, v]) => `${nameOf(id)} +${v}`).join('、')}</p>
       )}
@@ -508,10 +515,10 @@ function FinalizePanel() {
       {last.capitalistPool != null && (
         <p className={last.capitalistPoolDelta >= 0 ? 'ok' : 'danger'}>
           资金池 {last.capitalistPoolDelta >= 0 ? `+${last.capitalistPoolDelta}` : last.capitalistPoolDelta}
-          ，扣税 ¥{last.capitalistTax} → ¥{last.capitalistPool}
+          ，扣税 <CandleMark />{last.capitalistTax} → <CandleMark />{last.capitalistPool}
         </p>
       )}
-      {last.uncovered > 0 && <p className="dim">仍有 ¥{last.uncovered} 缺口无人能补，地主收不到</p>}
+      {last.uncovered > 0 && <p className="dim">仍有 <CandleMark />{last.uncovered} 缺口无人能补，地主收不到</p>}
       {last.newlyBankrupt?.length > 0 && <p className="danger">{last.newlyBankrupt.map(nameOf).join('、')} 破产了！</p>}
     </div>
   );
@@ -529,7 +536,7 @@ function EndedPanel() {
     <div className="phase-panel ended-panel">
       <h2 className={iWon ? 'gold' : 'dim'}>{winLabel}</h2>
       <div className="settle-detail">
-        {state.players.map(p => <span key={p.id}>{p.name}：¥{p.balance ?? '?'}{p.bankrupt ? '（破产）' : ''}</span>)}
+        {state.players.map(p => <span key={p.id}>{p.name}：<CandleMark />{p.balance ?? '?'}{p.bankrupt ? '（破产）' : ''}</span>)}
       </div>
       <div className="role-pick">
         {me?.isHost && <button className="btn primary" onClick={() => send({ type: 'restart_game' })}>再来一局 <span className="keycap">⏎</span></button>}

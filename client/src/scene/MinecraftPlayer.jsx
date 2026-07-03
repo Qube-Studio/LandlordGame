@@ -26,6 +26,69 @@ function partMats(role, part, bankrupt, expression = 'idle') {
   return arr;
 }
 
+// 道具材质：与身体分开，方便单独调。皇冠/怀表类金件带微 emissive(Bloom 下泛光,ART_BIBLE §1.5)。
+const pmat = (color) => <meshStandardMaterial color={color} roughness={0.85} flatShading />;
+const pmatGlow = (color) => (
+  <meshStandardMaterial color={color} roughness={0.55} metalness={0.3} flatShading emissive={color} emissiveIntensity={0.35} />
+);
+
+// 头戴道具(模块级,供 3D 玩家与招募令 3D 半身像共用)。坐标为头部局部系(头中心=原点)。
+// 围裙/马甲/袖套等布面已烘进皮肤纹理;手持件(算盘/鸡腿)挂在臂组里。
+export function HeadProp({ role }) {
+  switch (role) {
+    case 'landlord': // 真皇冠：冠圈 + 五尖 + 正面红宝石(金件发光)
+      return (
+        <group position={[0, 0.325, 0]}>
+          <mesh><boxGeometry args={[0.5, 0.1, 0.5]} />{pmatGlow(PROP_COLORS.crown)}</mesh>
+          {[[-0.2, 0.2], [0.2, 0.2], [-0.2, -0.2], [0.2, -0.2], [0, 0]].map(([x, z], i) => (
+            <mesh key={i} position={[x, i === 4 ? 0.15 : 0.12, z]}>
+              <boxGeometry args={[0.1, i === 4 ? 0.22 : 0.16, 0.1]} />{pmatGlow(PROP_COLORS.crown)}
+            </mesh>
+          ))}
+          <mesh position={[0, 0.02, 0.26]}><boxGeometry args={[0.1, 0.1, 0.04]} />{pmat(PROP_COLORS.ruby)}</mesh>
+        </group>
+      );
+    case 'capitalist': // 礼帽 + 金带
+      return (
+        <group position={[0, 0.325, 0]}>
+          <mesh><boxGeometry args={[0.6, 0.05, 0.6]} />{pmat(PROP_COLORS.hatBrim)}</mesh>
+          <mesh position={[0, 0.07, 0]}><boxGeometry args={[0.42, 0.05, 0.42]} />{pmatGlow(PROP_COLORS.hatBand)}</mesh>
+          <mesh position={[0, 0.18, 0]}><boxGeometry args={[0.4, 0.28, 0.4]} />{pmat(PROP_COLORS.hatTop)}</mesh>
+        </group>
+      );
+    case 'farmer': // 草帽：宽檐 + 矮顶(草编织纹)
+      return (
+        <group position={[0, 0.295, 0]}>
+          <mesh>
+            <boxGeometry args={[0.74, 0.05, 0.74]} />
+            <meshStandardMaterial map={tex('fabric', { color: PROP_COLORS.straw, pattern: 'stripe' })} roughness={1} flatShading />
+          </mesh>
+          <mesh position={[0, 0.11, 0]}>
+            <boxGeometry args={[0.4, 0.18, 0.4]} />
+            <meshStandardMaterial map={tex('fabric', { color: PROP_COLORS.straw2, pattern: 'stripe' })} roughness={1} flatShading />
+          </mesh>
+        </group>
+      );
+    case 'investor': // 圆框眼镜(马甲/领带/袖套已烘进皮肤)
+      return (
+        <group>
+          <mesh position={[-0.12, 0.025, 0.29]}><boxGeometry args={[0.15, 0.15, 0.03]} />{pmat(PROP_COLORS.lens)}</mesh>
+          <mesh position={[0.12, 0.025, 0.29]}><boxGeometry args={[0.15, 0.15, 0.03]} />{pmat(PROP_COLORS.lens)}</mesh>
+          <mesh position={[0, 0.025, 0.29]}><boxGeometry args={[0.1, 0.03, 0.03]} />{pmat(PROP_COLORS.lens)}</mesh>
+        </group>
+      );
+    case 'glutton': // 厨师帽(围裙已烘进皮肤)
+      return (
+        <group>
+          <mesh position={[0, 0.325, 0]}><boxGeometry args={[0.46, 0.1, 0.46]} />{pmat(PROP_COLORS.chefWhite)}</mesh>
+          <mesh position={[0, 0.485, 0]}><boxGeometry args={[0.5, 0.22, 0.5]} />{pmat(PROP_COLORS.chefWhite2)}</mesh>
+        </group>
+      );
+    default:
+      return null;
+  }
+}
+
 export default function MinecraftPlayer({ player, expression, seed = 0, look = null, seated = false }) {
   const root = useRef();
   const lArm = useRef();
@@ -80,69 +143,6 @@ export default function MinecraftPlayer({ player, expression, seed = 0, look = n
     }
   });
 
-  // 道具材质：与身体分开，方便单独调。皇冠/怀表类金件带微 emissive(Bloom 下泛光,ART_BIBLE §1.5)。
-  const pmat = (color) => <meshStandardMaterial color={color} roughness={0.85} flatShading />;
-  const pmatGlow = (color) => (
-    <meshStandardMaterial color={color} roughness={0.55} metalness={0.3} flatShading emissive={color} emissiveIntensity={0.35} />
-  );
-
-  // 头戴道具(挂进头部组,随转头/低头一起动;破产时不渲染)。坐标为头部局部系(头中心=原点)。
-  // 围裙/马甲/袖套等布面已烘进皮肤纹理;手持件(算盘/鸡腿)挂在臂组里。
-  const headProp = (r) => {
-    switch (r) {
-      case 'landlord': // 真皇冠：冠圈 + 五尖 + 正面红宝石(金件发光)
-        return (
-          <group position={[0, 0.325, 0]}>
-            <mesh><boxGeometry args={[0.5, 0.1, 0.5]} />{pmatGlow(PROP_COLORS.crown)}</mesh>
-            {[[-0.2, 0.2], [0.2, 0.2], [-0.2, -0.2], [0.2, -0.2], [0, 0]].map(([x, z], i) => (
-              <mesh key={i} position={[x, i === 4 ? 0.15 : 0.12, z]}>
-                <boxGeometry args={[0.1, i === 4 ? 0.22 : 0.16, 0.1]} />{pmatGlow(PROP_COLORS.crown)}
-              </mesh>
-            ))}
-            <mesh position={[0, 0.02, 0.26]}><boxGeometry args={[0.1, 0.1, 0.04]} />{pmat(PROP_COLORS.ruby)}</mesh>
-          </group>
-        );
-      case 'capitalist': // 礼帽 + 金带
-        return (
-          <group position={[0, 0.325, 0]}>
-            <mesh><boxGeometry args={[0.6, 0.05, 0.6]} />{pmat(PROP_COLORS.hatBrim)}</mesh>
-            <mesh position={[0, 0.07, 0]}><boxGeometry args={[0.42, 0.05, 0.42]} />{pmatGlow(PROP_COLORS.hatBand)}</mesh>
-            <mesh position={[0, 0.18, 0]}><boxGeometry args={[0.4, 0.28, 0.4]} />{pmat(PROP_COLORS.hatTop)}</mesh>
-          </group>
-        );
-      case 'farmer': // 草帽：宽檐 + 矮顶(草编织纹)
-        return (
-          <group position={[0, 0.295, 0]}>
-            <mesh>
-              <boxGeometry args={[0.74, 0.05, 0.74]} />
-              <meshStandardMaterial map={tex('fabric', { color: PROP_COLORS.straw, pattern: 'stripe' })} roughness={1} flatShading />
-            </mesh>
-            <mesh position={[0, 0.11, 0]}>
-              <boxGeometry args={[0.4, 0.18, 0.4]} />
-              <meshStandardMaterial map={tex('fabric', { color: PROP_COLORS.straw2, pattern: 'stripe' })} roughness={1} flatShading />
-            </mesh>
-          </group>
-        );
-      case 'investor': // 圆框眼镜(马甲/领带/袖套已烘进皮肤)
-        return (
-          <group>
-            <mesh position={[-0.12, 0.025, 0.29]}><boxGeometry args={[0.15, 0.15, 0.03]} />{pmat(PROP_COLORS.lens)}</mesh>
-            <mesh position={[0.12, 0.025, 0.29]}><boxGeometry args={[0.15, 0.15, 0.03]} />{pmat(PROP_COLORS.lens)}</mesh>
-            <mesh position={[0, 0.025, 0.29]}><boxGeometry args={[0.1, 0.03, 0.03]} />{pmat(PROP_COLORS.lens)}</mesh>
-          </group>
-        );
-      case 'glutton': // 厨师帽(围裙已烘进皮肤)
-        return (
-          <group>
-            <mesh position={[0, 0.325, 0]}><boxGeometry args={[0.46, 0.1, 0.46]} />{pmat(PROP_COLORS.chefWhite)}</mesh>
-            <mesh position={[0, 0.485, 0]}><boxGeometry args={[0.5, 0.22, 0.5]} />{pmat(PROP_COLORS.chefWhite2)}</mesh>
-          </group>
-        );
-      default:
-        return null;
-    }
-  };
-
   const legRot = seated ? -1.5 : 0; // 坐姿:大腿前伸(髋部铰链,伸进桌下)
 
   return (
@@ -180,7 +180,7 @@ export default function MinecraftPlayer({ player, expression, seed = 0, look = n
         <mesh material={headMats}>
           <boxGeometry args={[0.55, 0.55, 0.55]} />
         </mesh>
-        {!bankrupt && headProp(role)}
+        {!bankrupt && <HeadProp role={role} />}
       </group>
 
       {/* 头顶名牌(distanceFactor 6:第一人称落座相机视距变近,10 档会糊满半屏) */}

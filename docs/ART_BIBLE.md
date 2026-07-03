@@ -132,6 +132,12 @@ mulberry32 种子 PRNG,全部 NearestFilter、按参数 key 缓存、永不逐�
 - **玩家条瘦身**: 常驻单行(阵营色签+名字+右侧一个信息位:LOBBY 显角色/游戏中显状态),悬停滑出详情卡(角色/余额/技能/在线);破产整行灰化。
 - **火漆色**: `--c-wax`(P.wax,#7a2020)为 UI 印章/危险小签唯一红,与 3D 暴食者围裙酱渍同源。
 
+### 1.7.2 货币蜡烛 + 角色图标双轨 + 选角墙 3D 半身像(dev 轮)
+
+- **货币符 = 蜡烛(单一真源)**: `¥` 不再是日元符,而是一枚蜡烛。真源在 `pixelfont/glyphs.js` 的 `¥` 字形(蜡烛点阵 + `export CANDLE_ROWS`)——所有 PixelText 金额前缀自动变蜡烛;中文散文行里的货币符用 `pixelfont/CandleMark.jsx`(同点阵行内 SVG,继承 currentColor,故 danger 行=红蜡烛/ok 行=绿蜡烛)。**禁止**在 JSX/散文里再写裸 `¥` 字。右下资金蜡烛(BalanceHud)**按上一回合盈亏染色**:`history[-1].deltas[me] < 0 → 红,否则绿`(默认/无回合=绿)。
+- **角色图标双轨(勿混)**: ①**玩家栏**=玩家自备白色剪影 PNG(`assets/ui/*_icon.png`,经 `assets/RoleIcon.jsx`);玩家栏契约=**左在线灯 / 中名字 / 右角色图标(24px)**,阶段状态只在悬停详情里、主行与详情都不再放在线状态。②**选角墙招募令**=**真 3D 模型**(`scene/RoleBust3D.jsx`,微型 `<Canvas frameloop="demand">` 复用 `MinecraftPlayer` 的 `HeadProp` 与 `skinTex` 身体材质):**保留身体、去头、头位浮标志性饰品**——身体与饰品都与桌边的人完全同源(用户明确要求一致,不许 2D 重绘)。`HeadProp`/`pmat`/`pmatGlow` 已在 MinecraftPlayer 模块级并 `export HeadProp`。
+- **赌桌 X 收窄**: 毡面 6.6→6.0、木框 7.0→6.4、侧座 ±3.95→±3.6;下注圈由 `spotOf(seat)` 生成并烘进毡面纹理,改座位/桌宽不会与圈错位(圈与钱堆同源)。
+
 - **共享底景**(body,三层 CSS): 顶部 70% 暖黄径向光池 `radial-gradient(900px 500px at 50% -10%, alpha(candle,.14), transparent)` + `--tex-wood` 板条平铺 + 四周 vignette;登录/大厅/游戏内同一变量,世界观无缝。
 - **登录=悬挂木招牌**: `.auth-card` 套 1.7 范式;`::before` 画两条 1px 渐变吊链+顶部两颗铆钉(radial-gradient);标题 PixelText 金字,下加铜分隔线;硬币徽章换新浮雕币面 SVG;底部内联 SVG data-uri 酒桶/桌椅黑剪影条。入场 ui-rise 340ms + 一次 0.8° 摆动。
 - **大厅=布告栏**: mode-card=钉在板上的羊皮纸(`--tex-parchment` 底、parchInk 字、顶心铜钉、各 `rotate(-1.2deg/0.8deg/-0.6deg)`,hover 转正+浮起 2px);room-list=账本(羊皮底、1px 墨线行、房号 PixelText 金字);「创建房间」等文案不改。顺带删 App.css L157-258 死代码。

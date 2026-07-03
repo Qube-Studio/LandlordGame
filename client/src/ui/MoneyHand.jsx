@@ -7,6 +7,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useGameStore } from '../store/gameStore';
 import { getArt } from '../assets/registry';
+import CandleMark from '../assets/pixelfont/CandleMark';
 import { decompose, splitNote, sumNotes, SPLITS, insStackStyle } from '../game/notes';
 
 const MoneyNote = getArt('moneyNote');
@@ -163,7 +164,7 @@ export default function MoneyHand() {
       <div className="hand-row" data-hand-anchor>
         {insurable && (
           <div className="insurance-slot">
-            <span className="ins-slot-label">投保 ¥{premium}/{maxPledge}</span>
+            <span className="ins-slot-label">投保 <CandleMark />{premium}/{maxPledge}</span>
             {/* 判定区(.ins-dropzone)比可见钱框大一圈——命中更宽松；拖拽中内部不吃指针事件，
                 避免子元素打断 dragenter/leave。反馈样式落在内层钱框上。 */}
             <div
