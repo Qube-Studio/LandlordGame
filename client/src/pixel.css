@@ -255,9 +255,9 @@ img, svg, canvas { -webkit-user-drag: none; user-drag: none; }
 .rail-status.dim { color: var(--ink-dim); }
 .rail-status.danger { color: var(--danger); }
 
-/* ---- 本地测试模式提示条（任务③，仅 DEV） ---- */
+/* ---- 本地测试模式提示条（任务③，仅 DEV；底边已让给桌沿抽屉，改挂顶栏下方） ---- */
 .dev-hud {
-  position: absolute; left: 50%; bottom: 8px; transform: translateX(-50%);
+  position: absolute; left: 50%; top: 46px; transform: translateX(-50%);
   padding: 3px 10px; font-size: 11px; letter-spacing: 1px;
   color: var(--ink-dim); background: rgba(10, 11, 15, 0.7);
   border: 1px solid #000; z-index: 60; pointer-events: none; white-space: nowrap;
@@ -346,10 +346,10 @@ img, svg, canvas { -webkit-user-drag: none; user-drag: none; }
 .orient-card .orient-hint { font-size: 12px; color: var(--ink-dim); }
 @keyframes orient-rock { 0%, 100% { transform: rotate(-15deg); } 50% { transform: rotate(75deg); } }
 
-/* ---- 底部动作区 ---- */
+/* ---- 底部动作区（HUD 2.0：纵向 = 阶段提示小字 + 阶段面板；底边让位给桌沿抽屉把手） ---- */
 .hud-bottom {
-  position: absolute; left: 0; right: 0; bottom: 12px;
-  display: flex; justify-content: center;
+  position: absolute; left: 0; right: 0; bottom: 40px;
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
   padding: 0 200px; /* 给左右两侧 HUD 让位 */
   pointer-events: none;
 }
@@ -746,6 +746,218 @@ body {
 }
 .mode-card h3 { color: var(--c-parch-ink); }
 .mode-card p.dim { color: var(--c-parch-ink); opacity: 0.75; }
+
+/* ============================================================
+   HUD 2.0（dev 轮）：桌沿抽屉（dock 把手 + drawer 面板）、招募令选角墙、
+   酒馆账本、玩家条瘦身、阶段提示并入行动区。写在最末覆盖旧范式。
+   ============================================================ */
+
+/* ---- 阶段提示小字：并入底部行动区（hud-banner 退役） ---- */
+.phase-caption {
+  padding: 3px 12px;
+  background: rgba(10, 11, 15, 0.55);
+  border: 1px solid rgba(0, 0, 0, 0.6);
+  pointer-events: none !important;
+}
+
+/* ---- 桌沿抽屉把手 ---- */
+.dock {
+  position: absolute; left: 50%; bottom: 0; transform: translateX(-50%);
+  display: flex; align-items: flex-end; gap: 8px;
+  z-index: 47;
+}
+.dock-tab {
+  position: relative;
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 5px 14px 7px;
+  background-color: var(--c-wood-700);
+  background-image: var(--tex-wood);
+  border: 2px solid var(--c-wood-950);
+  border-bottom: none;
+  box-shadow: inset 2px 2px 0 var(--px-bevel-l), inset 0 0 0 1px rgba(232, 194, 90, 0.20);
+  color: var(--ink);
+  cursor: pointer;
+  transition: transform var(--t-fast) var(--e-pixel), filter var(--t-fast) linear;
+}
+.dock-tab:hover { filter: brightness(1.22); transform: translateY(-2px); }
+.dock-tab.open {
+  background: linear-gradient(180deg, var(--c-brass-hi), var(--c-brass));
+  color: var(--c-wood-900);
+  transform: translateY(-2px);
+}
+.dock-tab.pulse { animation: dock-pulse 0.8s steps(2) 2; }
+@keyframes dock-pulse {
+  0%, 100% { filter: none; }
+  50% { filter: brightness(1.7) drop-shadow(0 0 8px rgba(232, 194, 90, 0.55)); }
+}
+.dock-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 16px; height: 16px; padding: 0 3px;
+  background: var(--px-gold);
+  border: 2px solid var(--c-wood-950);
+}
+
+/* ---- 抽屉面板骨架（从桌沿升起） ---- */
+.drawer {
+  position: absolute; left: 50%; bottom: 34px; transform: translateX(-50%);
+  width: min(1060px, 96vw);
+  max-height: min(66vh, 560px);
+  display: flex; flex-direction: column;
+  background-color: var(--c-wood-700);
+  background-image: var(--rivets), var(--tex-wood);
+  border: 2px solid var(--c-wood-950);
+  box-shadow:
+    inset 2px 2px 0 var(--px-bevel-l),
+    inset -2px -2px 0 var(--px-bevel-d),
+    inset 0 0 0 1px rgba(232, 194, 90, 0.22),
+    0 8px 0 rgba(0, 0, 0, 0.45);
+  z-index: 46;
+  animation: drawer-rise var(--t-ui) var(--e-enter) both;
+}
+@keyframes drawer-rise {
+  from { transform: translate(-50%, 26px); opacity: 0; }
+  to   { transform: translate(-50%, 0); opacity: 1; }
+}
+.drawer-title {
+  flex: none;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 5px 12px;
+  background: linear-gradient(180deg, var(--c-brass-hi), var(--c-brass));
+  border-bottom: 2px solid var(--c-wood-950);
+  box-shadow: inset 0 1px 0 rgba(255, 235, 190, 0.5);
+}
+.drawer-title-right { display: flex; align-items: center; gap: 10px; }
+.drawer-x {
+  width: 20px; height: 20px; padding: 0; line-height: 1;
+  border: 2px solid var(--c-wood-950);
+  background: var(--c-wood-700);
+  color: var(--ink);
+  font-family: var(--font-cjk); font-size: 12px;
+  cursor: pointer;
+}
+.drawer-x:hover { filter: brightness(1.3); }
+.drawer-body { overflow-y: auto; padding: 12px 14px; }
+.drawer-foot {
+  flex: none;
+  display: flex; justify-content: center; align-items: center; gap: 10px;
+  padding: 8px 12px;
+  border-top: 2px solid var(--c-wood-950);
+}
+
+/* ---- 选角墙：羊皮招募令（顶心铜钉与模式卡同语言） ---- */
+.role-wall-body { display: flex; flex-wrap: wrap; justify-content: center; align-items: flex-start; gap: 16px 26px; }
+.role-group { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.poster-row { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; }
+.poster {
+  position: relative;
+  width: 184px;
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 14px 10px 12px;
+  background-color: var(--c-parchment);
+  background-image:
+    radial-gradient(circle at 50% 7px, var(--c-brass-hi) 0 3px, var(--c-brass) 3px 4px, rgba(0, 0, 0, 0) 5px),
+    var(--tex-parchment);
+  border: 2px solid var(--c-wood-950);
+  box-shadow: inset 0 0 0 1px rgba(58, 42, 24, 0.25), 0 4px 0 rgba(0, 0, 0, 0.35);
+  transition: transform var(--t-fast) var(--e-pixel), filter var(--t-fast) linear;
+}
+.poster.clickable { cursor: pointer; }
+.poster.clickable:hover { transform: translateY(-4px); filter: brightness(1.05); }
+.poster.blocked { filter: grayscale(0.55) brightness(0.85); }
+.poster.mine {
+  border-color: var(--c-brass-hi);
+  box-shadow: inset 0 0 0 1px rgba(58, 42, 24, 0.25), 0 4px 0 rgba(0, 0, 0, 0.35), 0 0 12px rgba(232, 194, 90, 0.35);
+}
+.poster-portrait {
+  width: 96px; height: 120px;
+  image-rendering: pixelated;
+  background: rgba(58, 42, 24, 0.12);
+  border: 2px solid rgba(58, 42, 24, 0.35);
+}
+.poster-lines { width: 100%; display: flex; flex-direction: column; gap: 3px; margin-top: 2px; }
+.poster-line { display: flex; align-items: flex-start; gap: 6px; }
+.poster-k { flex: none; margin-top: 1px; }
+/* 正文用可换行的中文像素字体（PixelText 的 flex 行不换行，长句会溢出羊皮纸） */
+.poster-v {
+  flex: 1; min-width: 0;
+  font-family: var(--font-cjk); font-size: 12px; line-height: 1.45;
+  color: var(--c-parch-ink);
+}
+.poster-seal {
+  position: absolute; top: 10px; right: 8px;
+  width: 46px; height: 46px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--c-wax);
+  box-shadow:
+    inset 0 0 0 3px rgba(0, 0, 0, 0.18),
+    inset 2px 3px 0 rgba(255, 235, 190, 0.18),
+    0 2px 0 rgba(0, 0, 0, 0.35);
+  transform: rotate(-12deg);
+  pointer-events: none;
+}
+.poster-takers { margin-top: 2px; text-align: center; }
+
+/* ---- 酒馆账本：一行一轮（羊皮条），摊开处为暗色明细 ---- */
+.ledger-body { display: flex; flex-direction: column; gap: 7px; }
+.ledger-entry { display: flex; flex-direction: column; }
+.ledger-row {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%;
+  padding: 6px 10px;
+  background-color: var(--c-parchment);
+  background-image: var(--tex-parchment);
+  border: 2px solid var(--c-wood-950);
+  box-shadow: inset 0 0 0 1px rgba(58, 42, 24, 0.2);
+  cursor: pointer;
+  text-align: left;
+}
+.ledger-row:hover { filter: brightness(1.06); }
+.ledger-entry.open .ledger-row { border-color: var(--c-brass-hi); }
+.ledger-round { flex: none; width: 40px; }
+.ledger-coin { flex: none; width: 22px; height: 22px; image-rendering: pixelated; }
+.ledger-side { flex: none; width: 76px; }
+.ledger-pot { flex: none; width: 96px; }
+.ledger-my { flex: 1; min-width: 0; }
+.ledger-tags { flex: none; display: flex; gap: 5px; }
+.ledger-tag {
+  font-size: 11px; line-height: 1; padding: 3px 6px;
+  font-family: var(--font-cjk);
+  border: 1px solid var(--c-wood-950);
+  background: rgba(58, 42, 24, 0.12);
+  color: var(--c-parch-ink);
+}
+.ledger-tag.danger { color: var(--c-parchment); background: var(--c-wax); }
+.ledger-detail {
+  display: flex; flex-direction: column; gap: 5px;
+  padding: 9px 12px;
+  background: rgba(10, 11, 15, 0.55);
+  border: 2px solid var(--c-wood-950); border-top: none;
+}
+.ledger-line { margin: 0; font-size: 13px; color: var(--ink); }
+.ledger-line.ok { color: var(--ok); }
+.ledger-line.danger { color: var(--danger); }
+.ledger-line.dim { color: var(--ink-dim); }
+.ledger-empty { padding: 18px; text-align: center; }
+
+/* ---- 玩家条瘦身（反馈⑨）：常驻单行，悬停滑出详情卡 ---- */
+.player-rail { width: 172px; gap: 5px; }
+.rail-row { padding: 5px 8px 5px 12px; gap: 0; }
+.rail-main { display: flex; align-items: center; gap: 7px; min-height: 17px; }
+.rail-name { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; }
+.rail-detail {
+  display: flex; flex-direction: column; gap: 3px;
+  max-height: 0; overflow: hidden; opacity: 0; margin-top: 0;
+  transition: max-height var(--t-ui) var(--e-enter), opacity var(--t-ui) linear, margin-top var(--t-ui) linear;
+}
+.rail-row:hover .rail-detail { max-height: 84px; opacity: 1; margin-top: 5px; }
+.rail-row.gone { filter: grayscale(0.7); }
+
+@media (prefers-reduced-motion: reduce) {
+  .drawer { animation: none; }
+  .dock-tab, .poster { transition: none; }
+  .dock-tab.pulse { animation: none; }
+  .rail-detail { transition: none; }
+}
 /* 左牌钉左上角(自由端右侧下垂=正角)、右牌钉右上角(镜像负角)、中牌钉顶中微倾 */
 .mode-row .mode-card:nth-child(1) { --pin-x: 14px; transform: rotate(4.5deg); }
 .mode-row .mode-card:nth-child(2) { --pin-x: 50%; transform: rotate(1deg); }

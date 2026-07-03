@@ -102,9 +102,9 @@ function Chair({ x, z, ry = 0 }) {
 // 第一人称落座相机(反馈⑥):相机=「我」坐在自己座位上的眼睛。
 // 基准位 (0, EYE_Y, camZ)——绝对座位系统已把我的座位旋到 +z 近侧,camZ=座距+微退;
 // 注视点降到桌心略上。保留鼠标环视阻尼与破产微震(视距变近,幅度较旧俯视机位略降)。
-const EYE_Y = 1.66;   // 坐姿眼高(头部 ~1.5,截图定夺于 1.55~1.8)
+const EYE_Y = 1.82;   // 坐姿眼高(用户定夺:比头部略高,带一点俯视桌面的从容感)
 const LOOK_Y = 1.03;  // 注视点=桌心略上
-const CAM_BACK = 0.35; // 相机比座位中心略靠后(像后仰靠在椅背上)
+const CAM_BACK = 0.62; // 相机比座位中心靠后(后仰靠椅背;离桌更远,桌面与对家更完整)
 function CameraRig({ look, shakeRef, camZ = 3.0 }) {
   const { camera } = useThree();
   const target = useRef(new THREE.Vector3(0, LOOK_Y, 0));
@@ -1028,7 +1028,7 @@ export default function Scene3D() {
       <Canvas
         shadows={!NO_SHADOW}
         dpr={dpr}
-        camera={{ position: [0, EYE_Y, 3.0], fov: 50, near: 0.1, far: 100 }}
+        camera={{ position: [0, EYE_Y, 3.0], fov: 58, near: 0.1, far: 100 }}
         gl={{ antialias: false, powerPreference: 'high-performance' }}
       >
         <SceneContents look={look} freeCam={freeCam} />

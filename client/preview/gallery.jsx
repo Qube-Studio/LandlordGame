@@ -150,11 +150,61 @@ const coachmarkScene = mk({
   me: { id: 'me', role: 'farmer', balance: 8, bet: null, bounds: { minStake: 1, min: 1, max: 7, forceAllIn: false } },
 });
 
+// 选角墙(HUD 2.0):快速模式两张招募令;LOBBY 进房自动升起,R/Esc 收起。
+const quickWall = mk({
+  phase: 'LOBBY', round: 0, mode: 'quick',
+  players: [
+    { id: 'me', name: '我', role: null, seat: 0, online: true, isHost: true },
+    opp('l', '地主张', 'landlord', { hasBet: false, bet: null }),
+  ],
+  me: { id: 'me', role: null, isHost: true, balance: null },
+  config: { ...base.config, maxFarmers: 4 },
+});
+
+// 酒馆账本(HUD 2.0):3 轮历史——农民胜(工资/饭账)、地主胜缺口补足、地主胜+破产。
+const ledgerScene = mk({
+  phase: 'DISCUSSION', round: 4,
+  players: [
+    { id: 'me', name: '我', role: 'farmer', seat: 0, online: true, isHost: true, balance: 9 },
+    opp('l', '地主张', 'landlord', { hasBet: false, bet: null }),
+    opp('g', '暴食李', 'glutton', { hasBet: false, bet: null, bankrupt: true }),
+  ],
+  me: { id: 'me', role: 'farmer', balance: 9, bounds: { minStake: 1 } },
+  history: [
+    {
+      round: 1, coinResult: 'tails', bets: { me: 2, l: 5, g: 1 }, pot: 8, landlordTake: 0,
+      takes: { me: 4, g: 4 }, debts: {}, uncovered: 0, collected: 0,
+      landlordPenalty: 0, landlordGoalValue: null, landlordGoalMet: null,
+      events: [{ type: 'farmers_win', pot: 8 }],
+      deltas: { me: 6, l: -5, g: 1 }, newlyBankrupt: [],
+      debtWaiver: 0, wagePaid: { me: 4 }, allowanceCharged: { g: 2 },
+    },
+    {
+      round: 2, coinResult: 'heads', bets: { me: 1, l: 8, g: 2 }, pot: 11, landlordTake: 12,
+      takes: {}, debts: { me: 1 }, uncovered: 0, collected: 1,
+      landlordPenalty: 0, landlordGoalValue: null, landlordGoalMet: null,
+      events: [{ type: 'landlord_win_shortfall', target: 12, shortfall: 1, uncovered: 0 }],
+      deltas: { me: -2, l: 4, g: -2 }, newlyBankrupt: [],
+      debtWaiver: 2, wagePaid: {}, allowanceCharged: {},
+    },
+    {
+      round: 3, coinResult: 'heads', bets: { me: 2, l: 4, g: 3 }, pot: 9, landlordTake: 6,
+      takes: {}, debts: {}, uncovered: 0, collected: 0,
+      landlordPenalty: 0, landlordGoalValue: 29, landlordGoalMet: true,
+      events: [{ type: 'landlord_win', target: 6, surplus: 3, landlordExtra: 2, farmerPool: 1 }],
+      deltas: { me: -2, l: 6, g: -4 }, newlyBankrupt: ['g'],
+      debtWaiver: 0, wagePaid: {}, allowanceCharged: {},
+    },
+  ],
+});
+
 const SCENES = [
   { key: 'avatars', label: '角色形象', kind: 'grid' },
   { key: 'notes', label: '钱牌', kind: 'grid' },
   { key: 'insSlot', label: '投保槽状态', kind: 'grid' },
-  { key: 'lobby', label: '竞技选角', kind: 'game', state: lobby },
+  { key: 'lobby', label: '选角墙(竞技)', kind: 'game', state: lobby, note: '进大厅自动升起招募令墙;R/Esc 收起,点羊皮令应征;火漆印=已被占' },
+  { key: 'roleWallQuick', label: '选角墙(快速)', kind: 'game', state: quickWall, note: '快速模式只有地主/农民两张招募令' },
+  { key: 'ledger', label: '酒馆账本', kind: 'game', state: ledgerScene, panel: 'ledger', note: '桌沿抽屉 L 呼出;一行一轮(最新在上),点击摊开明细;他人余额保密' },
   { key: 'investorBet', label: '投资人投保槽', kind: 'game', state: investorBet, note: '把手牌拖进左侧槽 → 确认下注：注上桌、保单掉屏' },
   { key: 'insDrop', label: '投保掉落动画', kind: 'game', state: insDrop, note: '保单牌一张张掉出屏幕（循环演示）' },
   { key: 'reflip', label: '暴食者重掷/放弃', kind: 'game', state: reflip },
@@ -263,6 +313,7 @@ function applyGameScene(scene) {
   useGameStore.setState({
     state: scene.state, playerId: 'me', connected: scene.connected ?? true, joining: false,
     chat: scene.chat ?? [], chatOpen: scene.chatOpen ?? false, flights: [], insuranceDrops: [], betFlight: null, myStack: null, looks: {},
+    panel: scene.panel ?? null, // 桌沿抽屉:场景可注入初始面板(LOBBY 场景由 UiLayer 自动升起选角墙)
     send: (m) => console.log('[preview send]', m), // 预览不连后端：发送变 no-op，确认下注只跑动画
   });
 }

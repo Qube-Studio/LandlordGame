@@ -53,6 +53,7 @@ P.surface = P.wood700;
 P.accent = P.brassHi;
 P.gold = P.brassHi;
 P.panelLine = P.wood900;
+P.wax = '#7a2020';   // 火漆印章/酱渍（3D 皮肤酱渍与 2D 招募令印章共用；注入 --c-wax）
 
 // 角色布料(shirt/pants/sleeve)——MinecraftPlayer 与皮肤纹理共用
 export const ROLE_CLOTH = {
@@ -72,7 +73,7 @@ export const PROP_COLORS = {
   lens: '#cfd4dc',                            // 投资人镜框
   chefWhite: '#f2ece0', chefWhite2: '#f8f4ea',// 厨师帽
   drumSkin: '#c9a36a', drumBone: '#8a5a30',   // 暴食者鸡腿
-  wax: '#7a2020',                             // 火漆印章/酱渍
+  wax: P.wax,                                 // 火漆印章/酱渍（真源已提升进 P）
   coinGold: '#e8bf3c', coinTails: '#5f9ec2',  // 硬币双面底色
   coinGlow: '#6a4a10',                        // 硬币常驻微 emissive
 };

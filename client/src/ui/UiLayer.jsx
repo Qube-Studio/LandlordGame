@@ -1,5 +1,8 @@
-// HUD 叠加层（像素风）：顶部信息条 + 右侧玩家纵列 + 右下角自己资金大字 + 阶段动作面板 +
-// 全局键盘操作。指针默认穿透到 3D 场景，仅交互元素接收事件。
+// HUD 叠加层（HUD 2.0 信息三层制）：
+//   常驻层 = 顶部场次牌 + 右缘玩家条(单行,悬停展开) + 右下资金簇 + 左下聊天;
+//   决策层 = 底部行动区(阶段提示小字 + 当前阶段唯一主面板);
+//   抽屉层 = 桌沿抽屉(Dock 把手 + 选角墙 R / 账本 L,收纳于屏幕正下方)。
+// 指针默认穿透到 3D 场景，仅交互元素接收事件。
 import { useEffect, useState, useRef } from 'react';
 import { useGameStore } from '../store/gameStore';
 import { getArt } from '../assets/registry';
@@ -8,18 +11,19 @@ import MoneyHand from './MoneyHand';
 import NegotiationBoard from './NegotiationBoard';
 import PhaseCoachmark from './PhaseCoachmark';
 import SettingsPanel from './SettingsPanel';
+import Dock from './Dock';
+import RoleWall from './RoleWall';
+import LedgerBook from './LedgerBook';
 import { decompose } from '../game/notes';
 import { projectPoint } from '../scene/projection';
 import { P, shade } from '../assets/palette';
-import {
-  ROLE_LABEL, ROLE_DESC, factionOf, isFarmerSide, isLandlordSide,
-  LANDLORD_SIDE_ROLES, FARMER_SIDE_ROLES,
-} from '../game/roles';
+import { EVENT_TEXT } from '../game/settleText';
+import { ROLE_LABEL, factionOf, isFarmerSide, isLandlordSide } from '../game/roles';
 
 const Icon = getArt('icon');
 
 const PHASE_META = {
-  LOBBY: { label: '准备大厅', hint: '选择角色，等待房主开始（房主按 Enter 开始）' },
+  LOBBY: { label: '准备大厅', hint: '在招募令墙上选择角色（R 呼出/收起），房主按 Enter 开始' },
   DISCUSSION: { label: '战术讨论', hint: '农民可密谈，所有人按 Enter 准备后进入下注' },
   BETTING: { label: '下注中', hint: '选钱牌组成下注额（长按拆分），Enter 确认' },
   REVEAL: { label: '揭牌', hint: '各家下注已公开，Enter 确认后掷硬币' },
@@ -27,7 +31,7 @@ const PHASE_META = {
   REFLIP: { label: '重掷决策', hint: '农民输了！暴食者可请求重掷硬币（每局 3 次）' },
   SETTLE: { label: '系统结算', hint: '系统按规则给出默认分配方案' },
   NEGOTIATE: { label: '农民协商', hint: '农民内部重新分配钱与债务，Enter 确认' },
-  FINALIZE: { label: '正式结算', hint: '钱已入账，即将进入下一回合' },
+  FINALIZE: { label: '正式结算', hint: '钱已入账（按 L 翻账本），即将进入下一回合' },
   ENDED: { label: '对局结束', hint: '' },
 };
 
@@ -70,6 +74,9 @@ function useGameKeys() {
   const playerId = useGameStore(s => s.playerId);
   const chatOpen = useGameStore(s => s.chatOpen);
   const setChatOpen = useGameStore(s => s.setChatOpen);
+  const panel = useGameStore(s => s.panel);
+  const setPanel = useGameStore(s => s.setPanel);
+  const togglePanel = useGameStore(s => s.togglePanel);
 
   useEffect(() => {
     const onKey = (e) => {
@@ -79,6 +86,10 @@ function useGameKeys() {
       if (e.repeat) return;
 
       if (e.key === 't' || e.key === 'T') { e.preventDefault(); setChatOpen(true); return; }
+      // 桌沿抽屉（HUD 2.0）：R 选角墙 / L 账本 / Esc 收起
+      if (e.key === 'r' || e.key === 'R') { e.preventDefault(); togglePanel('roles'); return; }
+      if (e.key === 'l' || e.key === 'L') { e.preventDefault(); togglePanel('ledger'); return; }
+      if (e.key === 'Escape') { if (panel) { e.preventDefault(); setPanel(null); } return; }
       if (e.key !== 'Enter' && e.key !== ' ') return;
 
       const me = state.me;
@@ -95,7 +106,7 @@ function useGameKeys() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [state, send, playerId, chatOpen, setChatOpen]);
+  }, [state, send, playerId, chatOpen, setChatOpen, panel, setPanel, togglePanel]);
 }
 
 // ---------- 顶部信息条 ----------
@@ -119,8 +130,13 @@ function TopBar() {
         <button className="px-chip" onClick={copyId} title="复制房间号">
           <PixelText size={2}>{`${state.roomName}  ${state.roomId}`}</PixelText>
         </button>
-        {state.round > 0 && <span className="px-chip"><PixelText size={2}>{`R${state.round}`}</PixelText></span>}
-        <span className="px-chip"><PixelText size={2} color="var(--px-gold)">{PHASE_META[state.phase]?.label ?? state.phase}</PixelText></span>
+        <span className="px-chip phase-chip">
+          <PixelText size={2} color="var(--px-gold)">
+            {state.round > 0
+              ? `第${state.round}轮 · ${PHASE_META[state.phase]?.label ?? state.phase}`
+              : (PHASE_META[state.phase]?.label ?? state.phase)}
+          </PixelText>
+        </span>
       </div>
       <div className="hud-top-right">
         <SettingsPanel />
@@ -130,31 +146,37 @@ function TopBar() {
   );
 }
 
-// ---------- 右侧玩家纵列 ----------
+// ---------- 右侧玩家纵列（HUD 2.0 瘦身，反馈⑨）----------
+// 常驻只留一行：阵营色签 + 名字 + 右侧一个信息位（LOBBY 显示所选角色，游戏中显示阶段状态）。
+// 悬停该行才滑出详情卡（角色/余额/技能/在线）——3D 名牌已有名字与角色，条只负责速览。
 function PlayerRail() {
   const state = useGameStore(s => s.state);
   const playerId = useGameStore(s => s.playerId);
+  const lobby = state.phase === 'LOBBY';
   return (
     <div className="player-rail">
       {state.players.map(p => {
         const st = statusOf(p, state);
         const mine = p.id === playerId;
+        const tag = skillTag(p, state);
         return (
-          <div key={p.id} className={`rail-row ${mine ? 'me' : ''} ${p.online ? '' : 'offline'}`}>
-            <div className="rail-line1">
+          <div key={p.id} className={`rail-row ${mine ? 'me' : ''} ${p.online ? '' : 'offline'} ${p.bankrupt ? 'gone' : ''}`}>
+            <div className="rail-main">
               <span className={`rail-dot ${factionOf(p.role) ?? 'none'}`} />
-              <PixelText size={2}>{`${p.name}${p.isHost ? ' ♔' : ''}`}</PixelText>
+              <span className="rail-name"><PixelText size={2}>{`${p.name}${p.isHost ? ' ♔' : ''}`}</PixelText></span>
+              {lobby
+                ? <PixelText size={2} color={p.role ? 'var(--px-gold)' : 'var(--ink-dim)'}>{ROLE_LABEL[p.role] ?? '未选'}</PixelText>
+                : (st.text && <PixelText size={2} className={`rail-status ${st.cls}`}>{st.text}</PixelText>)}
             </div>
-            <div className="rail-line2">
-              <PixelText size={2} color="var(--ink-dim)">{ROLE_LABEL[p.role] ?? '未选'}</PixelText>
-              <PixelText size={2} color="var(--px-gold)">{p.balance != null ? `¥${p.balance}` : '¥??'}</PixelText>
-            </div>
-            {skillTag(p, state) && (
-              <div className="rail-line2"><PixelText size={2} color="var(--ink-dim)">{skillTag(p, state)}</PixelText></div>
-            )}
-            <div className="rail-line2">
-              <span className="rail-line1"><span className={`rail-online ${p.online ? '' : 'off'}`} /><PixelText size={2} color="var(--ink-dim)">{p.online ? '在线' : '离线'}</PixelText></span>
-              {st.text && <PixelText size={2} className={`rail-status ${st.cls}`}>{st.text}</PixelText>}
+            <div className="rail-detail">
+              <div className="rail-line2">
+                <PixelText size={2} color="var(--ink-dim)">{ROLE_LABEL[p.role] ?? '未选'}</PixelText>
+                <PixelText size={2} color="var(--px-gold)">{p.balance != null ? `¥${p.balance}` : '¥??'}</PixelText>
+              </div>
+              {tag && <div className="rail-line2"><PixelText size={2} color="var(--ink-dim)">{tag}</PixelText></div>}
+              <div className="rail-line2">
+                <span className="rail-line1"><span className={`rail-online ${p.online ? '' : 'off'}`} /><PixelText size={2} color="var(--ink-dim)">{p.online ? '在线' : '离线'}</PixelText></span>
+              </div>
             </div>
           </div>
         );
@@ -368,43 +390,18 @@ function GluttonHud() {
 }
 
 // ---------- 阶段面板 ----------
-function RolePickButton({ role, current, send }) {
-  return (
-    <button
-      className={`btn ${current === role ? 'primary' : ''}`}
-      title={ROLE_DESC[role]}
-      onClick={() => send({ type: 'take_role', role })}
-    >{ROLE_LABEL[role]}</button>
-  );
-}
-
+// LOBBY：选角已搬到招募令墙（RoleWall 抽屉，进大厅自动升起）；面板只留当前身份 + 开始。
 function LobbyPanel() {
-  const state = useGameStore(s => s.state); const send = useGameStore(s => s.send); const me = state.me;
-  const competitive = state.mode === 'competitive';
+  const state = useGameStore(s => s.state); const send = useGameStore(s => s.send);
+  const togglePanel = useGameStore(s => s.togglePanel);
+  const me = state.me;
   return (
     <div className="phase-panel">
-      {competitive ? (
-        <div className="role-pick-groups">
-          <div className="role-group">
-            <PixelText size={2} color="var(--px-gold)">地主阵营（1 人）</PixelText>
-            <div className="role-pick">
-              {LANDLORD_SIDE_ROLES.map(r => <RolePickButton key={r} role={r} current={me?.role} send={send} />)}
-            </div>
-          </div>
-          <div className="role-group">
-            <PixelText size={2} color="var(--ok)">农民阵营（1–4，可重复）</PixelText>
-            <div className="role-pick">
-              {FARMER_SIDE_ROLES.map(r => <RolePickButton key={r} role={r} current={me?.role} send={send} />)}
-            </div>
-          </div>
-          {me?.role && <p className="dim role-desc">{ROLE_DESC[me.role]}</p>}
-        </div>
-      ) : (
-        <div className="role-pick">
-          <RolePickButton role="landlord" current={me?.role} send={send} />
-          <RolePickButton role="farmer" current={me?.role} send={send} />
-        </div>
-      )}
+      <div className="role-pick">
+        <button className="btn" onClick={() => togglePanel('roles')}>
+          {me?.role ? `我的角色：${ROLE_LABEL[me.role]}（改选 R）` : '选择角色 (R)'}
+        </button>
+      </div>
       {me?.isHost
         ? <button className="btn primary wide" onClick={() => send({ type: 'start_game' })}>开始游戏 <span className="keycap">⏎</span></button>
         : <p className="dim">等待房主开始…</p>}
@@ -463,11 +460,6 @@ function ReflipPanel() {
     </div>
   );
 }
-const EVENT_TEXT = {
-  landlord_win: e => `正面朝上，地主胜！拿走目标 ${e.target}${e.surplus > 0 ? `，盈余 ${e.surplus}（地主再取 ${e.landlordExtra}，农民分 ${e.farmerPool}）` : ''}`,
-  landlord_win_shortfall: e => `正面朝上，地主胜！桌面不足目标 ${e.target}，缺口 ${e.shortfall} 由农民补足${e.uncovered > 0 ? `（仍有 ${e.uncovered} 无人能付）` : ''}`,
-  farmers_win: e => `反面朝上，农民胜！平分桌面全部 ${e.pot}`,
-};
 function SettlePanel() {
   const state = useGameStore(s => s.state); const s = state.settlement;
   if (!s) return null;
@@ -526,6 +518,7 @@ function FinalizePanel() {
 }
 function EndedPanel() {
   const state = useGameStore(s => s.state); const send = useGameStore(s => s.send); const leaveRoom = useGameStore(s => s.leaveRoom);
+  const togglePanel = useGameStore(s => s.togglePanel);
   const me = state.me;
   const iWon = state.winnerSide && ((state.winnerSide === 'farmers') === isFarmerSide(me?.role));
   const landlordSide = state.players.find(p => isLandlordSide(p.role));
@@ -540,6 +533,7 @@ function EndedPanel() {
       </div>
       <div className="role-pick">
         {me?.isHost && <button className="btn primary" onClick={() => send({ type: 'restart_game' })}>再来一局 <span className="keycap">⏎</span></button>}
+        <button className="btn" onClick={() => togglePanel('ledger')}>查看账本 <span className="keycap">L</span></button>
         <button className="btn" onClick={leaveRoom}>离开房间</button>
       </div>
       {!me?.isHost && <p className="dim">等待房主开启「再来一局」(重选角色重新开局),或自行离开</p>}
@@ -581,16 +575,29 @@ function useFinalizeFlight() {
 export default function UiLayer() {
   const state = useGameStore(s => s.state);
   const connected = useGameStore(s => s.connected);
+  const panel = useGameStore(s => s.panel);
+  const setPanel = useGameStore(s => s.setPanel);
   useGameKeys();
   useFinalizeFlight();
   const meta = PHASE_META[state.phase] ?? { label: state.phase, hint: '' };
   const Panel = PHASE_PANELS[state.phase] ?? NullPanel;
 
+  // 抽屉随阶段自动开合：进大厅升起招募令墙；阶段切换一律收起（别挡住新阶段的行动区）。
+  // 首挂只处理 LOBBY（不覆盖画廊/重连注入的面板状态）。
+  const phase = state.phase;
+  const prevPhase = useRef(null);
+  useEffect(() => {
+    if (prevPhase.current === phase) return;
+    const first = prevPhase.current === null;
+    prevPhase.current = phase;
+    if (first) { if (phase === 'LOBBY') setPanel('roles'); return; }
+    setPanel(phase === 'LOBBY' ? 'roles' : null);
+  }, [phase, setPanel]);
+
   return (
     <div className="hud">
       <TopBar />
       {!connected && <div className="hud-disconnect"><PixelText size={2} color="var(--danger)">连接已断开，正在重连…</PixelText></div>}
-      {meta.hint && <div className="hud-banner"><PixelText size={2}>{meta.hint}</PixelText></div>}
       <PhaseCoachmark />
       <PlayerRail />
       <div className="corner-stack">
@@ -601,8 +608,12 @@ export default function UiLayer() {
         <BalanceHud />
       </div>
       <div className="hud-bottom" data-hand-anchor>
+        {meta.hint && <div className="phase-caption"><PixelText size={2} color="var(--ink-dim)">{meta.hint}</PixelText></div>}
         <Panel />
       </div>
+      {panel === 'roles' && <RoleWall />}
+      {panel === 'ledger' && <LedgerBook />}
+      <Dock />
     </div>
   );
 }

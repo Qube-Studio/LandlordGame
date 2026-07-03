@@ -20,6 +20,7 @@ export const useGameStore = create((set, get) => ({
   betFlight: null,   // 下注时手牌→桌面的 3D 飞行：{round, items:[{id,value,fromScreen:{x,y}}]}
   myStack: null,     // 自己实际放到桌上的牌（与飞出去的是同一批）：{round, notes:[{id,value,slot}]}
   looks: {},         // 其他玩家头部朝向（任务⑦，高频瞬态，不走全量 state）：{ playerId: {yaw, pitch} }
+  panel: null,       // 桌沿抽屉（HUD 2.0）：当前升起的面板 'roles' | 'ledger' | null（收起）
 
   connect(token) {
     connectSocket(token);
@@ -28,7 +29,7 @@ export const useGameStore = create((set, get) => ({
   disconnect() {
     disconnectSocket();
     sessionStorage.removeItem('llg_room');
-    set({ connected: false, joining: false, roomId: null, playerId: null, state: null, chat: [], flights: [], insuranceDrops: [], betFlight: null, myStack: null, looks: {} });
+    set({ connected: false, joining: false, roomId: null, playerId: null, state: null, chat: [], flights: [], insuranceDrops: [], betFlight: null, myStack: null, looks: {}, panel: null });
   },
 
   joinRoom(roomId) {
@@ -41,7 +42,7 @@ export const useGameStore = create((set, get) => ({
   leaveRoom() {
     sendMsg({ type: 'leave_room' });
     sessionStorage.removeItem('llg_room');
-    set({ roomId: null, playerId: null, state: null, chat: [], joining: false, flights: [], insuranceDrops: [], betFlight: null, myStack: null, looks: {} });
+    set({ roomId: null, playerId: null, state: null, chat: [], joining: false, flights: [], insuranceDrops: [], betFlight: null, myStack: null, looks: {}, panel: null });
   },
 
   send(msg) {
@@ -50,6 +51,10 @@ export const useGameStore = create((set, get) => ({
   },
 
   setChatOpen(v) { set({ chatOpen: v }); },
+
+  // 桌沿抽屉：呼出/收起选角墙与账本（纯表现状态，不进服务器）。
+  setPanel(v) { set({ panel: v }); },
+  togglePanel(v) { set(s => ({ panel: s.panel === v ? null : v })); },
 
   // 下注：记录这批牌（同一批既用于 3D 飞行，飞行结束后留在桌上作为 myStack）
   startBetFlight({ round, items }) {
