@@ -144,15 +144,13 @@ function drawBrass(ctx, w, h, patina, rnd) {
 }
 
 function drawParchment(ctx, w, h, rnd) {
+  // 无毛边/无描边:此纹理供 CSS 大面积平铺,任何边缘处理都会变成接缝格线
   noiseFill(ctx, w, h, P.parchment, 0.03, rnd, 2);
   ctx.fillStyle = 'rgba(0,0,0,0.06)';       // 纤维划痕
   for (let i = 0; i < 30; i++) {
     const x = rnd() * w | 0, y = rnd() * h | 0, len = 3 + (rnd() * 9 | 0);
     if (rnd() < 0.5) ctx.fillRect(x, y, len, 1); else ctx.fillRect(x, y, 1, len);
   }
-  ctx.fillStyle = 'rgba(0,0,0,0.10)';       // 毛边
-  for (let x = 0; x < w; x += 2) { if (rnd() < 0.5) ctx.fillRect(x, 0, 2, 1); if (rnd() < 0.5) ctx.fillRect(x, h - 1, 2, 1); }
-  for (let y = 0; y < h; y += 2) { if (rnd() < 0.5) ctx.fillRect(0, y, 1, 2); if (rnd() < 0.5) ctx.fillRect(w - 1, y, 1, 2); }
 }
 
 function drawChalk(ctx, w, h, rnd) {
@@ -404,7 +402,8 @@ export function canvasFor(kind, o = {}) {
     case 'abacus': drawAbacus(ctx, w, h, rnd); break;
     default: throw new Error(`texlib: unknown kind ${kind}`);
   }
-  if (kind !== 'flame') edgeLine(ctx, w, h); // 透明火焰不描边
+  // 透明火焰不描边;羊皮纸/黑板供 CSS 大面积平铺,描边会变成接缝格线,也不烘
+  if (!['flame', 'parchment', 'chalk'].includes(kind)) edgeLine(ctx, w, h);
   CANVAS_CACHE.set(key, c);
   return c;
 }

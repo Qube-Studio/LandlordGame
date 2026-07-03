@@ -649,3 +649,101 @@ body {
   .goal-hud.behind { animation: none; }
   .money-hand, .phase-panel, .hud-banner, .delta-big { animation: none; }
 }
+
+/* ============================================================
+   阶段4 登录=悬挂酒馆招牌 / 大厅=布告栏(ART_BIBLE §1.8)。
+   写在 pixel.css 末尾以覆盖上方通用面板范式。文案与类名不动。
+   ============================================================ */
+
+/* 共享底景:暖黄光池 + 木纹平铺 + 四周 vignette(登录/大厅/游戏同一世界) */
+body {
+  background:
+    repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.16) 0 2px, transparent 2px 4px),
+    radial-gradient(140% 110% at 50% 45%, transparent 55%, rgba(0, 0, 0, 0.55)),
+    radial-gradient(900px 500px at 50% -10%, rgba(255, 210, 138, 0.14), transparent 60%),
+    var(--tex-wood);
+  background-color: var(--px-darker);
+}
+
+/* ---- 登录:吊链木招牌 ---- */
+.auth-card {
+  position: relative;
+  margin-top: 44px;
+  transform-origin: 50% -40px;
+  animation: ui-rise var(--t-ui) var(--e-enter) both, sign-sway 1.7s ease-in-out 0.28s 1;
+}
+.auth-card::before, .auth-card::after {
+  content: '';
+  position: absolute;
+  top: -38px;
+  width: 3px;
+  height: 38px;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0), var(--c-brass) 70%, var(--c-brass-hi));
+  box-shadow: 1px 0 0 rgba(0, 0, 0, 0.5);
+}
+.auth-card::before { left: 20%; }
+.auth-card::after { right: 20%; }
+@keyframes sign-sway {
+  0% { rotate: 0.8deg; }
+  55% { rotate: -0.4deg; }
+  100% { rotate: 0deg; }
+}
+.auth-brand h1 {
+  color: var(--px-gold);
+  text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.6), 0 0 12px rgba(232, 194, 90, 0.3);
+}
+.auth-brand p.dim {
+  padding-bottom: 8px;
+  border-bottom: 2px solid var(--c-brass);
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.5);
+  display: inline-block;
+}
+.auth-brand svg { filter: drop-shadow(0 0 8px rgba(232, 194, 90, 0.4)); }
+/* 底部酒馆黑剪影条(酒桶/凳/桌/酒杯,内联 SVG data-uri) */
+.auth-form::after {
+  content: '';
+  display: block;
+  height: 24px;
+  margin-top: 6px;
+  opacity: 0.6;
+  background: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='24'><g fill='%231a100a'><rect x='10' y='8' width='18' height='16' rx='2'/><rect x='8' y='12' width='22' height='2'/><rect x='8' y='18' width='22' height='2'/><rect x='60' y='14' width='22' height='3'/><rect x='62' y='17' width='3' height='7'/><rect x='77' y='17' width='3' height='7'/><rect x='118' y='6' width='44' height='4'/><rect x='122' y='10' width='4' height='14'/><rect x='154' y='10' width='4' height='14'/><rect x='200' y='10' width='12' height='13'/><rect x='212' y='12' width='4' height='6'/></g></svg>") center bottom repeat-x;
+}
+
+/* ---- 大厅:布告栏 ---- */
+.lobby-header h1 {
+  color: var(--px-gold);
+  text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.6);
+}
+/* 模式卡 = 钉在板上的羊皮纸(顶心铜钉 + 各自微旋,hover 转正浮起) */
+.mode-card {
+  background-color: var(--c-parchment);
+  background-image:
+    radial-gradient(circle at 50% 9px, var(--c-brass-hi) 0 3px, var(--c-brass) 3px 4px, rgba(0, 0, 0, 0) 5px),
+    var(--tex-parchment);
+  border-color: var(--c-wood-950);
+  box-shadow: inset 0 0 0 1px rgba(58, 42, 24, 0.25), 0 6px 0 rgba(0, 0, 0, 0.4);
+  transition: transform var(--t-fast) var(--e-enter);
+}
+.mode-card h3 { color: var(--c-parch-ink); }
+.mode-card p.dim { color: var(--c-parch-ink); opacity: 0.75; }
+.mode-row .mode-card:nth-child(1) { transform: rotate(-1.2deg); }
+.mode-row .mode-card:nth-child(2) { transform: rotate(0.8deg); }
+.mode-row .mode-card:nth-child(3) { transform: rotate(-0.6deg); }
+.mode-row .mode-card:hover:not(.disabled) { transform: rotate(0deg) translateY(-2px); }
+
+/* 房间列表 = 账本(羊皮底 + 墨线行) */
+.room-list {
+  background-color: var(--c-parchment);
+  background-image: var(--rivets), var(--tex-parchment);
+}
+.room-list h3 { color: var(--c-parch-ink); }
+.room-list .room-row { border-top: 1px solid rgba(58, 42, 24, 0.35); }
+.room-list .room-id { color: var(--c-brass); font-weight: 700; }
+.room-list .room-name { color: var(--c-parch-ink); }
+.room-list .dim { color: var(--c-parch-ink); opacity: 0.7; }
+.room-list p.dim { color: var(--c-parch-ink); opacity: 0.7; }
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-card { animation: none; }
+  .mode-card, .mode-row .mode-card:hover:not(.disabled) { transform: none; transition: none; }
+}
