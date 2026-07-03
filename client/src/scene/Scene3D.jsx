@@ -12,6 +12,7 @@ import { decompose } from '../game/notes';
 import MinecraftPlayer from './MinecraftPlayer';
 import Coin from './Coin';
 import { noteTexture } from './textures';
+import { getCoinRest } from './coinSim';
 import { setProjector } from './projection';
 import { expressionFor } from './expression';
 import PixelText from '../assets/pixelfont/PixelText';
@@ -27,6 +28,8 @@ const DEV = import.meta.env.DEV;
 const PARAMS = typeof location !== 'undefined' ? new URLSearchParams(location.search) : new URLSearchParams();
 const NO_FX = PARAMS.get('nofx') === '1';
 const NO_SHADOW = PARAMS.get('noshadow') === '1';
+// 减少动态:压光/金屑/镜头震直接跳终态或不演(CSS 侧由 pixel.css 的 media query 兜底)
+const REDUCED = typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
 // 对手座位（仅对手；自己≈相机视角，不建模）：{x,z} 桌外环绕，朝向桌心。
 // 桌框约 ±3.5(x)/±2.2(z)，座位需留身体+手臂余量(~0.6)，否则人物会扎进桌子（穿模）。
@@ -39,18 +42,124 @@ const SEATS = {
 };
 const SELF_SEAT = { x: 0, z: 3.0 }; // 自由相机下渲染自己用的近端座位
 
-function CameraRig({ look }) {
+function CameraRig({ look, shakeRef }) {
   const { camera } = useThree();
   const target = useRef(new THREE.Vector3(0, 1.05, 0));
-  useFrame(() => {
+  useFrame((st, delta) => {
     const mx = look.current.x, my = look.current.y;
     target.current.x += (mx * 1.6 - target.current.x) * 0.06;
     target.current.y += (1.15 - my * 0.8 - target.current.y) * 0.06;
+    // 破产瞬间:注视点 ±0.03 微震 300ms(衰减,确定性正弦抖动)
+    if (shakeRef && shakeRef.current > 0) {
+      shakeRef.current = Math.max(0, shakeRef.current - delta);
+      const k = shakeRef.current / 0.3;
+      target.current.x += Math.sin(st.clock.elapsedTime * 55) * 0.03 * k;
+      target.current.y += Math.cos(st.clock.elapsedTime * 47) * 0.02 * k;
+    }
     camera.position.x += (mx * 0.7 - camera.position.x) * 0.05;
     camera.position.y += (2.7 - my * 0.3 - camera.position.y) * 0.05;
     camera.lookAt(target.current);
   });
   return null;
+}
+
+// 压光控制器(§1.9 分镜):进 COIN_FLIP 吊灯 600ms 压到 0.55×——全场只剩硬币金闪;
+// 离开 COIN_FLIP(落定)150ms 弹至 1.15× 再 250ms 归位。每帧只写 1 个 number。
+const CHAND_I = 21;
+function ChandelierLight() {
+  const phase = useGameStore(s => s.state.phase);
+  const ref = useRef();
+  const segs = useRef([]);                 // 待执行 tween 段队列 [{to, dur}]
+  const cur = useRef({ from: CHAND_I, to: CHAND_I, t0: null, dur: 0 });
+  const prev = useRef(phase);
+  // 挂载时已处于掷币(断线重连/画廊直入):直接压光,不做过渡
+  useEffect(() => {
+    if (ref.current && prev.current === 'COIN_FLIP') ref.current.intensity = CHAND_I * 0.55;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useEffect(() => {
+    if (phase === prev.current) return;
+    const was = prev.current;
+    prev.current = phase;
+    if (REDUCED) {
+      if (ref.current) ref.current.intensity = phase === 'COIN_FLIP' ? CHAND_I * 0.55 : CHAND_I;
+      return;
+    }
+    if (phase === 'COIN_FLIP') segs.current = [{ to: CHAND_I * 0.55, dur: 0.6 }];
+    else if (was === 'COIN_FLIP') segs.current = [{ to: CHAND_I * 1.15, dur: 0.15 }, { to: CHAND_I, dur: 0.25 }];
+  }, [phase]);
+  useFrame((st) => {
+    const L = ref.current;
+    if (!L) return;
+    const c = cur.current;
+    if (c.t0 == null && segs.current.length) {
+      const s = segs.current.shift();
+      cur.current = { from: L.intensity, to: s.to, t0: st.clock.elapsedTime, dur: s.dur };
+      return;
+    }
+    if (c.t0 != null) {
+      const t = Math.min(1, (st.clock.elapsedTime - c.t0) / c.dur);
+      L.intensity = c.from + (c.to - c.from) * easeInOut(t);
+      if (t >= 1) c.t0 = null;
+    }
+  });
+  return <pointLight ref={ref} position={[0, 3.3, 0]} intensity={CHAND_I} distance={10} decay={2} color={P.candle} />;
+}
+
+// 硬币落定:金环扩散(0.5s) + 16 顶点预分配 Points 金屑上抛(0.6s),0.7s 后整体卸载
+function CoinBurst({ tableTop }) {
+  const ring = useRef();
+  const pts = useRef();
+  const t0 = useRef(null);
+  const [dead, setDead] = useState(false);
+  const { positions, vels } = useMemo(() => {
+    const positions = new Float32Array(16 * 3);
+    const vels = [];
+    for (let i = 0; i < 16; i++) {
+      const a = (i / 16) * Math.PI * 2;
+      vels.push([Math.cos(a) * (0.45 + (i % 3) * 0.28), 1.5 + (i % 4) * 0.35, Math.sin(a) * (0.45 + ((i + 1) % 3) * 0.28)]);
+    }
+    return { positions, vels };
+  }, []);
+  const rest = getCoinRest();
+  const cx = rest ? rest.x : 0, cz = rest ? rest.z : 0;
+  useFrame((st) => {
+    if (dead) return;
+    if (t0.current == null) t0.current = st.clock.elapsedTime;
+    const t = st.clock.elapsedTime - t0.current;
+    if (t > 0.7) { setDead(true); return; }
+    if (ring.current) {
+      const k = Math.min(1, t / 0.5);
+      ring.current.scale.setScalar(0.2 + k * 2.0);
+      ring.current.material.opacity = 0.8 * (1 - k);
+    }
+    if (pts.current) {
+      const arr = pts.current.geometry.attributes.position.array;
+      const pk = Math.min(1, t / 0.6);
+      for (let i = 0; i < 16; i++) {
+        arr[i * 3] = cx + vels[i][0] * t;
+        arr[i * 3 + 1] = tableTop + 0.05 + vels[i][1] * t - 4.5 * t * t;
+        arr[i * 3 + 2] = cz + vels[i][2] * t;
+      }
+      pts.current.geometry.attributes.position.needsUpdate = true;
+      pts.current.material.opacity = 1 - pk;
+    }
+  });
+  if (dead) return null;
+  return (
+    <group>
+      <mesh ref={ring} position={[cx, tableTop + 0.02, cz]} rotation={[-Math.PI / 2, 0, 0]}>
+        <ringGeometry args={[0.3, 0.38, 24]} />
+        <meshBasicMaterial color={P.brassHi} transparent opacity={0.8} depthWrite={false} />
+      </mesh>
+      <points ref={pts}>
+        <bufferGeometry>
+          <bufferAttribute attach="attributes-position" args={[positions, 3]} />
+        </bufferGeometry>
+        <pointsMaterial color={P.brassHi} size={0.06} transparent opacity={1} depthWrite={false} sizeAttenuation />
+      </points>
+    </group>
+  );
 }
 
 // ---- 酒馆房间(ART_BIBLE §1.4):内翻盒 24×10×24,墙贴烘焙酒馆纹理(酒架/画框/鹿角剪影都在纹理里,零几何) ----
@@ -341,6 +450,8 @@ function FlyingNote({ item, startRef, delay, duration, onDone }) {
     // yaw 必须在落定(e=1)时正好等于 cardYaw(i)，否则接力给静态钱堆的瞬间会突跳(~34°看着像左右翻转)。
     // 额外自旋用 sin(eπ) 做成中途隆起、两端归零的驼峰：保留飞行中的旋转手感，落点严丝合缝。
     m.rotation.set(1.15 + (Math.PI - 1.15) * e, item.yaw * e + Math.sin(e * Math.PI) * 0.6, Math.sin(t * Math.PI * 2) * (1 - t) * 0.3);
+    // 落定 punch:末段 1→1.15→1 一鼓(两端归 1,与静态堆无缝接力)
+    m.scale.setScalar(t > 0.85 ? 1 + 0.15 * Math.sin(((t - 0.85) / 0.15) * Math.PI) : 1);
     if (t >= 1 && !done.current) { done.current = true; onDone(); }
   });
   return (
@@ -412,6 +523,15 @@ function SceneContents({ look, freeCam = false }) {
   const layout = SEATS[Math.min(opponents.length, 4)] ?? [];
   const me = players.find(p => p.id === playerId);
 
+  // 有人破产的瞬间:镜头注视点微震 300ms(§1.9)
+  const bankruptCount = players.filter(p => p.bankrupt).length;
+  const shakeRef = useRef(0);
+  const prevBankrupt = useRef(bankruptCount);
+  useEffect(() => {
+    if (bankruptCount > prevBankrupt.current && !REDUCED) shakeRef.current = 0.3;
+    prevBankrupt.current = bankruptCount;
+  }, [bankruptCount]);
+
   const betsVisible = !['LOBBY', 'DISCUSSION', 'BETTING'].includes(state.phase);
   const showFlip = state.phase === 'COIN_FLIP';
   // REFLIP（暴食者重掷决策窗）也保持硬币停在已落定的反面结果上，让玩家看到自己输了再决定是否重掷。
@@ -442,7 +562,7 @@ function SceneContents({ look, freeCam = false }) {
         shadow-camera-top={9} shadow-camera-bottom={-9}
         shadow-bias={-0.0004}
       />
-      <pointLight position={[0, 3.3, 0]} intensity={21} distance={10} decay={2} color={P.candle} />
+      <ChandelierLight />
       <FireLight />
       <directionalLight position={[-6, 4, 6]} intensity={0.30} color={P.coolFill} />
 
@@ -457,7 +577,7 @@ function SceneContents({ look, freeCam = false }) {
       {/* 柔和接触阴影：低分辨率(够糊)，避免每帧高分重渲拖帧 */}
       <ContactShadows position={[0, 0.02, 0]} scale={18} blur={2.6} opacity={0.5} far={4.5} resolution={256} color={P.wood900} />
 
-      {freeCam ? <OrbitControls target={[0, 1.05, 0]} makeDefault /> : <CameraRig look={look} />}
+      {freeCam ? <OrbitControls target={[0, 1.05, 0]} makeDefault /> : <CameraRig look={look} shakeRef={shakeRef} />}
       <Projector />
 
       {/* 对手 */}
@@ -507,6 +627,10 @@ function SceneContents({ look, freeCam = false }) {
         <Coin key={`flip-${state.round}`} mode="flip" result={state.coinResult ?? 'heads'} tableTop={TABLE_TOP} />
       )}
       {showRest && <Coin key={`rest-${state.round}`} mode="rest" result={state.coinResult} tableTop={TABLE_TOP} />}
+      {/* 落定瞬间的金环 + 金屑(按 回合|结果 重挂,一次性演出) */}
+      {showRest && !REDUCED && (
+        <CoinBurst key={`burst-${state.round}-${state.coinResult}`} tableTop={TABLE_TOP} />
+      )}
 
       {/* 后处理：吊灯/金皇冠/金色¥微微发光 + 画面暗角，营造围炉灯火气 */}
       {!NO_FX && (

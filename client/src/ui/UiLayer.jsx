@@ -168,7 +168,7 @@ function PlayerRail() {
 // 可手动调的参数集中在下面 TUNE 里。
 const BALANCE_GOLD = '#e2c044', BALANCE_DANGER = '#e36262'; // 与主题色一致，用于受伤红闪 lerp
 const BALANCE_TUNE = {
-  durMin: 800, durMax: 1200,   // 计数时长范围（ms）
+  durMin: 600, durMax: 1200,   // 计数时长范围（ms,§1.9 ⑤:小额变化 600ms 内滚完）
   durPerUnit: 40,              // 每变化 1 点资金增加的时长（ms），落在 [durMin,durMax]
   bumpPeriod: 250,             // 单次「提起放下」周期（ms）——越小弹得越密
   bumpMaxAmp: 11,              // 提起高度（px，等幅）

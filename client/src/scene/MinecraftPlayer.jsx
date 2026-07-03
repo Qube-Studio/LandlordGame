@@ -48,14 +48,25 @@ export default function MinecraftPlayer({ player, expression, seed = 0, look = n
         // 复活/重开后清除破产瘫倒倾斜（任务④：之前只在破产时写 z，从不归零）
         root.current.rotation.z += (0 - root.current.rotation.z) * 0.15;
       }
-      const swing = Math.sin(t * 1.8) * 0.18;
-      if (lArm.current) lArm.current.rotation.x = swing;
-      if (rArm.current) rArm.current.rotation.x = -swing;
+      // 胜负姿态(§1.9 ④):胜=双臂高举欢呼(带一点节奏晃),负=垂臂;平时待机摆动
+      if (expression === 'win') {
+        const cheer = -2.6 + Math.sin(t * 6) * 0.12;
+        if (lArm.current) lArm.current.rotation.x += (cheer - lArm.current.rotation.x) * 0.18;
+        if (rArm.current) rArm.current.rotation.x += (cheer - rArm.current.rotation.x) * 0.18;
+      } else {
+        const swing = Math.sin(t * 1.8) * 0.18;
+        if (lArm.current) lArm.current.rotation.x += (swing - lArm.current.rotation.x) * 0.3;
+        if (rArm.current) rArm.current.rotation.x += (-swing - rArm.current.rotation.x) * 0.3;
+      }
       if (head.current) {
         if (look) {
           // 任务⑦：跟随该玩家上报的视角转头（平滑插值）
           head.current.rotation.y += (look.yaw - head.current.rotation.y) * 0.2;
           head.current.rotation.x += (look.pitch - head.current.rotation.x) * 0.2;
+        } else if (expression === 'lose') {
+          // 败方低头
+          head.current.rotation.y += (0 - head.current.rotation.y) * 0.15;
+          head.current.rotation.x += (0.3 - head.current.rotation.x) * 0.15;
         } else {
           head.current.rotation.y = Math.sin(t * 0.7) * 0.18; // 无上报：待机摆动
           head.current.rotation.x += (0 - head.current.rotation.x) * 0.1;
