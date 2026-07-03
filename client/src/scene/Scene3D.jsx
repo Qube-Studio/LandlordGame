@@ -75,7 +75,6 @@ function ChandelierLight() {
   // 挂载时已处于掷币(断线重连/画廊直入):直接压光,不做过渡
   useEffect(() => {
     if (ref.current && prev.current === 'COIN_FLIP') ref.current.intensity = CHAND_I * 0.55;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => {
     if (phase === prev.current) return;

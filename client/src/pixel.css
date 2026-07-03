@@ -638,7 +638,7 @@ body {
   box-shadow: inset 0 0 0 1px rgba(232, 194, 90, 0.25), 0 2px 0 rgba(0, 0, 0, 0.45);
 }
 
-/* ---- 动效时长/缓动接管为 MOTION token(--t-*/--e-*,真源 palette.js §1.9) ---- */
+/* ---- 动效时长/缓动接管为 MOTION token(--t-* 与 --e-*,真源 palette.js §1.9) ---- */
 .money-hand { animation: ui-rise var(--t-ui) var(--e-enter) both; }
 .phase-panel { animation: ui-rise var(--t-ui) var(--e-enter) both, ui-drift-a var(--ui-drift-time) ease-in-out 0.5s infinite; }
 .hud-banner { animation: banner-rise var(--t-ui) var(--e-enter) both, ui-drift-banner calc(var(--ui-drift-time) * 1.1) ease-in-out 0.5s infinite; }

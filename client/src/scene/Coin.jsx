@@ -2,6 +2,8 @@
 // mode='flip'：从预烘焙动画池取一条匹配服务端 result 的轨迹回放（任务 1）——空中明显自旋、
 // 落地多次弹跳、沿边缘倒平落定，全程不穿桌（碰撞下界见 coinSim.js）。
 // mode='rest'：平放展示最终朝面。
+// useFrame 内逐帧改写材质发光强度是 r3f 既定用法(与 Scene3D 同款豁免)。
+/* eslint-disable react-hooks/immutability */
 import { useMemo, useRef, useLayoutEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';

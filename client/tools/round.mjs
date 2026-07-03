@@ -63,6 +63,9 @@ function drive(P) {
     }
   } else if (ph === 'REVEAL') {
     if (!P.acted['rev' + rd]) { P.acted['rev' + rd] = true; send(P, { type: 'confirm_reveal' }); }
+  } else if (ph === 'NEGOTIATE') {
+    // ≥2 名农民时协商阶段不会自动跳过:农民直接确认系统方案,否则整局卡死在这里
+    if (!P.acted['ngo' + rd]) { P.acted['ngo' + rd] = true; send(P, { type: 'negotiate_confirm', confirmed: true }); }
   }
   // record settlement from history
   const last = s.history?.[s.history.length - 1];
