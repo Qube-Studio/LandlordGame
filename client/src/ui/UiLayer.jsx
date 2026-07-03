@@ -9,6 +9,7 @@ import NegotiationBoard from './NegotiationBoard';
 import PhaseCoachmark from './PhaseCoachmark';
 import { decompose } from '../game/notes';
 import { projectPoint } from '../scene/projection';
+import { P, shade } from '../assets/palette';
 import {
   ROLE_LABEL, ROLE_DESC, factionOf, isFarmerSide, isLandlordSide,
   LANDLORD_SIDE_ROLES, FARMER_SIDE_ROLES,
@@ -295,8 +296,8 @@ function GoalHud() {
     ? Math.max(lg.minPenalty ?? 0, Math.floor(Math.max(0, g.landlordBalance) * (lg.penaltyRate ?? 0)))
     : null;
   return (
-    <div className={`goal-hud ${behind ? 'behind' : ''}`}>
-      <div className="goal-line"><PixelText size={2} color="var(--px-gold)">地主目标</PixelText></div>
+    <div className={`goal-hud hud-card ${behind ? 'behind' : ''}`}>
+      <div className="goal-line hud-card-title"><PixelText size={2} color="var(--c-wood-900)">地主目标</PixelText></div>
       <div className="goal-line gap">
         <PixelText size={3} color={behind ? 'var(--danger)' : 'var(--px-gold)'}>{`¥${g.goal}`}</PixelText>
       </div>
@@ -321,8 +322,8 @@ function CapitalistHud() {
   const taxNext = Math.max(c.taxMin ?? 0, Math.floor(Math.max(0, c.pool) * (c.taxRate ?? 0)));
   const low = c.pool <= taxNext * 2;
   return (
-    <div className={`goal-hud ${low ? 'behind' : ''}`}>
-      <div className="goal-line"><PixelText size={2} color="var(--px-gold)">资金池</PixelText></div>
+    <div className={`goal-hud hud-card pool ${low ? 'behind' : ''}`}>
+      <div className="goal-line hud-card-title"><PixelText size={2} color="var(--c-wood-900)">资金池</PixelText></div>
       <div className="goal-line gap"><PixelText size={3} color={low ? 'var(--danger)' : 'var(--px-gold)'}>{`¥${c.pool}`}</PixelText></div>
       <div className="goal-line"><PixelText size={2} color="var(--danger)">{`下回合税 ¥${taxNext}`}</PixelText></div>
       <div className="goal-line"><PixelText size={2} color="var(--ink-dim)">{`耗尽即破产`}</PixelText></div>
@@ -336,10 +337,10 @@ function WageHud() {
   const w = state.me?.wage;
   if (!w) return null;
   return (
-    <div className="goal-hud">
-      <div className="goal-line"><PixelText size={2} color="var(--ok)">工资</PixelText></div>
-      <div className="goal-line gap"><PixelText size={3} color="var(--ok)">{`+${w.amount}`}</PixelText></div>
-      <div className="goal-line"><PixelText size={2} color="var(--ink-dim)">
+    <div className="goal-hud hud-card parchment">
+      <div className="goal-line hud-card-title"><PixelText size={2} color="var(--c-wood-900)">工资</PixelText></div>
+      <div className="goal-line gap"><PixelText size={3} color={shade(P.ok, -38)}>{`+${w.amount}`}</PixelText></div>
+      <div className="goal-line"><PixelText size={2} color="var(--c-parch-ink)">
         {w.roundsToNext <= 0 ? '本回合发放' : `还剩 ${w.roundsToNext} 回合`}
       </PixelText></div>
     </div>
@@ -353,11 +354,11 @@ function GluttonHud() {
   if (me?.role !== 'glutton' || me?.mealAllowance == null) return null;
   const owes = me.mealAllowance > 0;
   return (
-    <div className="goal-hud">
-      <div className="goal-line"><PixelText size={2} color="var(--px-gold)">饭账</PixelText></div>
-      <div className="goal-line gap"><PixelText size={3} color={owes ? 'var(--danger)' : 'var(--px-gold)'}>{`¥${me.mealAllowance}`}</PixelText></div>
-      <div className="goal-line"><PixelText size={2} color="var(--ink-dim)">胜时扣除</PixelText></div>
-      <div className="goal-line"><PixelText size={2} color="var(--ink-dim)">{`重掷剩 ${me.reflipsLeft ?? 0} 次`}</PixelText></div>
+    <div className="goal-hud hud-card chalk">
+      <div className="goal-line hud-card-title"><PixelText size={2} color="var(--c-wood-900)">饭账</PixelText></div>
+      <div className="goal-line gap"><PixelText size={3} color={owes ? 'var(--danger)' : 'var(--c-chalk-ink)'}>{`¥${me.mealAllowance}`}</PixelText></div>
+      <div className="goal-line"><PixelText size={2} color="var(--c-chalk-ink)">胜时扣除</PixelText></div>
+      <div className="goal-line"><PixelText size={2} color="var(--c-chalk-ink)">{`重掷剩 ${me.reflipsLeft ?? 0} 次`}</PixelText></div>
     </div>
   );
 }

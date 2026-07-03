@@ -541,3 +541,111 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .delta-big, .settle-line { animation: none; }
 }
+
+/* ============================================================
+   阶段3「酒馆记账」(ART_BIBLE §1.7,置于最末覆盖旧观感):
+   胡桃木板(容器) + 黄铜(框/铭牌/铆钉) + 羊皮纸(数据) + 黑板(饭账)。
+   面板底纹 = --tex-wood(与 3D 桌框字面同一张烘焙木纹);四角铆钉 = 4 层
+   radial-gradient(零 DOM、不占伪元素)。类名契约与文案一律不动。
+   ============================================================ */
+:root {
+  --rivets:
+    radial-gradient(circle at 6px 6px, var(--c-brass) 0 2px, rgba(0, 0, 0, 0) 2.5px),
+    radial-gradient(circle at calc(100% - 6px) 6px, var(--c-brass) 0 2px, rgba(0, 0, 0, 0) 2.5px),
+    radial-gradient(circle at 6px calc(100% - 6px), var(--c-brass) 0 2px, rgba(0, 0, 0, 0) 2.5px),
+    radial-gradient(circle at calc(100% - 6px) calc(100% - 6px), var(--c-brass) 0 2px, rgba(0, 0, 0, 0) 2.5px);
+}
+
+/* ---- 木招牌容器范式 ---- */
+.panel, .phase-panel, .money-hand .hand-info, .nego-col, .coachmark {
+  background-color: var(--c-wood-700);
+  background-image: var(--rivets), var(--tex-wood);
+}
+.px-chip, .rail-row, .goal-hud, .hud-banner, .mc-chat-input {
+  background-color: var(--c-wood-700);
+  background-image: var(--tex-wood);
+  border-color: var(--c-wood-950);
+}
+
+/* ---- 四类角落 HUD:188px 三段式挂牌(黄铜标题条 + 数值 + 注脚) ---- */
+.goal-hud.hud-card {
+  width: 188px;
+  min-width: 0;
+  padding: 0 0 7px;
+  background-image: var(--rivets), var(--tex-wood);
+}
+.goal-hud.hud-card .goal-line { padding: 0 10px; }
+.goal-hud.hud-card .hud-card-title {
+  width: 100%;
+  box-sizing: border-box;
+  justify-content: center;
+  padding: 4px 10px 3px;
+  margin-bottom: 4px;
+  background: linear-gradient(180deg, var(--c-brass-hi), var(--c-brass));
+  border-bottom: 2px solid var(--c-wood-950);
+  box-shadow: inset 0 1px 0 rgba(255, 235, 190, 0.5);
+}
+/* 铜盘(资金池):铜色调身 */
+.goal-hud.hud-card.pool { background-color: var(--c-wood-500); }
+/* 羊皮纸(工资) */
+.goal-hud.hud-card.parchment {
+  background-color: var(--c-parchment);
+  background-image: var(--rivets), var(--tex-parchment);
+}
+/* 黑板(饭账) */
+.goal-hud.hud-card.chalk {
+  background-color: var(--c-chalk-board);
+  background-image: var(--rivets), var(--tex-chalk);
+}
+/* 落后/未达标:炭火色边框 steps(2) 脉冲 */
+.goal-hud.behind {
+  border-color: var(--c-ember);
+  animation: hud-ember 0.8s steps(2) infinite;
+}
+@keyframes hud-ember {
+  0%, 100% { filter: none; }
+  50% { filter: drop-shadow(0 0 7px rgba(255, 154, 74, 0.55)); }
+}
+
+/* ---- 玩家栏:悬挂木瓦牌 + 行首阵营色条(box-shadow 变量注入,兼容原 bevel) ---- */
+.rail-row {
+  --rail-fac: var(--c-wood-500);
+  box-shadow:
+    inset 4px 0 0 var(--rail-fac),
+    inset 2px 2px 0 var(--px-bevel-l),
+    inset -2px -2px 0 var(--px-bevel-d),
+    inset 0 0 0 1px rgba(232, 194, 90, 0.20);
+  padding-left: 12px;
+}
+.rail-row:has(.rail-dot.landlord) { --rail-fac: var(--c-brass-hi); }
+.rail-row:has(.rail-dot.farmer) { --rail-fac: var(--c-grass); }
+.rail-row.me { border-color: var(--c-brass-hi); }
+
+/* ---- 按钮:黄铜主键 / 素木底键 ---- */
+.btn:hover:not(:disabled) { background: var(--px-stone); filter: brightness(1.18); }
+.btn.primary {
+  background: linear-gradient(180deg, var(--c-brass-hi), var(--c-brass));
+  color: var(--c-wood-900);
+  text-shadow: none;
+  font-weight: 700;
+}
+.btn.primary:hover:not(:disabled) { background: linear-gradient(180deg, var(--c-brass-hi), var(--c-brass)); filter: brightness(1.12); }
+
+/* ---- 昵称牌:小号木瓦牌 ---- */
+.mc-nameplate .np-row {
+  background: var(--c-wood-700);
+  border: 2px solid var(--c-wood-950);
+  box-shadow: inset 0 0 0 1px rgba(232, 194, 90, 0.25), 0 2px 0 rgba(0, 0, 0, 0.45);
+}
+
+/* ---- 动效时长/缓动接管为 MOTION token(--t-*/--e-*,真源 palette.js §1.9) ---- */
+.money-hand { animation: ui-rise var(--t-ui) var(--e-enter) both; }
+.phase-panel { animation: ui-rise var(--t-ui) var(--e-enter) both, ui-drift-a var(--ui-drift-time) ease-in-out 0.5s infinite; }
+.hud-banner { animation: banner-rise var(--t-ui) var(--e-enter) both, ui-drift-banner calc(var(--ui-drift-time) * 1.1) ease-in-out 0.5s infinite; }
+.delta-big { animation: delta-pop var(--t-emph) var(--e-pop) both; }
+.hand-note.shaking { animation: money-shake var(--t-fast) var(--e-pixel) infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .goal-hud.behind { animation: none; }
+  .money-hand, .phase-panel, .hud-banner, .delta-big { animation: none; }
+}
