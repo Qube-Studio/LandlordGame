@@ -27,6 +27,13 @@ export const P = {
   sceneAmbient: '#4a3828', // 环境光
   sceneBg:  '#1a120b',
   sceneFog: '#2c1c10',
+  // 石材(壁炉炉膛/石拱)——压暗低对比
+  stone700: '#3b352c',
+  stone500: '#524a3e',
+  stone300: '#6b6152',
+  // 酒瓶玻璃(墙面搁板摆设)
+  glassGreen: '#44583c',
+  glassBrown: '#63422a',
   // 赌桌
   feltTable: '#6b3428', // 桌毡暗酒红
   feltLine:  '#caa04e', // 毡面金描线(α0.5 使用)

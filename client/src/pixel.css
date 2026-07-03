@@ -41,6 +41,11 @@ body {
   font-smooth: never;
 }
 
+/* 反馈⑤:点击/拖动/长按不再误选中文字或图片;输入框保持可选可复制 */
+body { user-select: none; -webkit-user-select: none; }
+input, textarea { user-select: text; -webkit-user-select: text; }
+img, svg, canvas { -webkit-user-drag: none; user-drag: none; }
+
 .pixel-cjk { font-family: var(--font-cjk); letter-spacing: 0.5px; }
 
 /* 让点阵 SVG 不被抗锯齿模糊 */
@@ -678,7 +683,16 @@ body {
   position: relative;
   margin-top: 44px;
   transform-origin: 50% -40px;
-  animation: ui-rise var(--t-ui) var(--e-enter) both, sign-sway 1.7s ease-in-out 0.28s 1;
+  /* 反馈④:招牌在自身区域内跟随鼠标——绕顶部悬挂点(链条上方 origin 50% -40px)纯旋转,
+     不掺平移(平移会让视觉支点跑偏)。ui-rise 用 backwards,结束后把 transform
+     让还给跟随变量(both 会永久锁死 transform) */
+  transform: rotate(calc(var(--tilt-x, 0) * -3deg)); /* 负号:鼠标在右,牌向右荡(CSS 正角=顺时针=向左荡) */
+  transition: transform 140ms ease-out;
+  animation: ui-rise var(--t-ui) var(--e-enter) backwards, sign-sway 1.7s ease-in-out 0.28s 1;
+}
+/* 鼠标离开:挂牌荡回原位,多次衰减过冲(不支持 linear() 的浏览器退回上面的 ease-out) */
+.auth-card.settling {
+  transition: transform 850ms linear(0, 0.55, 0.96, 1.22, 0.9, 1.08, 0.965, 1.015, 0.995, 1);
 }
 .auth-card::before, .auth-card::after {
   content: '';
@@ -700,13 +714,6 @@ body {
   color: var(--px-gold);
   text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.6), 0 0 12px rgba(232, 194, 90, 0.3);
 }
-.auth-brand p.dim {
-  padding-bottom: 8px;
-  border-bottom: 2px solid var(--c-brass);
-  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.5);
-  display: inline-block;
-}
-.auth-brand svg { filter: drop-shadow(0 0 8px rgba(232, 194, 90, 0.4)); }
 /* 底部酒馆黑剪影条(酒桶/凳/桌/酒杯,内联 SVG data-uri) */
 .auth-form::after {
   content: '';
@@ -726,22 +733,26 @@ body {
 .mode-card {
   background-color: var(--c-parchment);
   background-image:
-    radial-gradient(circle at 50% 9px, var(--c-brass-hi) 0 3px, var(--c-brass) 3px 4px, rgba(0, 0, 0, 0) 5px),
+    radial-gradient(circle at var(--pin-x, 50%) 9px, var(--c-brass-hi) 0 3px, var(--c-brass) 3px 4px, rgba(0, 0, 0, 0) 5px),
     var(--tex-parchment);
   border-color: var(--c-wood-950);
   box-shadow: inset 0 0 0 1px rgba(58, 42, 24, 0.25), 0 6px 0 rgba(0, 0, 0, 0.4);
-  /* 鼠标离开:纸片落回时衰减回弹(linear() 多次过冲;不支持的浏览器退回上一行的 back-out 单次回弹) */
+  /* 反馈③:钉位=旋转支点=钉子图案共用 --pin-x(左牌钉左上角/右牌钉右上角/中牌钉顶中)。
+     静置绕钉自然下垂,hover 绕钉旋平;松开荡回下垂角,多次衰减过冲
+     (不支持 linear() 的浏览器退回上一行的 back-out 单次回弹) */
+  transform-origin: var(--pin-x, 50%) 9px;
   transition: transform 420ms var(--e-pop);
-  transition: transform 560ms linear(0, 0.62, 0.98, 1.12, 1.04, 0.982, 1.006, 0.998, 1);
+  transition: transform 700ms linear(0, 0.55, 0.96, 1.22, 0.9, 1.08, 0.965, 1.015, 0.995, 1);
 }
 .mode-card h3 { color: var(--c-parch-ink); }
 .mode-card p.dim { color: var(--c-parch-ink); opacity: 0.75; }
-.mode-row .mode-card:nth-child(1) { transform: rotate(-1.2deg); }
-.mode-row .mode-card:nth-child(2) { transform: rotate(0.8deg); }
-.mode-row .mode-card:nth-child(3) { transform: rotate(-0.6deg); }
+/* 左牌钉左上角(自由端右侧下垂=正角)、右牌钉右上角(镜像负角)、中牌钉顶中微倾 */
+.mode-row .mode-card:nth-child(1) { --pin-x: 14px; transform: rotate(4.5deg); }
+.mode-row .mode-card:nth-child(2) { --pin-x: 50%; transform: rotate(1deg); }
+.mode-row .mode-card:nth-child(3) { --pin-x: calc(100% - 14px); transform: rotate(-4.5deg); }
 .mode-row .mode-card:hover:not(.disabled) {
-  transform: rotate(0deg) translateY(-2px);
-  transition: transform var(--t-fast) var(--e-enter); /* 抬起要快,落下走回弹 */
+  transform: rotate(0deg); /* 绕钉旋平,不上提 */
+  transition: transform var(--t-fast) var(--e-enter);
 }
 
 /* 房间列表 = 账本(羊皮底 + 墨线行) */
@@ -759,4 +770,30 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .auth-card { animation: none; }
   .mode-card, .mode-row .mode-card:hover:not(.disabled) { transform: none; transition: none; }
+}
+
+/* ---- 登录页:吉祥物布局(反馈⑪,用户澄清主界面=登录页)——招牌左移,右侧独立小 Canvas 半身像 ---- */
+.login-duo { display: flex; align-items: flex-end; justify-content: center; gap: 34px; flex-wrap: wrap; }
+.login-duo .auth-card { flex: none; }
+.lobby-mascot {
+  flex: none;
+  width: 300px;
+  height: 380px;
+  position: relative;
+  overflow: hidden;
+  margin: 0 auto; /* 窄屏折行时居中 */
+}
+.lobby-mascot canvas { display: block; }
+/* 底框:一条木质台沿,把吉祥物腰以下裁掉 */
+.lobby-mascot::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 14px;
+  background-color: var(--c-wood-500);
+  background-image: var(--tex-wood);
+  box-shadow: 0 -3px 0 var(--c-wood-900), inset 0 2px 0 rgba(255, 255, 255, 0.08);
+  pointer-events: none;
 }

@@ -161,6 +161,69 @@ function drawChalk(ctx, w, h, rnd) {
   }
 }
 
+// 石材(壁炉/石拱):砌块 + 勾缝,压暗低对比(远景配角,绝不抢桌面)
+function drawStone(ctx, w, h, tone, rnd) {
+  noiseFill(ctx, w, h, tone, 0.05, rnd, 2);
+  const rowH = 16;
+  for (let y = 0; y < h; y += rowH) {
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.fillRect(0, y, w, 2);                       // 横缝
+    const off = (y / rowH % 2) * 16;
+    for (let x = off; x < w + 16; x += 32) {
+      ctx.fillStyle = 'rgba(0,0,0,0.35)';
+      ctx.fillRect((x % w) | 0, y, 2, rowH);        // 竖缝(错缝)
+      const f = (rnd() * 2 - 1) * 0.07;             // 石块明度微差(低对比)
+      ctx.fillStyle = f > 0 ? `rgba(255,255,255,${f * 0.5})` : `rgba(0,0,0,${-f * 0.8})`;
+      ctx.fillRect(((x % w) + 2) | 0, y + 2, 30, rowH - 2);
+    }
+  }
+}
+
+// 墙面粉笔菜单板(64²):黑板基材 + 标题横 + 几行「菜名……价钱」粉笔线(远看即成字)
+function drawMenu(ctx, w, h, rnd) {
+  drawChalk(ctx, w, h, rnd);
+  const [r, g, b] = hexRgb(P.chalkInk);
+  const ink = (a) => `rgba(${r},${g},${b},${a})`;
+  ctx.fillStyle = ink(0.85);
+  ctx.fillRect((w / 2 - 11) | 0, 7, 22, 3);         // 标题
+  ctx.fillStyle = ink(0.35);
+  ctx.fillRect((w / 2 - 15) | 0, 12, 30, 1);        // 标题下划线
+  for (let i = 0; i < 4; i++) {
+    const y = 20 + i * 10;
+    const len = 16 + (rnd() * 10 | 0);
+    ctx.fillStyle = ink(0.7);
+    ctx.fillRect(6, y, len, 2);                     // 菜名
+    ctx.fillRect(w - 12, y, 6, 2);                  // 价钱
+    ctx.fillStyle = ink(0.3);
+    for (let x = 8 + len; x < w - 14; x += 4) ctx.fillRect(x, y + 1, 2, 1); // 点点引线
+  }
+}
+
+// 飞镖盘(反馈⑦右墙摆设):同心像素环 + 十字分区线 + 红心;2px 粗粒保持像素感。
+// 贴在 circleGeometry 上(UV 内切圆),四角画外圈铁环色兜底。
+function drawDart(ctx, w, h) {
+  const cx = w / 2 - 0.5, cy = h / 2 - 0.5;
+  const dim = shade(P.parchment, -24);
+  for (let y = 0; y < h; y += 2) {
+    for (let x = 0; x < w; x += 2) {
+      const d = Math.hypot(x + 1 - cx, y + 1 - cy);
+      let c;
+      if (d > 28) c = P.wood900;              // 外圈铁环(含四角兜底)
+      else if (d > 22) c = P.parchment;
+      else if (d > 16) c = dim;
+      else if (d > 10) c = P.parchment;
+      else if (d > 5) c = shade(P.danger, -18);
+      else c = P.danger;                       // 红心
+      ctx.fillStyle = c;
+      ctx.fillRect(x, y, 2, 2);
+    }
+  }
+  // 十字 + 斜向分区线(细,半透墨色)
+  ctx.fillStyle = 'rgba(0,0,0,0.3)';
+  ctx.fillRect(0, (h / 2 - 1) | 0, w, 1);
+  ctx.fillRect((w / 2 - 1) | 0, 0, 1, h);
+}
+
 // ---- 合成纹理 ----
 
 function drawTavernWall(ctx, w, h, rnd) {
@@ -288,27 +351,28 @@ function drawTableFelt(ctx, w, h, spots, rnd) {
   ctx.strokeRect(12, 12, w - 24, h - 24);
   ctx.setLineDash([]);
   ctx.strokeRect(18, 18, w - 36, h - 36);
-  // 中央硬币双环(世界半径 0.55/0.75 的正圆)+ 环内王/禾对半暗纹
+  // 中央硬币双环(世界半径 0.44/0.60 的正圆;为下注椭圆环让位而收小,反馈⑩)+ 环内王/禾对半暗纹
   const cx = feltU(0), cy = feltV(0);
   ctx.fillStyle = 'rgba(0,0,0,0.08)';
-  ctx.beginPath(); ctx.ellipse(cx, cy, feltRU(0.55), feltRV(0.55), 0, Math.PI / 2, Math.PI * 3 / 2); ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(cx, cy, feltRU(0.44), feltRV(0.44), 0, Math.PI / 2, Math.PI * 3 / 2); ctx.closePath(); ctx.fill();
   ctx.fillStyle = 'rgba(255,255,255,0.04)';
-  ctx.beginPath(); ctx.ellipse(cx, cy, feltRU(0.55), feltRV(0.55), 0, -Math.PI / 2, Math.PI / 2); ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(cx, cy, feltRU(0.44), feltRV(0.44), 0, -Math.PI / 2, Math.PI / 2); ctx.closePath(); ctx.fill();
   ctx.strokeStyle = 'rgba(202,160,78,0.5)';
   ctx.setLineDash([6, 5]);
-  for (const r of [0.55, 0.75]) {
+  for (const r of [0.44, 0.6]) {
     ctx.beginPath(); ctx.ellipse(cx, cy, feltRU(r), feltRV(r), 0, 0, Math.PI * 2); ctx.stroke();
   }
   ctx.setLineDash([]);
   ctx.fillStyle = 'rgba(0,0,0,0.15)';
-  ctx.fillRect(cx | 0, (cy - feltRV(0.55)) | 0, 1, feltRV(0.55) * 2 | 0); // 对半分隔线
-  // 每个钱堆落点一个虚线正圆下注位(世界半径 0.45,收进缝线边内不压线)
+  ctx.fillRect(cx | 0, (cy - feltRV(0.44)) | 0, 1, feltRV(0.44) * 2 | 0); // 对半分隔线
+  // 每个钱堆落点一个虚线正圆下注位(世界半径 0.42,落点由 Scene3D#spotOf 的同心椭圆环给出,
+  // 圈到缝线边/中央双环间距均 ≥0.18,反馈⑩)
   ctx.strokeStyle = 'rgba(202,160,78,0.5)';
   ctx.lineWidth = 2;
   ctx.setLineDash([6, 5]);
   for (const s of spots) {
     ctx.beginPath();
-    ctx.ellipse(feltU(s.x), feltV(s.z), feltRU(0.45), feltRV(0.45), 0, 0, Math.PI * 2);
+    ctx.ellipse(feltU(s.x), feltV(s.z), feltRU(0.42), feltRV(0.42), 0, 0, Math.PI * 2);
     ctx.stroke();
   }
   ctx.setLineDash([]);
@@ -351,7 +415,7 @@ const SIZES = {
   wood: [128, 128], felt: [128, 128], fabric: [32, 32], brass: [64, 64],
   parchment: [128, 128], chalk: [64, 64], wall: [256, 256], floor: [128, 128],
   rug: [128, 128], barrel: [64, 128], tableFelt: [FELT_W, FELT_H], flame: [32, 48],
-  abacus: [32, 24],
+  abacus: [32, 24], stone: [64, 64], menu: [64, 64], dart: [64, 64],
 };
 
 // 投资人手持算盘(1 plane,珠纹烘死)
@@ -379,7 +443,8 @@ function canvasKey(kind, o = {}) {
     case 'brass': return `brass|${o.patina ?? 0}`;
     case 'tableFelt': return `tableFelt|${(o.spots ?? []).map(s => `${s.x.toFixed(2)},${s.z.toFixed(2)}`).join(';')}`;
     case 'flame': return `flame|${o.frame ?? 0}`;
-    default: return kind; // parchment/chalk/wall/floor/rug/barrel 无参数
+    case 'stone': return `stone|${o.tone ?? P.stone500}`;
+    default: return kind; // parchment/chalk/wall/floor/rug/barrel/menu 无参数
   }
 }
 
@@ -406,10 +471,13 @@ export function canvasFor(kind, o = {}) {
     case 'tableFelt': drawTableFelt(ctx, w, h, o.spots ?? [], rnd); break;
     case 'flame': drawFlame(ctx, w, h, o.frame ?? 0); break;
     case 'abacus': drawAbacus(ctx, w, h, rnd); break;
+    case 'stone': drawStone(ctx, w, h, o.tone ?? P.stone500, rnd); break;
+    case 'menu': drawMenu(ctx, w, h, rnd); break;
+    case 'dart': drawDart(ctx, w, h); break;
     default: throw new Error(`texlib: unknown kind ${kind}`);
   }
-  // 透明火焰不描边;羊皮纸/黑板供 CSS 大面积平铺,描边会变成接缝格线,也不烘
-  if (!['flame', 'parchment', 'chalk'].includes(kind)) edgeLine(ctx, w, h);
+  // 透明火焰不描边;羊皮纸/黑板供 CSS 大面积平铺,描边会变成接缝格线,也不烘;镖盘自带铁环
+  if (!['flame', 'parchment', 'chalk', 'dart'].includes(kind)) edgeLine(ctx, w, h);
   CANVAS_CACHE.set(key, c);
   return c;
 }

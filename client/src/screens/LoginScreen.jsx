@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useAuthStore } from '../store/authStore';
-import { getArt } from '../assets/registry';
 import PixelText from '../assets/pixelfont/PixelText';
+import LobbyMascot from '../scene/LobbyMascot';
 
-const Coin = getArt('coin');
+const REDUCED = typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
 export default function LoginScreen() {
   const { login, register, guestLogin, busy, error, clearError } = useAuthStore();
@@ -12,6 +12,23 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('');
   const [password2, setPassword2] = useState('');
   const [localError, setLocalError] = useState(null);
+  const cardRef = useRef(null);
+
+  // 反馈④:招牌只在自身区域内跟随鼠标(挂链摆动)。直写 CSS 变量,不走 state 免重渲染。
+  const onCardMove = (e) => {
+    const el = cardRef.current;
+    if (!el || REDUCED) return;
+    const r = el.getBoundingClientRect();
+    const nx = Math.max(-0.5, Math.min(0.5, (e.clientX - r.left) / r.width - 0.5));
+    el.classList.remove('settling');
+    el.style.setProperty('--tilt-x', nx.toFixed(3));
+  };
+  const onCardLeave = () => {
+    const el = cardRef.current;
+    if (!el || REDUCED) return;
+    el.classList.add('settling'); // 换成衰减回弹的 transition 后再归位
+    el.style.setProperty('--tilt-x', '0');
+  };
 
   const switchTab = (next) => {
     setTab(next);
@@ -35,11 +52,11 @@ export default function LoginScreen() {
 
   return (
     <div className="center-screen">
-      <div className="auth-card panel">
+      {/* 反馈⑪(用户澄清:主界面=登录页):招牌左移,右侧站一个会呼吸/看鼠标的吉祥物半身像 */}
+      <div className="login-duo">
+      <div className="auth-card panel" ref={cardRef} onMouseMove={onCardMove} onMouseLeave={onCardLeave}>
         <div className="auth-brand">
-          <Coin face="heads" size={56} />
           <h1><PixelText size={5} color="var(--px-gold)">F.A.T.E.</PixelText></h1>
-          <p className="dim">破产竞速 · 心理博弈</p>
         </div>
         <div className="tabs">
           <button className={tab === 'login' ? 'tab active' : 'tab'} onClick={() => switchTab('login')}>登录</button>
@@ -70,6 +87,8 @@ export default function LoginScreen() {
             游客快速进入（本地测试）
           </button>
         )}
+      </div>
+      <LobbyMascot />
       </div>
     </div>
   );

@@ -183,8 +183,8 @@ export default function MinecraftPlayer({ player, expression, seed = 0, look = n
         {!bankrupt && headProp(role)}
       </group>
 
-      {/* 头顶名牌 */}
-      <Html position={[0, 2.45, 0]} center distanceFactor={10} zIndexRange={[30, 0]}>
+      {/* 头顶名牌(distanceFactor 6:第一人称落座相机视距变近,10 档会糊满半屏) */}
+      <Html position={[0, 2.35, 0]} center distanceFactor={6} zIndexRange={[30, 0]}>
         <div className={`mc-nameplate ${player.online ? '' : 'offline'}`}>
           <div className="np-row">
             <PixelText size={2} className={`np-role ${factionOf(player.role) ?? ''}`}>

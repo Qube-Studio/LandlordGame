@@ -8,10 +8,11 @@ import { Html, OrbitControls, ContactShadows } from '@react-three/drei';
 import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import { useGameStore } from '../store/gameStore';
+import { useSettingsStore } from '../store/settingsStore';
 import { decompose } from '../game/notes';
 import MinecraftPlayer from './MinecraftPlayer';
 import Coin from './Coin';
-import { noteTexture } from './textures';
+import { noteTexture, coinFaceTexture } from './textures';
 import { getCoinRest } from './coinSim';
 import { setProjector } from './projection';
 import { expressionFor } from './expression';
@@ -51,13 +52,21 @@ const SEAT_LAYOUTS = {
   5: [{ x: 0, z: 2.65 }, { x: -1.9, z: -2.65 }, { x: 1.9, z: -2.65 }, { x: -3.95, z: 0 }, { x: 3.95, z: 0 }],
 };
 const seatOf = (count, idx) => (SEAT_LAYOUTS[Math.min(5, Math.max(1, count))] ?? [])[idx] ?? { x: 0, z: -2.65 };
-// 座位前方毡面上的钱堆落点(同一公式喂 MoneyStack 摆放与 tableFelt 烘焙圆圈,保证严丝合缝)
-const spotOf = (seat) => ({ x: seat.x * 0.56, z: seat.z * 0.52 });
+// 座位前方毡面上的钱堆落点(同一公式喂 MoneyStack 摆放与 tableFelt 烘焙圆圈,保证严丝合缝)。
+// 反馈⑩:所有下注圈落在同一条同心椭圆环上——θ 取座位相对桌心的规范化方位角(按桌框 3.5×2.2 归一),
+// spot=(a·cosθ, b·sinθ)。a/b 满足:圈(r=0.42)到毡面缝线(x≈3.07/z≈1.86)、到中央双环(0.60)间距均 ≥0.18。
+const SPOT_A = 2.05, SPOT_B = 1.24;
+const spotOf = (seat) => {
+  const th = Math.atan2(seat.z / 2.2, seat.x / 3.5);
+  return { x: SPOT_A * Math.cos(th), z: SPOT_B * Math.sin(th) };
+};
 // 把「我的座位」旋到 +z 近侧的场景旋转角
 const rotFor = (seat) => -Math.atan2(seat.x, seat.z);
 
-// 木凳(每个入座玩家一张)
-function Stool({ x, z, ry = 0 }) {
+// 大号靠背椅(每个入座玩家一张,反馈⑦):坐面沿用旧凳(y=0.46、0.52 见方,坐姿不用重调),
+// 外侧两立柱升到 ~1.35 + 三根横板,靠背略后仰。立柱/横板都收在 |x|≤0.24、z≤-0.2,
+// 与坐姿身体(背面 z=-0.15)和摆臂(|x|≥0.30)都留有间隙,不穿模。
+function Chair({ x, z, ry = 0 }) {
   const wood = tex('wood', { tone: P.wood500 });
   return (
     <group position={[x, 0, z]} rotation={[0, ry, 0]}>
@@ -65,32 +74,54 @@ function Stool({ x, z, ry = 0 }) {
         <boxGeometry args={[0.52, 0.08, 0.52]} />
         <meshStandardMaterial map={wood} roughness={1} flatShading />
       </mesh>
-      {[[-0.18, -0.18], [0.18, -0.18], [-0.18, 0.18], [0.18, 0.18]].map(([lx, lz], i) => (
+      {[[-0.19, -0.19], [0.19, -0.19], [-0.19, 0.19], [0.19, 0.19]].map(([lx, lz], i) => (
         <mesh key={i} position={[lx, 0.21, lz]}>
           <boxGeometry args={[0.08, 0.42, 0.08]} />
           <meshStandardMaterial color={P.wood700} roughness={1} flatShading />
         </mesh>
       ))}
+      {/* 靠背(略后仰 0.1rad;局部 -z 即背向桌面一侧;立柱顶 ~1.4,横板高过坐姿肩线才读得出) */}
+      <group position={[0, 0.42, -0.235]} rotation={[-0.1, 0, 0]}>
+        {[-0.22, 0.22].map((lx) => (
+          <mesh key={lx} position={[lx, 0.49, 0]}>
+            <boxGeometry args={[0.08, 0.98, 0.07]} />
+            <meshStandardMaterial map={wood} roughness={1} flatShading />
+          </mesh>
+        ))}
+        {[0.34, 0.62, 0.9].map((hy) => (
+          <mesh key={hy} position={[0, hy, 0]}>
+            <boxGeometry args={[0.5, 0.12, 0.05]} />
+            <meshStandardMaterial map={wood} roughness={1} flatShading />
+          </mesh>
+        ))}
+      </group>
     </group>
   );
 }
 
-function CameraRig({ look, shakeRef }) {
+// 第一人称落座相机(反馈⑥):相机=「我」坐在自己座位上的眼睛。
+// 基准位 (0, EYE_Y, camZ)——绝对座位系统已把我的座位旋到 +z 近侧,camZ=座距+微退;
+// 注视点降到桌心略上。保留鼠标环视阻尼与破产微震(视距变近,幅度较旧俯视机位略降)。
+const EYE_Y = 1.66;   // 坐姿眼高(头部 ~1.5,截图定夺于 1.55~1.8)
+const LOOK_Y = 1.03;  // 注视点=桌心略上
+const CAM_BACK = 0.35; // 相机比座位中心略靠后(像后仰靠在椅背上)
+function CameraRig({ look, shakeRef, camZ = 3.0 }) {
   const { camera } = useThree();
-  const target = useRef(new THREE.Vector3(0, 1.05, 0));
+  const target = useRef(new THREE.Vector3(0, LOOK_Y, 0));
   useFrame((st, delta) => {
     const mx = look.current.x, my = look.current.y;
-    target.current.x += (mx * 1.6 - target.current.x) * 0.06;
-    target.current.y += (1.15 - my * 0.8 - target.current.y) * 0.06;
+    target.current.x += (mx * 1.15 - target.current.x) * 0.06;
+    target.current.y += (LOOK_Y - my * 0.5 - target.current.y) * 0.06;
     // 破产瞬间:注视点 ±0.03 微震 300ms(衰减,确定性正弦抖动)
     if (shakeRef && shakeRef.current > 0) {
       shakeRef.current = Math.max(0, shakeRef.current - delta);
       const k = shakeRef.current / 0.3;
-      target.current.x += Math.sin(st.clock.elapsedTime * 55) * 0.03 * k;
-      target.current.y += Math.cos(st.clock.elapsedTime * 47) * 0.02 * k;
+      target.current.x += Math.sin(st.clock.elapsedTime * 55) * 0.025 * k;
+      target.current.y += Math.cos(st.clock.elapsedTime * 47) * 0.018 * k;
     }
-    camera.position.x += (mx * 0.7 - camera.position.x) * 0.05;
-    camera.position.y += (2.7 - my * 0.3 - camera.position.y) * 0.05;
+    camera.position.x += (mx * 0.3 - camera.position.x) * 0.05;
+    camera.position.y += (EYE_Y - my * 0.1 - camera.position.y) * 0.05;
+    camera.position.z += (camZ - camera.position.z) * 0.05;
     camera.lookAt(target.current);
   });
   return null;
@@ -101,6 +132,8 @@ function CameraRig({ look, shakeRef }) {
 const CHAND_I = 21;
 function ChandelierLight() {
   const phase = useGameStore(s => s.state.phase);
+  const lightAnim = useSettingsStore(s => s.lightAnim);
+  const animOff = REDUCED || !lightAnim; // 画质设置「动态光效」关 → 走 REDUCED 同款静态路径(反馈①)
   const ref = useRef();
   const segs = useRef([]);                 // 待执行 tween 段队列 [{to, dur}]
   const cur = useRef({ from: CHAND_I, to: CHAND_I, t0: null, dur: 0 });
@@ -109,17 +142,25 @@ function ChandelierLight() {
   useEffect(() => {
     if (ref.current && prev.current === 'COIN_FLIP') ref.current.intensity = CHAND_I * 0.55;
   }, []);
+  // 动态光效开关切换:清 tween 队列,强度直接钉到当前相位的终态
+  useEffect(() => {
+    if (animOff && ref.current) {
+      segs.current = [];
+      cur.current.t0 = null;
+      ref.current.intensity = phase === 'COIN_FLIP' ? CHAND_I * 0.55 : CHAND_I;
+    }
+  }, [animOff, phase]);
   useEffect(() => {
     if (phase === prev.current) return;
     const was = prev.current;
     prev.current = phase;
-    if (REDUCED) {
+    if (animOff) {
       if (ref.current) ref.current.intensity = phase === 'COIN_FLIP' ? CHAND_I * 0.55 : CHAND_I;
       return;
     }
     if (phase === 'COIN_FLIP') segs.current = [{ to: CHAND_I * 0.55, dur: 0.6 }];
     else if (was === 'COIN_FLIP') segs.current = [{ to: CHAND_I * 1.15, dur: 0.15 }, { to: CHAND_I, dur: 0.25 }];
-  }, [phase]);
+  }, [phase, animOff]);
   useFrame((st) => {
     const L = ref.current;
     if (!L) return;
@@ -135,7 +176,8 @@ function ChandelierLight() {
       if (t >= 1) c.t0 = null;
     }
   });
-  return <pointLight ref={ref} position={[0, 3.3, 0]} intensity={CHAND_I} distance={10} decay={2} color={P.candle} />;
+  // distance 13.5:衰减尾部擦到 ±12 的四面墙,墙面摆设有微弱轮廓光(decay=2,增量极小)
+  return <pointLight ref={ref} position={[0, 3.3, 0]} intensity={CHAND_I} distance={13.5} decay={2} color={P.candle} />;
 }
 
 // 硬币落定:金环扩散(0.5s) + 16 顶点预分配 Points 金屑上抛(0.6s),0.7s 后整体卸载
@@ -238,7 +280,8 @@ function Room() {
   );
 }
 
-// 壁炉:石框 + 炉膛 + 双交叉火焰面片(3 帧预烘纹理做 map 引用轮换,400ms,永不重画)
+// 壁炉(反馈⑦升级):石材拱形炉膛(stone 纹理,压暗低对比)+ 炉台木梁(摆杯/烛)+ 炉内交叉圆木
+// + 双交叉火焰面片(3 帧预烘纹理做 map 引用轮换,400ms,永不重画;火焰与 FireLight 逻辑不动)
 function Fireplace() {
   const flameMat = useRef([]);
   const frames = useMemo(() => [0, 1, 2].map(f => tex('flame', { frame: f })), []);
@@ -248,15 +291,42 @@ function Fireplace() {
       if (m && m.map !== frames[i]) { m.map = frames[i]; m.emissiveMap = frames[i]; }
     }
   });
-  const stone = tex('wood', { tone: P.wood900, plankW: 16 });
+  const stone = tex('stone');
+  const mantel = tex('wood', { tone: P.wood500 });
+  const log = tex('wood', { tone: P.wood700, plankW: 6 });
+  const stoneMat = <meshStandardMaterial map={stone} roughness={1} flatShading />;
   return (
     <group position={[0, 0, -11.6]}>
-      {/* 石框:两柱一楣 */}
-      <mesh position={[-0.85, 0.6, 0]}><boxGeometry args={[0.35, 1.2, 0.35]} /><meshStandardMaterial map={stone} roughness={1} flatShading /></mesh>
-      <mesh position={[0.85, 0.6, 0]}><boxGeometry args={[0.35, 1.2, 0.35]} /><meshStandardMaterial map={stone} roughness={1} flatShading /></mesh>
-      <mesh position={[0, 1.3, 0]}><boxGeometry args={[2.1, 0.35, 0.35]} /><meshStandardMaterial map={stone} roughness={1} flatShading /></mesh>
+      {/* 石拱:双柱 + 拱楣 + 拱角垫块(方块拱) */}
+      <mesh position={[-1.05, 0.8, 0]}><boxGeometry args={[0.5, 1.6, 0.5]} />{stoneMat}</mesh>
+      <mesh position={[1.05, 0.8, 0]}><boxGeometry args={[0.5, 1.6, 0.5]} />{stoneMat}</mesh>
+      <mesh position={[0, 1.72, 0]}><boxGeometry args={[2.6, 0.36, 0.5]} />{stoneMat}</mesh>
+      <mesh position={[-0.62, 1.45, 0]}><boxGeometry args={[0.36, 0.2, 0.46]} />{stoneMat}</mesh>
+      <mesh position={[0.62, 1.45, 0]}><boxGeometry args={[0.36, 0.2, 0.46]} />{stoneMat}</mesh>
+      {/* 炉底石台 */}
+      <mesh position={[0, 0.05, 0.3]}><boxGeometry args={[2.9, 0.1, 1.1]} />{stoneMat}</mesh>
       {/* 炉膛(纯黑腔) */}
-      <mesh position={[0, 0.55, -0.05]}><boxGeometry args={[1.4, 1.1, 0.2]} /><meshStandardMaterial color={P.wood900} roughness={1} /></mesh>
+      <mesh position={[0, 0.8, -0.1]}><boxGeometry args={[1.6, 1.6, 0.24]} /><meshStandardMaterial color={P.wood900} roughness={1} /></mesh>
+      {/* 炉台木梁 + 陶杯 + 蜡烛 */}
+      <mesh position={[0, 1.98, 0.06]}><boxGeometry args={[3.1, 0.16, 0.56]} /><meshStandardMaterial map={mantel} roughness={1} flatShading /></mesh>
+      <mesh position={[-0.9, 2.15, 0.06]}><cylinderGeometry args={[0.07, 0.08, 0.18, 6]} /><meshStandardMaterial color={P.wood300} roughness={1} flatShading /></mesh>
+      <group position={[0.85, 2.06, 0.06]}>
+        <mesh position={[0, 0.09, 0]}><cylinderGeometry args={[0.035, 0.045, 0.18, 6]} /><meshStandardMaterial color={P.parchment} roughness={1} flatShading /></mesh>
+        <mesh position={[0, 0.26, 0]}>
+          <planeGeometry args={[0.1, 0.16]} />
+          <meshStandardMaterial
+            map={frames[1]} emissiveMap={frames[1]} emissive={P.ink} emissiveIntensity={1.6}
+            transparent alphaTest={0.4} depthWrite={false} side={THREE.DoubleSide}
+          />
+        </mesh>
+      </group>
+      {/* 炉内交叉圆木 */}
+      <mesh position={[0, 0.16, 0.08]} rotation={[0, 0.35, Math.PI / 2]}>
+        <cylinderGeometry args={[0.09, 0.09, 1.0, 6]} /><meshStandardMaterial map={log} roughness={1} flatShading />
+      </mesh>
+      <mesh position={[0, 0.3, 0]} rotation={[0, -0.4, Math.PI / 2]}>
+        <cylinderGeometry args={[0.08, 0.08, 0.95, 6]} /><meshStandardMaterial map={log} roughness={1} flatShading />
+      </mesh>
       {/* 火焰:两片交叉,emissive 走 Bloom(threshold 0.72) */}
       {[0, Math.PI / 2].map((ry, i) => (
         <mesh key={i} position={[0, 0.62, 0.08]} rotation={[0, ry, 0]}>
@@ -283,30 +353,244 @@ function Barrels() {
   ));
 }
 
-// 桌上方木轮吊灯:八角木环 + 4 蜡烛 + 4 emissive 火苗(给「唯一光池」一个形体归属;真灯在灯 rig 里)
+// 新摆设(反馈⑦,满而不乱):绝对座位系统会为每个玩家旋转整间房,任何桌边座位面对的墙
+// 都必须是满的——所以四面墙各自成组,不能只充实一面"后墙"。零新增动态光源,发光一律 emissive。
+// 后墙(z-):壁炉(独立组件)+菜单板+月光窗+酒瓶搁板+烛台×2+木箱堆
+// 前墙(z+):酒馆大门+门上硬币挂牌+衣帽钩+长凳+烛台×2
+// 左墙(x-):第二扇月光窗+酒瓶搁板+烛台   右墙(x+):飞镖盘+陶杯搁板+烛台
+// 地面角落:小圆桌配双椅(前右)、酒桶+木箱(前左)
+function Decor() {
+  const wood7 = tex('wood', { tone: P.wood700 });
+  const wood5 = tex('wood', { tone: P.wood500 });
+  const crate = tex('wood', { tone: P.wood300, plankW: 5 });
+  const door = tex('wood', { tone: P.wood700, plankW: 5 });
+  const barrel = tex('barrel');
+  const frames = useMemo(() => [0, 1, 2].map(f => tex('flame', { frame: f })), []);
+  const woodMat = <meshStandardMaterial map={wood7} roughness={1} flatShading />;
+  const flamePlanes = (fi, s = 1) => [0, Math.PI / 2].map((ry, k) => (
+    <mesh key={k} position={[0, 0.24 * s, 0]} rotation={[0, ry, 0]}>
+      <planeGeometry args={[0.1 * s, 0.16 * s]} />
+      <meshStandardMaterial
+        map={frames[fi]} emissiveMap={frames[fi]} emissive={P.ink} emissiveIntensity={1.7}
+        transparent alphaTest={0.4} depthWrite={false} side={THREE.DoubleSide}
+      />
+    </mesh>
+  ));
+  // 墙面烛台(木托 + 蜡烛 + 交叉火苗片);ry 把 -z 朝向的木托转向所在墙
+  const sconce = (key, pos, ry, fi) => (
+    <group key={key} position={pos} rotation={[0, ry, 0]}>
+      <mesh position={[0, -0.12, -0.08]}><boxGeometry args={[0.1, 0.34, 0.12]} />{woodMat}</mesh>
+      <mesh position={[0, 0.02, 0]}><cylinderGeometry args={[0.035, 0.045, 0.2, 6]} /><meshStandardMaterial color={P.parchment} roughness={1} flatShading /></mesh>
+      {/* 火苗放大 1.25:烛台是暗墙上的主要可读光点,远看也要成"火把" */}
+      <group position={[0, 0.12, 0]}>{flamePlanes(fi, 1.25)}</group>
+    </group>
+  );
+  // 月光窗(冷色自发光玻璃 + 木框十字棂)
+  const moonWindow = (key, pos, ry = 0) => (
+    <group key={key} position={pos} rotation={[0, ry, 0]}>
+      <mesh>
+        <planeGeometry args={[1.3, 1.7]} />
+        <meshStandardMaterial color={P.coolFill} emissive={P.coolFill} emissiveIntensity={0.85} roughness={1} />
+      </mesh>
+      <mesh position={[0, 0.88, 0.05]}><boxGeometry args={[1.54, 0.12, 0.12]} />{woodMat}</mesh>
+      <mesh position={[0, -0.88, 0.05]}><boxGeometry args={[1.54, 0.12, 0.12]} />{woodMat}</mesh>
+      <mesh position={[-0.71, 0, 0.05]}><boxGeometry args={[0.12, 1.64, 0.12]} />{woodMat}</mesh>
+      <mesh position={[0.71, 0, 0.05]}><boxGeometry args={[0.12, 1.64, 0.12]} />{woodMat}</mesh>
+      <mesh position={[0, 0, 0.03]}><boxGeometry args={[0.08, 1.64, 0.08]} />{woodMat}</mesh>
+      <mesh position={[0, 0, 0.03]}><boxGeometry args={[1.54, 0.08, 0.08]} />{woodMat}</mesh>
+    </group>
+  );
+  // 双层搁板 + 三瓶两杯(items='bottles')或一排陶杯(items='mugs')
+  const shelf = (key, pos, ry = 0, items = 'bottles') => (
+    <group key={key} position={pos} rotation={[0, ry, 0]}>
+      {[0, 0.72].map((y) => (
+        <mesh key={y} position={[0, y, 0]}><boxGeometry args={[2.0, 0.08, 0.34]} />{woodMat}</mesh>
+      ))}
+      {items === 'bottles' && [[-0.7, P.glassGreen], [-0.15, P.glassBrown], [0.45, P.glassGreen]].map(([bx, color], i) => (
+        <group key={i} position={[bx, 0.76, 0]}>
+          <mesh position={[0, 0.15, 0]}><cylinderGeometry args={[0.07, 0.08, 0.3, 6]} /><meshStandardMaterial color={color} roughness={0.7} flatShading /></mesh>
+          <mesh position={[0, 0.36, 0]}><cylinderGeometry args={[0.025, 0.03, 0.12, 6]} /><meshStandardMaterial color={color} roughness={0.7} flatShading /></mesh>
+        </group>
+      ))}
+      {(items === 'bottles' ? [-0.5, 0.3] : [-0.7, -0.25, 0.2, 0.65]).map((bx) => (
+        <mesh key={bx} position={[bx, items === 'bottles' ? 0.12 : 0.13, 0]}><cylinderGeometry args={[0.08, 0.09, 0.16, 6]} /><meshStandardMaterial color={P.wood300} roughness={1} flatShading /></mesh>
+      ))}
+      {items === 'mugs' && [-0.45, 0.45].map((bx) => (
+        <mesh key={bx} position={[bx, 0.85, 0]}><cylinderGeometry args={[0.08, 0.09, 0.16, 6]} /><meshStandardMaterial color={P.wood300} roughness={1} flatShading /></mesh>
+      ))}
+    </group>
+  );
+  return (
+    <group>
+      {/* ================= 后墙(z-,壁炉墙) ================= */}
+      {moonWindow('w-back', [-7.5, 3.7, -11.88])}
+      {shelf('s-back', [-9.6, 2.85, -11.76])}
+      {/* 粉笔菜单板(远墙背光,粉笔字给一点自发光才读得出;无光源,纯 emissiveMap) */}
+      <group position={[5.6, 3.0, -11.86]}>
+        <mesh>
+          <boxGeometry args={[1.5, 1.1, 0.06]} />
+          <meshStandardMaterial map={tex('menu')} emissiveMap={tex('menu')} emissive={P.ink} emissiveIntensity={0.22} roughness={1} flatShading />
+        </mesh>
+        <mesh position={[0, 0.61, 0]}><boxGeometry args={[1.7, 0.12, 0.1]} />{woodMat}</mesh>
+        <mesh position={[0, -0.61, 0]}><boxGeometry args={[1.7, 0.12, 0.1]} />{woodMat}</mesh>
+        <mesh position={[-0.79, 0, 0]}><boxGeometry args={[0.12, 1.1, 0.1]} />{woodMat}</mesh>
+        <mesh position={[0.79, 0, 0]}><boxGeometry args={[0.12, 1.1, 0.1]} />{woodMat}</mesh>
+      </group>
+      {sconce('sc-b1', [-3.1, 2.55, -11.72], 0, 0)}
+      {sconce('sc-b2', [3.1, 2.55, -11.72], 0, 1)}
+      {/* 木箱堆(后左角) */}
+      <group position={[-8.4, 0, -10.3]}>
+        <mesh position={[0, 0.45, 0]} rotation={[0, 0.12, 0]}><boxGeometry args={[0.9, 0.9, 0.9]} /><meshStandardMaterial map={crate} roughness={1} flatShading /></mesh>
+        <mesh position={[-1.0, 0.4, 0.25]} rotation={[0, -0.3, 0]}><boxGeometry args={[0.8, 0.8, 0.8]} /><meshStandardMaterial map={crate} roughness={1} flatShading /></mesh>
+        <mesh position={[-0.15, 1.28, 0.1]} rotation={[0, 0.5, 0]}><boxGeometry args={[0.75, 0.75, 0.75]} /><meshStandardMaterial map={crate} roughness={1} flatShading /></mesh>
+      </group>
+
+      {/* ================= 前墙(z+,大门墙) ================= */}
+      {/* 酒馆大门:门框 + 竖板门扇 + 铁铰链 + 铜把手 */}
+      <group position={[2.5, 0, 11.85]}>
+        <mesh position={[-0.78, 1.55, 0]}><boxGeometry args={[0.18, 3.1, 0.24]} />{woodMat}</mesh>
+        <mesh position={[0.78, 1.55, 0]}><boxGeometry args={[0.18, 3.1, 0.24]} />{woodMat}</mesh>
+        <mesh position={[0, 3.14, 0]}><boxGeometry args={[1.78, 0.22, 0.24]} />{woodMat}</mesh>
+        <mesh position={[0, 1.5, 0.02]}><boxGeometry args={[1.4, 2.96, 0.1]} /><meshStandardMaterial map={door} roughness={1} flatShading /></mesh>
+        {[0.7, 2.3].map((hy) => (
+          <mesh key={hy} position={[-0.5, hy, -0.06]}><boxGeometry args={[0.34, 0.1, 0.05]} /><meshStandardMaterial color={P.wood900} roughness={1} flatShading /></mesh>
+        ))}
+        <mesh position={[0.5, 1.45, -0.08]}><boxGeometry args={[0.09, 0.2, 0.06]} /><meshStandardMaterial color={P.brass} roughness={0.8} flatShading /></mesh>
+      </group>
+      {/* 门上硬币挂牌(复用正面王冠币纹理=店招),两条短链吊在门楣上 */}
+      <group position={[2.5, 3.62, 11.8]}>
+        {[-0.16, 0.16].map((cx) => (
+          <mesh key={cx} position={[cx, 0.32, 0]}><boxGeometry args={[0.04, 0.42, 0.04]} /><meshStandardMaterial color={P.wood900} roughness={1} flatShading /></mesh>
+        ))}
+        <mesh position={[0, 0, 0.02]} rotation={[Math.PI / 2, 0, 0]}>
+          <cylinderGeometry args={[0.46, 0.46, 0.05, 12]} />
+          <meshStandardMaterial map={wood5} roughness={1} flatShading />
+        </mesh>
+        <mesh position={[0, 0, -0.02]} rotation={[0, Math.PI, 0]}>
+          <circleGeometry args={[0.4, 16]} />
+          <meshStandardMaterial map={coinFaceTexture('heads')} emissiveMap={coinFaceTexture('heads')} emissive={P.candle} emissiveIntensity={0.18} roughness={1} />
+        </mesh>
+      </group>
+      {/* 衣帽钩排 + 长凳(门左侧) */}
+      <group position={[-2.0, 0, 11.82]}>
+        <mesh position={[0, 2.1, -0.04]}><boxGeometry args={[1.7, 0.1, 0.08]} />{woodMat}</mesh>
+        {[-0.6, 0, 0.6].map((px) => (
+          <mesh key={px} position={[px, 2.02, -0.12]} rotation={[0.5, 0, 0]}><boxGeometry args={[0.07, 0.07, 0.22]} /><meshStandardMaterial color={P.wood900} roughness={1} flatShading /></mesh>
+        ))}
+        <mesh position={[0, 0.48, -0.35]}><boxGeometry args={[1.7, 0.1, 0.45]} /><meshStandardMaterial map={wood5} roughness={1} flatShading /></mesh>
+        {[[-0.7, -0.5], [0.7, -0.5], [-0.7, -0.2], [0.7, -0.2]].map(([lx, lz], i) => (
+          <mesh key={i} position={[lx, 0.22, lz]}><boxGeometry args={[0.09, 0.44, 0.09]} />{woodMat}</mesh>
+        ))}
+      </group>
+      {sconce('sc-f1', [-5.4, 2.55, 11.72], Math.PI, 1)}
+      {sconce('sc-f2', [6.4, 2.55, 11.72], Math.PI, 0)}
+
+      {/* ================= 左墙(x-) ================= */}
+      {moonWindow('w-left', [-11.88, 3.7, 2.5], Math.PI / 2)}
+      {shelf('s-left', [-11.76, 2.85, -3.0], Math.PI / 2)}
+      {sconce('sc-l1', [-11.72, 2.55, 7.5], Math.PI / 2, 1)}
+
+      {/* ================= 右墙(x+) ================= */}
+      {/* 飞镖盘:木底盘 + 同心环像素盘面 */}
+      <group position={[11.86, 2.7, 1.5]}>
+        <mesh rotation={[0, 0, Math.PI / 2]}>
+          <cylinderGeometry args={[0.56, 0.56, 0.07, 12]} />
+          <meshStandardMaterial map={wood5} roughness={1} flatShading />
+        </mesh>
+        <mesh position={[-0.05, 0, 0]} rotation={[0, -Math.PI / 2, 0]}>
+          <circleGeometry args={[0.48, 16]} />
+          <meshStandardMaterial map={tex('dart')} roughness={1} />
+        </mesh>
+      </group>
+      {shelf('s-right', [11.76, 2.85, -4.0], -Math.PI / 2, 'mugs')}
+      {sconce('sc-r1', [11.72, 2.55, 6.5], -Math.PI / 2, 0)}
+
+      {/* ================= 地面角落 ================= */}
+      {/* 小圆桌配双椅(前右角):空酒馆桌,纯氛围 */}
+      <group position={[8.3, 0, 6.8]}>
+        <mesh position={[0, 0.86, 0]}><cylinderGeometry args={[0.75, 0.75, 0.08, 10]} /><meshStandardMaterial map={wood5} roughness={1} flatShading /></mesh>
+        <mesh position={[0, 0.42, 0]}><cylinderGeometry args={[0.11, 0.13, 0.8, 6]} />{woodMat}</mesh>
+        <mesh position={[0, 0.04, 0]}><cylinderGeometry args={[0.32, 0.34, 0.07, 8]} />{woodMat}</mesh>
+        {[[-0.25, 0.1], [0.2, -0.18]].map(([mx, mz], i) => (
+          <mesh key={i} position={[mx, 0.98, mz]}><cylinderGeometry args={[0.08, 0.09, 0.16, 6]} /><meshStandardMaterial color={P.wood300} roughness={1} flatShading /></mesh>
+        ))}
+      </group>
+      <Chair x={7.25} z={5.85} ry={0.85} />
+      <Chair x={9.3} z={7.75} ry={-2.4} />
+      {/* 酒桶 + 小木箱(前左角) */}
+      <mesh position={[-8.6, 0.75, 7.2]} rotation={[0, 0.8, 0]}>
+        <cylinderGeometry args={[0.55, 0.55, 1.5, 8]} />
+        <meshStandardMaterial map={barrel} roughness={1} flatShading />
+      </mesh>
+      <mesh position={[-7.35, 0.35, 8.0]} rotation={[0, -0.25, 0]}><boxGeometry args={[0.7, 0.7, 0.7]} /><meshStandardMaterial map={crate} roughness={1} flatShading /></mesh>
+    </group>
+  );
+}
+
+// 桌上方木轮吊灯(反馈⑦升级):8 段盒子拼成的木轮圈 + 3 条小盒链收拢上吊 + 5 支蜡烛
+// (蜡柱 + 3 帧火苗片)+ 中心铜毂与辐条。全部不投影(castShadow=false,上轮反馈);真灯在 ChandelierLight。
+const CHAND_R = 1.05;
 function Chandelier() {
   const wood = tex('wood', { tone: P.wood700 });
-  const candleAngles = [0, Math.PI / 2, Math.PI, Math.PI * 1.5];
-  // y=3.3(圣经 3.6 在默认相机视锥上缘外,降 0.3 让形体入画;点光同步下移并按距离平方补偿强度)
+  const brass = tex('brass');
+  const frames = useMemo(() => [0, 1, 2].map(f => tex('flame', { frame: f })), []);
+  const rim = Array.from({ length: 8 }, (_, i) => ((i + 0.5) / 8) * Math.PI * 2);
+  const candles = Array.from({ length: 5 }, (_, i) => (i / 5) * Math.PI * 2 + 0.3);
+  const chains = [0, 1, 2].map(i => (i / 3) * Math.PI * 2 + 0.9);
+  // 形体 y=2.8:第一人称落座相机(反馈⑥)抬头时远侧轮圈/烛光入画;点光仍在 3.3(ChandelierLight 不动)。
+  // 轮心不放毂/辐条:掷币抛物线从轮圈中孔穿过(coinSim 抛点最高 ~4.3),粗件会被硬币穿模。
   return (
-    <group position={[0, 3.3, 0]}>
-      {/* 不投影:开口圆环在主光下会投出一圈细边多边形,很出戏 */}
-      <mesh>
-        <cylinderGeometry args={[1.1, 1.1, 0.12, 8, 1, true]} />
-        <meshStandardMaterial map={wood} roughness={1} flatShading side={THREE.DoubleSide} />
+    <group position={[0, 2.8, 0]}>
+      {/* 木轮圈:八角 8 段盒子 */}
+      {rim.map((a, i) => (
+        <mesh key={i} position={[Math.cos(a) * CHAND_R, 0, Math.sin(a) * CHAND_R]} rotation={[0, -(a + Math.PI / 2), 0]}>
+          <boxGeometry args={[0.88, 0.1, 0.14]} />
+          <meshStandardMaterial map={wood} roughness={1} flatShading />
+        </mesh>
+      ))}
+      {/* 轮圈下缘一圈铜箍毂环(压铸感点缀,不占轮心) */}
+      <mesh position={[0, -0.07, 0]}>
+        <cylinderGeometry args={[CHAND_R * 0.99, CHAND_R * 0.99, 0.04, 8, 1, true]} />
+        <meshStandardMaterial map={brass} roughness={0.55} metalness={0.35} flatShading side={THREE.DoubleSide} />
       </mesh>
-      {/* 吊绳(挂到 y=6 房梁) */}
-      <mesh position={[0, 1.4, 0]}>
-        <boxGeometry args={[0.04, 2.7, 0.04]} />
+      {/* 3 条链(小盒串)从轮圈收拢到 y+1.0,再一根吊绳上 y=6 房梁 */}
+      {chains.map((a) => (
+        <group key={a}>
+          {[0, 1, 2, 3, 4].map((j) => {
+            const t = (j + 0.5) / 5;
+            return (
+              <mesh
+                key={j}
+                position={[Math.cos(a) * CHAND_R * 0.92 * (1 - t), 0.05 + t * 0.95, Math.sin(a) * CHAND_R * 0.92 * (1 - t)]}
+                rotation={[0.35, a, j % 2 ? Math.PI / 4 : 0]}
+              >
+                <boxGeometry args={[0.045, 0.1, 0.045]} />
+                <meshStandardMaterial color={P.wood900} roughness={0.8} flatShading />
+              </mesh>
+            );
+          })}
+        </group>
+      ))}
+      <mesh position={[0, 2.0, 0]}>
+        <boxGeometry args={[0.05, 2.0, 0.05]} />
         <meshStandardMaterial color={P.wood900} roughness={1} />
       </mesh>
-      {candleAngles.map((a, i) => (
-        <group key={i} position={[Math.cos(a) * 0.95, 0.1, Math.sin(a) * 0.95]}>
-          <mesh><boxGeometry args={[0.08, 0.16, 0.08]} /><meshStandardMaterial color={P.parchment} roughness={1} flatShading /></mesh>
-          <mesh position={[0, 0.14, 0]}>
-            <boxGeometry args={[0.05, 0.09, 0.05]} />
-            <meshStandardMaterial color={P.candle} emissive={P.candle} emissiveIntensity={2.2} />
+      {/* 5 支蜡烛:蜡柱 + 交叉火苗片(静帧,帧位错开;整灯闪烁交给 ChandelierLight) */}
+      {candles.map((a, i) => (
+        <group key={i} position={[Math.cos(a) * CHAND_R * 0.82, 0.05, Math.sin(a) * CHAND_R * 0.82]}>
+          <mesh position={[0, 0.1, 0]}>
+            <cylinderGeometry args={[0.035, 0.045, 0.2, 6]} />
+            <meshStandardMaterial color={P.parchment} roughness={1} flatShading />
           </mesh>
+          {[0, Math.PI / 2].map((ry, k) => (
+            <mesh key={k} position={[0, 0.29, 0]} rotation={[0, ry + a, 0]}>
+              <planeGeometry args={[0.11, 0.17]} />
+              <meshStandardMaterial
+                map={frames[i % 3]} emissiveMap={frames[i % 3]} emissive={P.ink} emissiveIntensity={1.8}
+                transparent alphaTest={0.4} depthWrite={false} side={THREE.DoubleSide}
+              />
+            </mesh>
+          ))}
         </group>
       ))}
     </group>
@@ -403,14 +687,16 @@ const stackTopY = (count) => TABLE_TOP + 0.06 + Math.min(count, COL_H) * 0.045;
 // 反面占位牌（下注阶段对手只露张数，不露面额）
 const blankNotes = (n) => Array.from({ length: Math.max(0, Math.min(n, STACK_CAP)) }, (_, i) => ({ id: `b${i}`, value: 1 }));
 
-// 炉火点光:双正弦叠加闪烁(每帧只写 1 个 number,零分配)
+// 炉火点光:双正弦叠加闪烁(每帧只写 1 个 number,零分配)。
+// 画质设置「动态光效」关 / prefers-reduced-motion → 静态强度(反馈①)。
 function FireLight() {
+  const lightAnim = useSettingsStore(s => s.lightAnim);
   const ref = useRef();
   useFrame((st) => {
-    if (ref.current) {
-      const t = st.clock.elapsedTime;
-      ref.current.intensity = 7 + Math.sin(t * 2.3) * 1.2 + Math.sin(t * 5.1) * 0.6;
-    }
+    if (!ref.current) return;
+    if (REDUCED || !lightAnim) { ref.current.intensity = 7; return; }
+    const t = st.clock.elapsedTime;
+    ref.current.intensity = 7 + Math.sin(t * 2.3) * 1.2 + Math.sin(t * 5.1) * 0.6;
   });
   return <pointLight ref={ref} position={[0, 1.7, -10.5]} intensity={7} distance={9} decay={2} color={P.fire} />;
 }
@@ -445,7 +731,7 @@ function MoneyStack({ notes, faceUp, position, amount = null }) {
       ))}
       {/* 不显示张数；金额仅在可见时标注（自己的堆始终可见，他人堆揭牌后可见） */}
       {amount != null && (
-        <Html position={[0, topY + 0.3, 0]} center distanceFactor={11} zIndexRange={[20, 0]}>
+        <Html position={[0, topY + 0.15, 0]} center distanceFactor={6.5} zIndexRange={[20, 0]}>
           <div className="money-3d-amount"><PixelText size={2} color={P.gold}>{`¥${amount}`}</PixelText></div>
         </Html>
       )}
@@ -475,8 +761,11 @@ function FlyingNote({ item, startRef, delay, duration, onDone }) {
     // yaw 必须在落定(e=1)时正好等于 cardYaw(i)，否则接力给静态钱堆的瞬间会突跳(~34°看着像左右翻转)。
     // 额外自旋用 sin(eπ) 做成中途隆起、两端归零的驼峰：保留飞行中的旋转手感，落点严丝合缝。
     m.rotation.set(1.15 + (Math.PI - 1.15) * e, item.yaw * e + Math.sin(e * Math.PI) * 0.6, Math.sin(t * Math.PI * 2) * (1 - t) * 0.3);
-    // 落定 punch:末段 1→1.15→1 一鼓(两端归 1,与静态堆无缝接力)
-    m.scale.setScalar(t > 0.85 ? 1 + 0.15 * Math.sin(((t - 0.85) / 0.15) * Math.PI) : 1);
+    // 起飞尺寸渐入:第一人称相机(反馈⑥)下起点离镜头 ~1 单位,全尺寸卡会糊满半屏——
+    // 前 35% 从 0.5 长到 1(读作透视拉近);落定 punch:末段 1→1.15→1 一鼓(两端归 1,与静态堆无缝接力)
+    const grow = 0.5 + 0.5 * Math.min(1, e / 0.35);
+    const punch = t > 0.85 ? 1 + 0.15 * Math.sin(((t - 0.85) / 0.15) * Math.PI) : 1;
+    m.scale.setScalar(grow * punch);
     if (t >= 1 && !done.current) { done.current = true; onDone(); }
   });
   return (
@@ -498,11 +787,14 @@ function FlyingNotes({ betFlight, target, rot = 0 }) {
   const items = useMemo(() => betFlight.items.map((it, i) => {
     const ndcX = (it.fromScreen.x / size.width) * 2 - 1;
     const ndcY = -(it.fromScreen.y / size.height) * 2 + 1;
-    // 手牌屏幕点→世界→座位旋转组的局部坐标(本组件渲染在旋转组内)
-    const s = new THREE.Vector3(ndcX, ndcY, 0.86).unproject(camera).applyAxisAngle(UP, -rot);
+    // 手牌屏幕点→世界→座位旋转组的局部坐标(本组件渲染在旋转组内)。
+    // NDC z 0.86→0.80:第一人称落座相机(反馈⑥)视点变低变近,旧深度的反投影点会落进桌板内;
+    // 0.80 的起点在桌沿上方(≈y1.14/z2.1),再钳到桌面之上兜底——起飞不穿模。
+    const s = new THREE.Vector3(ndcX, ndcY, 0.80).unproject(camera).applyAxisAngle(UP, -rot);
+    s.y = Math.max(s.y, TABLE_TOP + 0.14);
     const lp = cardLocal(i);
     const end = new THREE.Vector3(target.x + lp[0], lp[1], target.z + lp[2]);
-    const c = new THREE.Vector3((s.x + end.x) / 2, Math.max(s.y, end.y) + 1.3, (s.z + end.z) / 2); // 弧顶
+    const c = new THREE.Vector3((s.x + end.x) / 2, Math.max(s.y, end.y) + 0.9, (s.z + end.z) / 2); // 弧顶(近机位收矮)
     return { id: it.id, value: it.value, s, end, c, yaw: cardYaw(i) };
   }), [betFlight, camera, size, target, rot]);
 
@@ -542,6 +834,9 @@ function SceneContents({ look, freeCam = false }) {
   const betFlight = useGameStore(s => s.betFlight);
   const myStack = useGameStore(s => s.myStack);
   const looks = useGameStore(s => s.looks);
+  // 画质设置(反馈①):阴影/光影特效由玩家档位控制;URL 排查开关仍可强制关
+  const shadowsOn = useSettingsStore(s => s.shadows);
+  const postfxOn = useSettingsStore(s => s.postfx);
   useHeadReport(look);
 
   const players = state.players;
@@ -551,9 +846,12 @@ function SceneContents({ look, freeCam = false }) {
   const N = Math.max(1, players.length);
   const seats = players.map((_, i) => seatOf(N, i));
   const mySeat = seats[meIdx] ?? { x: 0, z: 2.65 };
-  const rot = rotFor(mySeat);
+  // ?yaw=<弧度>:仅美术 QA 用——在座位旋转上再加偏航,便于截图核验四面墙
+  const rot = rotFor(mySeat) + (parseFloat(PARAMS.get('yaw')) || 0);
   const mySpot = spotOf(mySeat);
   const spots = seats.map(spotOf);
+  // 第一人称落座相机基准(反馈⑥):我的座位旋转后必在 +z 近侧,距离=座距+微退
+  const camZ = Math.hypot(mySeat.x, mySeat.z) + CAM_BACK;
 
   // 有人破产的瞬间:镜头注视点微震 300ms(§1.9)
   const bankruptCount = players.filter(p => p.bankrupt).length;
@@ -585,10 +883,10 @@ function SceneContents({ look, freeCam = false }) {
       <color attach="background" args={[P.sceneBg]} />
       <fog attach="fog" args={[P.sceneFog, 10, 26]} />
       {/* 灯 rig(5 盏):环境 + 暖金主光(投影) + 吊灯唯一光池 + 炉火(闪烁) + 冷补 */}
-      <ambientLight intensity={0.30} color={P.sceneAmbient} />
+      <ambientLight intensity={0.38} color={P.sceneAmbient} />
       <directionalLight
         position={[4, 9, 3]} intensity={1.35} color={P.key}
-        castShadow={!NO_SHADOW} shadow-mapSize={[1024, 1024]}
+        castShadow={!NO_SHADOW && shadowsOn} shadow-mapSize={[1024, 1024]}
         shadow-camera-near={1} shadow-camera-far={30}
         shadow-camera-left={-9} shadow-camera-right={9}
         shadow-camera-top={9} shadow-camera-bottom={-9}
@@ -597,25 +895,26 @@ function SceneContents({ look, freeCam = false }) {
       <ChandelierLight />
       <directionalLight position={[-6, 4, 6]} intensity={0.30} color={P.coolFill} />
 
-      {freeCam ? <OrbitControls target={[0, 1.05, 0]} makeDefault /> : <CameraRig look={look} shakeRef={shakeRef} />}
+      {freeCam ? <OrbitControls target={[0, 1.05, 0]} makeDefault /> : <CameraRig look={look} shakeRef={shakeRef} camZ={camZ} />}
       <Projector />
 
       {/* 场景旋转组:把「我的座位」转到 +z 近侧——不同玩家看到自己坐在桌边不同位置(反馈⑫)。
           炉火点光跟着壁炉走(在组内);主光/环境/吊灯点光留在世界系(灯光戏剧性对所有人一致)。 */}
       <group rotation={[0, rot, 0]}>
-        {/* 造景:房间(墙/地/天花/梁) + 壁炉 + 酒桶 + 吊灯 + 圆毯 */}
+        {/* 造景:房间(墙/地/天花/梁) + 壁炉 + 酒桶 + 墙面摆设 + 吊灯 + 圆毯 */}
         <Room />
         <Fireplace />
         <FireLight />
         <Barrels />
+        <Decor />
         <Chandelier />
         <Rug />
 
         <Table spots={spots} />
 
-        {/* 全员入座(含自己的空凳;非自由相机时自己≈相机不建模) */}
+        {/* 全员入座(含自己的空椅;非自由相机时自己≈相机不建模,自己的椅背在相机身后不挡视野) */}
         {seats.map((seat, i) => (
-          <Stool key={`stool-${i}`} x={seat.x} z={seat.z} ry={Math.atan2(-seat.x, -seat.z)} />
+          <Chair key={`chair-${i}`} x={seat.x} z={seat.z} ry={Math.atan2(-seat.x, -seat.z)} />
         ))}
         {players.map((p, i) => {
           if (p.id === playerId && !freeCam) return null;
@@ -672,8 +971,8 @@ function SceneContents({ look, freeCam = false }) {
       {/* 柔和接触阴影：低分辨率(够糊)，避免每帧高分重渲拖帧 */}
       <ContactShadows position={[0, 0.02, 0]} scale={18} blur={2.6} opacity={0.5} far={4.5} resolution={256} color={P.wood900} />
 
-      {/* 后处理：吊灯/金皇冠/金色¥微微发光 + 画面暗角，营造围炉灯火气 */}
-      {!NO_FX && (
+      {/* 后处理：吊灯/金皇冠/金色¥微微发光 + 画面暗角，营造围炉灯火气(画质设置可关,反馈①) */}
+      {!NO_FX && postfxOn && (
         <EffectComposer disableNormalPass multisampling={0}>
           <Bloom intensity={0.5} luminanceThreshold={0.72} luminanceSmoothing={0.2} mipmapBlur />
           <Vignette eskil={false} offset={0.28} darkness={0.62} />
@@ -686,6 +985,12 @@ function SceneContents({ look, freeCam = false }) {
 export default function Scene3D() {
   const look = useRef({ x: 0, y: 0 });
   const [freeCam, setFreeCam] = useState(false);
+  // 渲染分辨率档位(反馈①):auto=像素预算自适应;low/medium/high 固定 dpr。R3F 对 dpr 热应用。
+  const renderScale = useSettingsStore(s => s.renderScale);
+  const dpr = renderScale === 'low' ? 0.75
+    : renderScale === 'medium' ? 1.0
+      : renderScale === 'high' ? Math.min((typeof window !== 'undefined' && window.devicePixelRatio) || 1, 1.5)
+        : adaptiveDpr();
 
   useEffect(() => {
     const onMove = (e) => {
@@ -722,8 +1027,8 @@ export default function Scene3D() {
     <div className="r3f-scene">
       <Canvas
         shadows={!NO_SHADOW}
-        dpr={adaptiveDpr()}
-        camera={{ position: [0, 2.7, 6.4], fov: 50, near: 0.1, far: 100 }}
+        dpr={dpr}
+        camera={{ position: [0, EYE_Y, 3.0], fov: 50, near: 0.1, far: 100 }}
         gl={{ antialias: false, powerPreference: 'high-performance' }}
       >
         <SceneContents look={look} freeCam={freeCam} />

@@ -7,6 +7,7 @@ import PixelText from '../assets/pixelfont/PixelText';
 import MoneyHand from './MoneyHand';
 import NegotiationBoard from './NegotiationBoard';
 import PhaseCoachmark from './PhaseCoachmark';
+import SettingsPanel from './SettingsPanel';
 import { decompose } from '../game/notes';
 import { projectPoint } from '../scene/projection';
 import { P, shade } from '../assets/palette';
@@ -121,7 +122,10 @@ function TopBar() {
         {state.round > 0 && <span className="px-chip"><PixelText size={2}>{`R${state.round}`}</PixelText></span>}
         <span className="px-chip"><PixelText size={2} color="var(--px-gold)">{PHASE_META[state.phase]?.label ?? state.phase}</PixelText></span>
       </div>
-      <button className="btn small danger-btn" onClick={exit}><Icon name="exit" size={15} /> 退出</button>
+      <div className="hud-top-right">
+        <SettingsPanel />
+        <button className="btn small danger-btn" onClick={exit}><Icon name="exit" size={15} /> 退出</button>
+      </div>
     </div>
   );
 }
