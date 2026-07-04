@@ -7,6 +7,12 @@ export const ROLE_LABEL = {
   bank: '银行', none: '未选',
 };
 
+// 单字身份章（玩家栏用，替代旧剪影图标）。多为角色名首字，暴食者取「食」而非「暴」。
+export const ROLE_GLYPH = {
+  landlord: '地', capitalist: '资',
+  farmer: '农', investor: '投', glutton: '食',
+};
+
 // 角色一句话说明（选角时展示）。
 export const ROLE_DESC = {
   landlord: '高风险高回报，有资金目标考核',

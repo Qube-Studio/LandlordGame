@@ -528,18 +528,31 @@ function Decor() {
   );
 }
 
-// 桌上方木轮吊灯(反馈⑦升级):8 段盒子拼成的木轮圈 + 3 条小盒链收拢上吊 + 5 支蜡烛
-// (蜡柱 + 3 帧火苗片)+ 中心铜毂与辐条。全部不投影(castShadow=false,上轮反馈);真灯在 ChandelierLight。
+// 桌上方木轮吊灯(反馈⑦升级 + 形体修正):8 段盒子拼成的木轮圈;蜡烛经黄铜托盘实站在轮面上;
+// 3 条直拉绳从轮缘铜扣收拢到高处黄铜领结,一根吊绳挂上两根房梁之间的横杆——每个连接点实接。
+// (旧版小盒链节间距大于链节本身、且不接轮圈不接吊绳,俯瞰/仰视都是一串悬空黑块;蜡烛也悬在轮孔里。)
+// 全部不投影(castShadow=false,上轮反馈);真灯在 ChandelierLight。
 const CHAND_R = 1.05;
+// 轮圈是八角形(8 段直盒拼弦)不是圆:角度 a 处轮面中线到中心的距离按弦修正,
+// 蜡烛/拉绳按它落位才真正踩在木头上(按圆算会浮空或悬到孔里)。
+function chandChordR(a) {
+  const seg = Math.PI / 4;
+  const m = (((a - Math.PI / 8) % seg) + seg) % seg;
+  return CHAND_R / Math.cos(m > seg / 2 ? m - seg : m);
+}
 function Chandelier() {
   const wood = tex('wood', { tone: P.wood700 });
   const brass = tex('brass');
   const frames = useMemo(() => [0, 1, 2].map(f => tex('flame', { frame: f })), []);
   const rim = Array.from({ length: 8 }, (_, i) => ((i + 0.5) / 8) * Math.PI * 2);
   const candles = Array.from({ length: 5 }, (_, i) => (i / 5) * Math.PI * 2 + 0.3);
-  const chains = [0, 1, 2].map(i => (i / 3) * Math.PI * 2 + 0.9);
+  const ropes = [0, 1, 2].map(i => (i / 3) * Math.PI * 2 + 0.9);
+  // 领结 y+1.85(世界 4.65):掷币弧顶约 world-y 4.3(coinSim),中央通道的粗件必须让到弧顶之上;
+  // 细拉绳(0.04)与旧吊绳同级,弧顶偶尔擦过可接受。
+  const KNOT_Y = 1.85;
+  const brassMat = <meshStandardMaterial map={brass} roughness={0.55} metalness={0.35} flatShading />;
   // 形体 y=2.8:第一人称落座相机(反馈⑥)抬头时远侧轮圈/烛光入画;点光仍在 3.3(ChandelierLight 不动)。
-  // 轮心不放毂/辐条:掷币抛物线从轮圈中孔穿过(coinSim 抛点最高 ~4.3),粗件会被硬币穿模。
+  // 轮心不放毂/辐条:掷币抛物线从轮圈中孔穿过,粗件会被硬币穿模。
   return (
     <group position={[0, 2.8, 0]}>
       {/* 木轮圈:八角 8 段盒子 */}
@@ -554,46 +567,65 @@ function Chandelier() {
         <cylinderGeometry args={[CHAND_R * 0.99, CHAND_R * 0.99, 0.04, 8, 1, true]} />
         <meshStandardMaterial map={brass} roughness={0.55} metalness={0.35} flatShading side={THREE.DoubleSide} />
       </mesh>
-      {/* 3 条链(小盒串)从轮圈收拢到 y+1.0,再一根吊绳上 y=6 房梁 */}
-      {chains.map((a) => (
-        <group key={a}>
-          {[0, 1, 2, 3, 4].map((j) => {
-            const t = (j + 0.5) / 5;
-            return (
-              <mesh
-                key={j}
-                position={[Math.cos(a) * CHAND_R * 0.92 * (1 - t), 0.05 + t * 0.95, Math.sin(a) * CHAND_R * 0.92 * (1 - t)]}
-                rotation={[0.35, a, j % 2 ? Math.PI / 4 : 0]}
-              >
-                <boxGeometry args={[0.045, 0.1, 0.045]} />
-                <meshStandardMaterial color={P.wood900} roughness={0.8} flatShading />
-              </mesh>
-            );
-          })}
-        </group>
-      ))}
-      <mesh position={[0, 2.0, 0]}>
-        <boxGeometry args={[0.05, 2.0, 0.05]} />
+      {/* 3 条拉绳:轮缘铜扣 → 领结,直杆首尾实接 */}
+      {ropes.map((a, i) => {
+        const r = chandChordR(a);
+        const len = Math.hypot(r, KNOT_Y - 0.05);
+        return (
+          <group key={i}>
+            <mesh position={[Math.cos(a) * r, 0.075, Math.sin(a) * r]} rotation={[0, -a, 0]}>
+              <boxGeometry args={[0.1, 0.05, 0.1]} />
+              {brassMat}
+            </mesh>
+            <mesh
+              position={[(Math.cos(a) * r) / 2, (KNOT_Y + 0.05) / 2, (Math.sin(a) * r) / 2]}
+              rotation={[0, -a, Math.atan2(r, KNOT_Y - 0.05)]}
+            >
+              <boxGeometry args={[0.04, len, 0.04]} />
+              <meshStandardMaterial color={P.wood900} roughness={0.9} flatShading />
+            </mesh>
+          </group>
+        );
+      })}
+      {/* 领结 + 吊绳 + 两梁间横杆(世界 y=6,搭在 z=±3 房梁上):吊点落到实处 */}
+      <mesh position={[0, KNOT_Y, 0]}>
+        <cylinderGeometry args={[0.07, 0.1, 0.14, 6]} />
+        {brassMat}
+      </mesh>
+      <mesh position={[0, (KNOT_Y + 3.2) / 2, 0]}>
+        <boxGeometry args={[0.05, 3.2 - KNOT_Y, 0.05]} />
         <meshStandardMaterial color={P.wood900} roughness={1} />
       </mesh>
-      {/* 5 支蜡烛:蜡柱 + 交叉火苗片(静帧,帧位错开;整灯闪烁交给 ChandelierLight) */}
-      {candles.map((a, i) => (
-        <group key={i} position={[Math.cos(a) * CHAND_R * 0.82, 0.05, Math.sin(a) * CHAND_R * 0.82]}>
-          <mesh position={[0, 0.1, 0]}>
-            <cylinderGeometry args={[0.035, 0.045, 0.2, 6]} />
-            <meshStandardMaterial color={P.parchment} roughness={1} flatShading />
-          </mesh>
-          {[0, Math.PI / 2].map((ry, k) => (
-            <mesh key={k} position={[0, 0.29, 0]} rotation={[0, ry + a, 0]}>
-              <planeGeometry args={[0.11, 0.17]} />
-              <meshStandardMaterial
-                map={frames[i % 3]} emissiveMap={frames[i % 3]} emissive={P.ink} emissiveIntensity={1.8}
-                transparent alphaTest={0.4} depthWrite={false} side={THREE.DoubleSide}
-              />
+      {/* 横杆不投影:别给桌毡再添一条竖向暗纹(房梁横纹是既定演出,见 Room) */}
+      <mesh position={[0, 3.2, 0]}>
+        <boxGeometry args={[0.18, 0.18, 6.2]} />
+        <meshStandardMaterial color={P.beam} roughness={1} flatShading />
+      </mesh>
+      {/* 5 支蜡烛:黄铜托盘 + 蜡柱,实站在轮面上;交叉火苗片(静帧,帧位错开;整灯闪烁交给 ChandelierLight) */}
+      {candles.map((a, i) => {
+        const r = chandChordR(a);
+        return (
+          <group key={i} position={[Math.cos(a) * r, 0.05, Math.sin(a) * r]}>
+            <mesh position={[0, 0.015, 0]}>
+              <cylinderGeometry args={[0.075, 0.09, 0.03, 6]} />
+              {brassMat}
             </mesh>
-          ))}
-        </group>
-      ))}
+            <mesh position={[0, 0.13, 0]}>
+              <cylinderGeometry args={[0.035, 0.045, 0.2, 6]} />
+              <meshStandardMaterial color={P.parchment} roughness={1} flatShading />
+            </mesh>
+            {[0, Math.PI / 2].map((ry, k) => (
+              <mesh key={k} position={[0, 0.32, 0]} rotation={[0, ry + a, 0]}>
+                <planeGeometry args={[0.11, 0.17]} />
+                <meshStandardMaterial
+                  map={frames[i % 3]} emissiveMap={frames[i % 3]} emissive={P.ink} emissiveIntensity={1.8}
+                  transparent alphaTest={0.4} depthWrite={false} side={THREE.DoubleSide}
+                />
+              </mesh>
+            ))}
+          </group>
+        );
+      })}
     </group>
   );
 }

@@ -6,7 +6,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { useGameStore } from '../store/gameStore';
 import { getArt } from '../assets/registry';
-import { RoleIcon } from '../assets/RoleIcon';
 import PixelText from '../assets/pixelfont/PixelText';
 import CandleMark from '../assets/pixelfont/CandleMark';
 import MoneyHand from './MoneyHand';
@@ -20,7 +19,7 @@ import { decompose } from '../game/notes';
 import { projectPoint } from '../scene/projection';
 import { P, shade } from '../assets/palette';
 import { EVENT_TEXT } from '../game/settleText';
-import { ROLE_LABEL, factionOf, isFarmerSide, isLandlordSide } from '../game/roles';
+import { ROLE_LABEL, ROLE_GLYPH, factionOf, isFarmerSide, isLandlordSide } from '../game/roles';
 
 const Icon = getArt('icon');
 
@@ -130,7 +129,7 @@ function TopBar() {
     <div className="hud-top">
       <div className="hud-top-left">
         <button className="px-chip" onClick={copyId} title="复制房间号">
-          <PixelText size={2}>{`${state.roomName}  ${state.roomId}`}</PixelText>
+          <PixelText size={2} color="#fff">{`${state.roomName}  ${state.roomId}`}</PixelText>
         </button>
         <span className="px-chip phase-chip">
           <PixelText size={2} color="var(--px-gold)">
@@ -164,11 +163,11 @@ function PlayerRail() {
         return (
           <div key={p.id} className={`rail-row ${mine ? 'me' : ''} ${p.online ? '' : 'offline'} ${p.bankrupt ? 'gone' : ''}`}>
             <div className="rail-main">
-              {/* 左：在线灯(绿=在线/灰=离线) 中：名字 右：角色身份图标(玩家素材,加大到 24)。状态放展开详情。 */}
+              {/* 左：在线灯(绿=在线/灰=离线) 中：名字 右：单字身份章(加粗汉字,按阵营上色)。状态放展开详情。 */}
               <span className={`rail-online ${p.online ? '' : 'off'}`} title={p.online ? '在线' : '离线'} />
               <span className="rail-name"><PixelText size={2}>{`${p.name}${p.isHost ? ' ♔' : ''}`}</PixelText></span>
               {p.role
-                ? <RoleIcon role={p.role} size={24} className={`rail-role-icon ${factionOf(p.role) ?? 'none'}`} title={ROLE_LABEL[p.role]} />
+                ? <span className={`rail-role-glyph pixel-cjk ${factionOf(p.role) ?? 'none'}`} title={ROLE_LABEL[p.role]}>{ROLE_GLYPH[p.role] ?? '?'}</span>
                 : (lobby && <PixelText size={2} color="var(--ink-dim)">未选</PixelText>)}
             </div>
             <div className="rail-detail">

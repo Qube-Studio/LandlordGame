@@ -237,12 +237,13 @@ img, svg, canvas { -webkit-user-drag: none; user-drag: none; }
 }
 .rail-row {
   display: flex; flex-direction: column; gap: 4px;
-  background: rgba(10, 11, 15, 0.74);
-  border: 2px solid #000;
-  box-shadow: inset 2px 2px 0 var(--px-bevel-l), inset -2px -2px 0 var(--px-bevel-d);
-  padding: 6px 8px;
+  /* 与测试模式条(.dev-hud)完全同款:近黑半透明底 + 1px 纯黑细边 + 同 padding,
+     无浮雕/无木纹/无阵营色条/me 不描金(用户定稿"要完全一样";
+     末尾皮肤块的选择器已把 .rail-row 摘除,别再加回去)。 */
+  background: rgba(10, 11, 15, 0.7);
+  border: 1px solid #000;
+  padding: 3px 10px;
 }
-.rail-row.me { border-color: var(--px-gold); }
 .rail-row.offline { opacity: 0.5; }
 .rail-line1 { display: flex; align-items: center; gap: 6px; }
 .rail-line2 { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
@@ -523,7 +524,7 @@ img, svg, canvas { -webkit-user-drag: none; user-drag: none; }
     inset 0 0 0 1px rgba(232, 194, 90, 0.22),
     0 6px 0 rgba(0, 0, 0, 0.4);
 }
-.px-chip, .rail-row, .goal-hud, .hud-banner, .mc-chat-input {
+.px-chip, .goal-hud, .hud-banner, .mc-chat-input {
   box-shadow:
     inset 2px 2px 0 var(--px-bevel-l),
     inset -2px -2px 0 var(--px-bevel-d),
@@ -574,7 +575,7 @@ img, svg, canvas { -webkit-user-drag: none; user-drag: none; }
   background-color: var(--c-wood-700);
   background-image: var(--rivets), var(--tex-wood);
 }
-.px-chip, .rail-row, .goal-hud, .hud-banner, .mc-chat-input {
+.px-chip, .goal-hud, .hud-banner, .mc-chat-input {
   background-color: var(--c-wood-700);
   background-image: var(--tex-wood);
   border-color: var(--c-wood-950);
@@ -620,19 +621,7 @@ img, svg, canvas { -webkit-user-drag: none; user-drag: none; }
   50% { filter: drop-shadow(0 0 7px rgba(255, 154, 74, 0.55)); }
 }
 
-/* ---- 玩家栏:悬挂木瓦牌 + 行首阵营色条(box-shadow 变量注入,兼容原 bevel) ---- */
-.rail-row {
-  --rail-fac: var(--c-wood-500);
-  box-shadow:
-    inset 4px 0 0 var(--rail-fac),
-    inset 2px 2px 0 var(--px-bevel-l),
-    inset -2px -2px 0 var(--px-bevel-d),
-    inset 0 0 0 1px rgba(232, 194, 90, 0.20);
-  padding-left: 12px;
-}
-.rail-row:has(.rail-dot.landlord) { --rail-fac: var(--c-brass-hi); }
-.rail-row:has(.rail-dot.farmer) { --rail-fac: var(--c-grass); }
-.rail-row.me { border-color: var(--c-brass-hi); }
+/* ---- 玩家栏:与 .dev-hud 完全同款(用户定稿),木瓦牌/阵营色条/浮雕已撤——箱体样式只在基础 .rail-row 一处 ---- */
 
 /* ---- 按钮:黄铜主键 / 素木底键 ---- */
 .btn:hover:not(:disabled) { background: var(--px-stone); filter: brightness(1.18); }
@@ -961,23 +950,27 @@ body {
 
 /* ---- 玩家条瘦身（反馈⑨）：常驻单行，悬停滑出详情卡 ---- */
 .player-rail { width: 182px; gap: 5px; }
-.rail-row { padding: 4px 6px 4px 10px; gap: 0; }
-.rail-main { display: flex; align-items: center; gap: 7px; min-height: 24px; }
+.rail-row { gap: 0; }
+.rail-main { display: flex; align-items: center; gap: 7px; min-height: 24px; opacity: 0.55; }
 .rail-name { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; }
 /* 左：在线灯（绿=在线/灰=离线），不被挤掉 */
 .rail-main .rail-online { flex: 0 0 8px; width: 8px; height: 8px; }
-/* 右：角色身份图标（玩家素材，白色剪影加大到 24；描边+按阵营微染，暗底更清楚） */
-.rail-role-icon {
+/* 右：单字身份章（加粗汉字：地/资/农/投/食，按阵营上色；黑描影，暗底更清楚） */
+.rail-role-glyph {
   flex: 0 0 24px; width: 24px; height: 24px; margin-left: 5px;
-  filter: drop-shadow(1px 0 0 rgba(0, 0, 0, 0.7)) drop-shadow(-1px 0 0 rgba(0, 0, 0, 0.7))
-          drop-shadow(0 1px 0 rgba(0, 0, 0, 0.7)) drop-shadow(0 -1px 0 rgba(0, 0, 0, 0.7));
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px; font-weight: 700; line-height: 1;
+  text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.7);
 }
+.rail-role-glyph.landlord { color: var(--px-gold); }
+.rail-role-glyph.farmer { color: var(--px-grass); }
+.rail-role-glyph.none { color: var(--ink-dim); }
 .rail-detail {
   display: flex; flex-direction: column; gap: 3px;
   max-height: 0; overflow: hidden; opacity: 0; margin-top: 0;
   transition: max-height var(--t-ui) var(--e-enter), opacity var(--t-ui) linear, margin-top var(--t-ui) linear;
 }
-.rail-row:hover .rail-detail { max-height: 84px; opacity: 1; margin-top: 5px; }
+.rail-row:hover .rail-detail { max-height: 84px; opacity: 0.55; margin-top: 5px; }
 .rail-row.gone { filter: grayscale(0.7); }
 
 @media (prefers-reduced-motion: reduce) {
