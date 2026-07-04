@@ -54,7 +54,7 @@ export default function SettingsPanel() {
       {open && (
         <div className="goal-hud hud-card settings-panel">
           <div className="goal-line hud-card-title">
-            <PixelText size={2} color="var(--c-wood-900)">画质设置</PixelText>
+            <PixelText size={2} color="var(--px-gold)">画质设置</PixelText>
             <button className="settings-x" aria-label="关闭" onClick={() => setOpen(false)}>×</button>
           </div>
 

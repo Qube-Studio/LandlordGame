@@ -1,19 +1,20 @@
 // 桌面显式结算编导层（§3.8，纯表现）：SETTLE 起接管全部桌面钱渲染——
 //   聚拢（各家下注堆→彩池）→ 分堆（彩池重新数钱、朝各得主方向分成几份）→ 派送（滑进各家圆圈）
-//   → 协商实时镜像（对账机制）→ FINALIZE 收账/技能调整（通用 adjust 步 + 浮动标签）
-//   → 拿取（自己的堆飞向右下资金蜡烛、他人的堆飞向其身体收拢）。
+//   → 协商（3D 直接操作：重力枪拖自己的钱牌/债务牌到队友圈 = 转移；对账机制兜底镜像他人转移）
+//   → FINALIZE 收账/技能调整（通用 adjust 步）→ 拿取（自己的堆飞向右下资金蜡烛，堆上浮纯文字「拿取 [F]」）。
 // 服务端只发「谁给谁多少」（state.payout.script/piles），这里翻译成弧线飞牌；
 // 播完队列后与权威 piles 对账、差额自动飞牌追平——协商镜像与地主的 FINALIZE 追平共用该机制。
-// 新机制（新的 adjust source）无需改这里：flows 通用演出 + payoutText 文案回落服务端 label。
+// 新机制（新的 adjust source）无需改这里：flows 通用演出（金额变化直接体现在钱堆上，无浮动数字）。
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { Html } from '@react-three/drei';
 import * as THREE from 'three';
 import { useGameStore } from '../store/gameStore';
-import { decompose } from '../game/notes';
-import { labelForStep } from '../game/payoutText';
+import { decompose, splitNote, SPLITS } from '../game/notes';
+import { IS_3D_INPUT } from '../game/inputMode';
 import { getCoinRest } from './coinSim';
-import { MoneyStack, ArcNote, cardLocal, cardYaw, stackTopY, TABLE_TOP } from './cards';
+import { MoneyStack, ArcNote, cardLocal, cardYaw, stackTopY, TABLE_TOP, CARD_W, CARD_T, CARD_D, cardMaterials } from './cards';
+import { groundFromPointer, CarrySpring } from './carry';
 import PixelText from '../assets/pixelfont/PixelText';
 import { P } from '../assets/palette';
 
@@ -36,7 +37,7 @@ class Director {
   get ctx() { return this._ctxRef.current; }
 
   reset() {
-    this.model = { piles: {}, debts: {}, pot: [], clusters: [], flights: [], labels: [], potAmount: null };
+    this.model = { piles: {}, debts: {}, pot: [], clusters: [], flights: [], potAmount: null };
     this.tasks = [];              // {rel, due, fn} —— 帧钟排程（见 at/update）
     this.now = null;              // 渲染帧钟（ms）；首帧前为 null
     this.queue = [];
@@ -47,6 +48,8 @@ class Director {
     this.latestPiles = {};
     this.latestDebts = {};
     this.seq = 0;
+    this.holds = 0;               // 重力枪拖拽的引用计数：>0 时冻结队列/对账（牌在手上悬着/在途，账不平）。
+                                  // 用计数而非布尔——快速连拖两张时，前一张落地不能提前解冻放行第二张的对账。
     this._pot = null;             // 彩池落点：首次使用时按硬币落点惰性解析（reset 每回合重解）
   }
 
@@ -92,10 +95,23 @@ class Director {
     p.amount += note.value;
     p.notes = [...p.notes, note];
   }
-  addLabel(pos, text, tone) {
-    const key = `lb${++this.seq}`;
-    this.model.labels.push({ key, pos, text, tone });
-    this.at(1600, () => { this.model.labels = this.model.labels.filter(l => l.key !== key); this.bump(); });
+  // ---------- 协商 3D 拖拽（重力枪）用的模型操作 ----------
+  // 抓走一张具体的牌（其余牌不重摆）；找不到（模型已重建）返回 null，调用方忽略本次抓取
+  grabNoteById(pid, noteId, debt = false) {
+    const p = debt ? this.debtPile(pid) : this.pile(pid);
+    const note = p.notes.find(n => n.id === noteId);
+    if (!note) return null;
+    p.notes = p.notes.filter(n => n.id !== noteId);
+    p.amount -= note.value;
+    this.bump();
+    return note;
+  }
+  // 长按拆分堆里的一张牌：只改组成不改金额（对账只比金额，组成随意）
+  splitPileNote(pid, noteId, debt = false) {
+    const p = debt ? this.debtPile(pid) : this.pile(pid);
+    const before = p.notes.length;
+    p.notes = splitNote(p.notes, noteId).map(n => (debt && !n.debt ? { ...n, debt: true } : n));
+    if (p.notes.length !== before) this.bump();
   }
   // 生成一批飞牌；onLand 每张落定回调。返回总时长估计（ms；真正的步进闸门看飞牌排空，见 _advance）
   fly(notes, fromOf, toOf, { dur = 620, stagger = 45, delay0 = 0, apex = 0.75, growIn = false, shrinkOut = false, debt = false, onLand } = {}) {
@@ -160,6 +176,7 @@ class Director {
 
   pump() {
     if (this.running) return;
+    if (this.holds > 0) { this.at(80, () => this.pump()); return; }  // 拖拽中：整条队列等牌落回账上
     const task = this.queue.shift();
     if (!task) { this.bump(); return; }
     this.running = true;
@@ -168,10 +185,10 @@ class Director {
     this.at(Math.max(1, ms), () => this._advance());
   }
 
-  // 步进闸门：到时且【场上所有飞牌都已落定】才进下一步——落牌按帧结算，低帧率下
-  // 光靠时长估计会让对账/下一步抢在落定之前跑（曾导致钱堆翻倍、彩池残留）。
+  // 步进闸门：到时且【场上所有飞牌都已落定、没有牌被拖着】才进下一步——落牌按帧结算，
+  // 低帧率下光靠时长估计会让对账/下一步抢在落定之前跑（曾导致钱堆翻倍、彩池残留）。
   _advance() {
-    if (this.model.flights.length > 0) { this.at(60, () => this._advance()); return; }
+    if (this.holds > 0 || this.model.flights.length > 0) { this.at(60, () => this._advance()); return; }
     this.running = false;
     this.pump();
   }
@@ -257,14 +274,12 @@ class Director {
   }
 
   // ---------- ③ 通用调整步：技能/机制改变钱堆（工资/罚金/收账/池/税/饭账/未来新机制） ----------
+  // 金额变化直接体现在钱堆与堆顶金额标签上，不再放「±N」浮动数字（明细在底部结算面板/账本）。
   playAdjust(step) {
-    const text = labelForStep(step);
     let ms = 0;
-    const paidFrom = {};
     step.flows.forEach((flow, k) => {
       const src = this.anchor(flow.from, flow.amount, true);
       const dst = this.anchor(flow.to, flow.amount, false);
-      if (flow.from?.id) paidFrom[flow.from.id] = (paidFrom[flow.from.id] ?? 0) + flow.amount;
       ms = Math.max(ms, this.fly(
         src.notes,
         src.slotOf,
@@ -276,30 +291,9 @@ class Director {
         },
       ));
     });
-    // 浮动标签：每个涉事玩家一条 ±N
-    const delta = {};
-    for (const f of step.flows) {
-      if (f.to?.kind === 'pile') delta[f.to.id] = (delta[f.to.id] ?? 0) + f.amount;
-      if (f.from?.kind === 'pile' || f.from?.kind === 'hand') delta[f.from.id] = (delta[f.from.id] ?? 0) - f.amount;
-    }
-    for (const [pid, d] of Object.entries(delta)) {
-      if (d === 0) continue;
-      const spot = this.ctx.spot(pid);
-      this.addLabel([spot.x, stackTopY(6) + 0.42, spot.z], `${text} ${d > 0 ? '+' : ''}${d}`, d > 0 ? 'ok' : 'danger');
-    }
-    // 收账步收尾：红色债务牌谢幕——实付部分已飞走；真有坏账（uncovered>0）才标「无力偿还」
-    // （地主在协商期看的是冻结方案，若债被挪走但全额付清，按本地残差标注会误报）
+    // 收账步收尾：红色债务牌谢幕（实付部分已飞走；坏账明细见底部结算面板）
     if (step.source === 'debtCollect') {
       this.at(ms, () => {
-        if (step.uncovered > 0) {
-          for (const [pid, dp] of Object.entries(this.model.debts)) {
-            const residual = dp.amount - Math.min(dp.amount, paidFrom[pid] ?? 0);
-            if (residual > 0) {
-              const spot = this.ctx.spot(pid);
-              this.addLabel([spot.x, stackTopY(3) + 0.3, spot.z], `无力偿还 ${residual}`, 'danger');
-            }
-          }
-        }
         this.model.debts = {};
         this.bump();
       });
@@ -356,7 +350,6 @@ class Director {
       () => target,
       { dur: 660, stagger: 42, apex: 0.9, shrinkOut: true },
     );
-    this.addLabel([spot.x, stackTopY(4) + 0.3, spot.z], `+${amount}`, 'ok');
     return ms + S(120);
   }
 
@@ -424,6 +417,40 @@ class Director {
 function DirectorClock({ dir }) {
   useFrame((st) => dir.update(st.clock.elapsedTime * 1000));
   return null;
+}
+
+// 协商拖拽中被抓着的牌（局部系：PayoutLayer 挂在场景旋转组内，指针射线先回世界再反旋进来）
+const _negoTarget = new THREE.Vector3(); // 每帧即用即弃的划痕向量
+function NegoCarriedNote({ note, carryRef, ndcRef, rot }) {
+  const ref = useRef();
+  const { camera } = useThree();
+  useFrame((_, dt) => {
+    const c = carryRef.current;
+    const m = ref.current;
+    if (!c || !m) return;
+    groundFromPointer(camera, ndcRef.current, _negoTarget);
+    _negoTarget.applyAxisAngle(UP, -rot);
+    _negoTarget.y = TABLE_TOP + 0.55;
+    c.spring.update(_negoTarget, dt);
+    m.position.copy(c.spring.pos);
+    c.spring.tilt(m.rotation);
+    m.visible = true;
+  });
+  return (
+    <mesh ref={ref} material={cardMaterials(note.value, !!note.debt)} castShadow visible={false}>
+      <boxGeometry args={[CARD_W, CARD_T, CARD_D]} />
+    </mesh>
+  );
+}
+
+// 协商倒计时（浮字次行）：超时自动生效
+function CountdownText({ deadline }) {
+  const [left, setLeft] = useState(() => Math.max(0, Math.ceil((deadline - Date.now()) / 1000)));
+  useEffect(() => {
+    const id = setInterval(() => setLeft(Math.max(0, Math.ceil((deadline - Date.now()) / 1000))), 500);
+    return () => clearInterval(id);
+  }, [deadline]);
+  return <PixelText size={2} color="var(--ink-dim)">{`${left}s 后自动生效`}</PixelText>;
 }
 
 // ---------------------------------------------------------------------------
@@ -504,6 +531,129 @@ export default function PayoutLayer({ players, seats, spots, playerId, rot }) {
 
   useEffect(() => () => dir.dispose(), [dir]);
 
+  // ---------- 协商 3D 直接操作：重力枪拖自己的钱牌/债务牌到队友圈 = 转移 ----------
+  const canNegotiate = IS_3D_INPUT && phase === 'NEGOTIATE'
+    && !!state.roundFarmerIds?.includes(playerId) && !state.me?.spectator;
+  const [negoCarry, setNegoCarry] = useState(null);   // {note, kind}
+  const negoCarryRef = useRef(null);
+  const negoDownRef = useRef(null);
+  const pressActiveRef = useRef(false);   // 真实按键是否仍按住（window pointerdown/up，可靠，不受 r3f 射线延迟影响）
+  const ndcRef = useRef({ x: 0, y: 0 });
+  const pressTimer = useRef(null);
+  // 每次渲染后刷新的落点/座位快照：拖拽监听器只挂一次（见下方 effect 的稳定依赖），从这里读最新值，
+  // 避免每条广播都重挂监听器——那会在长按拆分/拖拽途中被 cleanup 打断（丢牌/取消拆分）。
+  const negoCtxRef = useRef({ spotByPid: {}, farmerIds: [] });
+  useEffect(() => {
+    negoCtxRef.current = { spotByPid, farmerIds: state.roundFarmerIds ?? [] };
+  });
+
+  // 手感与手牌层同参数：按下→移动超阈值=拖拽；按住不动 450ms=拆分（转小面额再拖）
+  // r3f 射线拾取可能因慢机延迟到 mouseup 之后：此刻真实按键已松开（pressActiveRef 假）就忽略，否则会误拆牌。
+  const onMyNoteDown = (kind) => (note, i, e) => {
+    if (!canNegotiate || !pressActiveRef.current) return;
+    e.stopPropagation();
+    negoDownRef.current = { note, kind, x: e.clientX, y: e.clientY };
+    clearTimeout(pressTimer.current);
+    if (!SPLITS[note.value]) return;
+    pressTimer.current = setTimeout(() => {
+      if (!pressActiveRef.current || negoCarryRef.current) return; // 已松开或已转为拖拽：不拆
+      negoDownRef.current = null;
+      dir.splitPileNote(playerId, note.id, kind === 'debt');
+    }, 450);
+  };
+
+  useEffect(() => {
+    if (!canNegotiate) return undefined;
+    const onDown = () => { pressActiveRef.current = true; };
+    const onMove = (e) => {
+      ndcRef.current.x = (e.clientX / window.innerWidth) * 2 - 1;
+      ndcRef.current.y = -(e.clientY / window.innerHeight) * 2 + 1;
+      const d = negoDownRef.current;
+      if (!d || negoCarryRef.current) return;
+      if (Math.hypot(e.clientX - d.x, e.clientY - d.y) < 8) return;
+      clearTimeout(pressTimer.current);
+      const debt = d.kind === 'debt';
+      const note = dir.grabNoteById(playerId, d.note.id, debt);
+      negoDownRef.current = null;
+      if (!note) return;
+      dir.holds += 1; // 冻结队列/对账：这张牌悬在玩家手上，账面此刻不平（在途落定后 -1）
+      const spot = ctxRef.current.spot(playerId);
+      const base = debt ? { x: spot.x * 0.72, z: spot.z * 0.72 } : spot;
+      const start = new THREE.Vector3(base.x, TABLE_TOP + 0.25, base.z);
+      negoCarryRef.current = { note, kind: d.kind, spring: new CarrySpring(start) };
+      setNegoCarry({ note, kind: d.kind });
+    };
+    const onUp = () => {
+      pressActiveRef.current = false;
+      clearTimeout(pressTimer.current);
+      negoDownRef.current = null;
+      const c = negoCarryRef.current;
+      if (!c) return;
+      negoCarryRef.current = null;
+      setNegoCarry(null);
+      const debt = c.kind === 'debt';
+      const pos = c.spring.pos; // 局部系
+      const { spotByPid: spots, farmerIds } = negoCtxRef.current; // 读最新快照（监听器只挂一次）
+      // 落点判定：最近的本回合队友圈（不能给自己/地主/观战者）
+      let toId = null, best = 0.8;
+      for (const pid of farmerIds) {
+        if (pid === playerId) continue;
+        const s = spots[pid];
+        if (!s) continue;
+        const dd = Math.hypot(pos.x - s.x, pos.z - s.z);
+        if (dd < best) { best = dd; toId = pid; }
+      }
+      const settle = (pid) => {
+        const target = debt ? { x: spots[pid].x * 0.72, z: spots[pid].z * 0.72 } : spots[pid];
+        const slotOf = Object.assign((k) => {
+          const l = cardLocal((debt ? dir.debtPile(pid) : dir.pile(pid)).notes.length + k);
+          return [target.x + l[0], l[1], target.z + l[2]];
+        }, { yaw: () => 0 });
+        dir.fly([c.note], () => [pos.x, pos.y, pos.z], slotOf, {
+          dur: 300, apex: 0.15, debt,
+          onLand: (n) => { dir.landInto(pid, n, debt); dir.holds = Math.max(0, dir.holds - 1); },
+        });
+        dir.bump();
+      };
+      if (toId) {
+        send({ type: 'negotiate_transfer', toId, kind: c.kind, amount: c.note.value });
+        // 乐观更新最近权威快照：服务端广播回来后 reconcile 恰好无差，不会闪修
+        const v = c.note.value;
+        if (debt) {
+          dir.latestDebts = { ...dir.latestDebts, [playerId]: (dir.latestDebts[playerId] ?? 0) - v, [toId]: (dir.latestDebts[toId] ?? 0) + v };
+        } else {
+          dir.latestPiles = { ...dir.latestPiles, [playerId]: (dir.latestPiles[playerId] ?? 0) - v, [toId]: (dir.latestPiles[toId] ?? 0) + v };
+        }
+        settle(toId);
+      } else {
+        settle(playerId); // 没落到队友圈：飞回自己堆
+      }
+    };
+    // pointerdown 用【捕获阶段】：必须在 r3f 画布拾取（onMyNoteDown）之前把 pressActiveRef 置真，
+    // 否则快机正常按下时 onMyNoteDown 先跑、读到假、直接 return，拖拽/拆分全失效。
+    window.addEventListener('pointerdown', onDown, true);
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+    return () => {
+      window.removeEventListener('pointerdown', onDown, true);
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+      clearTimeout(pressTimer.current);
+      pressActiveRef.current = false;
+      // 相位切换/卸载时若正拖着一张牌（未落定）：把它放回自己堆并解冻，避免丢牌 + 队列永久冻结。
+      const c = negoCarryRef.current;
+      if (c) {
+        negoCarryRef.current = null;
+        setNegoCarry(null);
+        dir.landInto(playerId, c.note, c.kind === 'debt');
+        dir.holds = Math.max(0, dir.holds - 1);
+        dir.bump();
+      }
+    };
+  }, [canNegotiate, playerId, dir, send]);
+
   const m = dir.model;
   const potAmount = m.potAmount;
   const potPos = dir._pot ?? [1.05, 0, 0]; // 彩池有内容时必已解析（playGather 首帧解析）
@@ -515,16 +665,35 @@ export default function PayoutLayer({ players, seats, spots, playerId, rot }) {
     && (myPile?.amount ?? 0) > 0;
   const mySpot = spotByPid[playerId];
 
+  // 协商浮字所需状态（allocation 只发给农民/观战者；地主 null）
+  const alloc = state.allocation;
+  const iConfirmed = !!alloc?.confirms?.includes(playerId);
+  const negoIdle = canNegotiate && !dir.busy && !negoCarry;
+
   return (
     <group>
       <DirectorClock dir={dir} />
-      {/* 各家圆圈钱堆 + 红色债务标记（金额公开） */}
+      {/* 各家圆圈钱堆 + 红色债务标记（金额公开）；协商期自己的堆逐张可抓（重力枪） */}
       {Object.entries(m.piles).map(([pid, p]) => (p.notes.length > 0 || p.amount > 0) && (
-        <MoneyStack key={`pp-${pid}`} notes={p.notes} amount={p.amount > 0 ? p.amount : null} faceUp position={[spotByPid[pid]?.x ?? 0, 0, spotByPid[pid]?.z ?? 0]} />
+        <MoneyStack
+          key={`pp-${pid}`}
+          notes={p.notes}
+          amount={p.amount > 0 ? p.amount : null}
+          faceUp
+          position={[spotByPid[pid]?.x ?? 0, 0, spotByPid[pid]?.z ?? 0]}
+          onNoteDown={canNegotiate && pid === playerId ? onMyNoteDown('take') : undefined}
+        />
       ))}
       {Object.entries(m.debts).map(([pid, p]) => p.notes.length > 0 && (
         <group key={`pd-${pid}`} position={[(spotByPid[pid]?.x ?? 0) * 0.72, 0, (spotByPid[pid]?.z ?? 0) * 0.72]}>
-          <MoneyStack notes={p.notes} amount={p.amount > 0 ? -p.amount : null} faceUp position={[0, 0, 0]} labelColor={P.danger} />
+          <MoneyStack
+            notes={p.notes}
+            amount={p.amount > 0 ? -p.amount : null}
+            faceUp
+            position={[0, 0, 0]}
+            labelColor={P.danger}
+            onNoteDown={canNegotiate && pid === playerId ? onMyNoteDown('debt') : undefined}
+          />
         </group>
       ))}
       {/* 彩池与分堆中的份堆 */}
@@ -536,23 +705,41 @@ export default function PayoutLayer({ players, seats, spots, playerId, rot }) {
           <MoneyStack notes={cl.notes} faceUp position={[0, 0, 0]} />
         </group>
       ))}
-      {/* 飞行中的钱牌 */}
+      {/* 飞行中的钱牌 + 被重力枪抓着的牌 */}
       {m.flights.map(({ key, ...f }) => <ArcNote key={key} {...f} />)}
-      {/* 浮动结算标签（工资 +2 / 饭账 −3 / 无力偿还…） */}
-      {m.labels.map(l => (
-        <Html key={l.key} position={l.pos} center distanceFactor={6} zIndexRange={[26, 0]}>
-          <div className={`payout-float ${l.tone}`}>
-            <PixelText size={2} color={l.tone === 'danger' ? 'var(--danger)' : 'var(--ok)'}>{l.text}</PixelText>
+      {negoCarry && <NegoCarriedNote note={negoCarry.note} carryRef={negoCarryRef} ndcRef={ndcRef} rot={rot} />}
+
+      {/* 协商浮字（白字无背景板）：队友圈上的确认状态 + 自己圈上的确认行 */}
+      {IS_3D_INPUT && phase === 'NEGOTIATE' && alloc && (state.roundFarmerIds ?? []).map(pid => {
+        if (pid === playerId || !alloc.confirms?.includes(pid)) return null;
+        const s = spotByPid[pid];
+        if (!s) return null;
+        const n = m.piles[pid]?.notes?.length ?? 0;
+        return (
+          <Html key={`nc-${pid}`} position={[s.x, stackTopY(n) + 0.5, s.z]} center distanceFactor={6.5} zIndexRange={[26, 0]}>
+            <div className="felt-float"><PixelText size={2} color="var(--ok)">已确认</PixelText></div>
+          </Html>
+        );
+      })}
+      {negoIdle && mySpot && (
+        <Html position={[mySpot.x, stackTopY(myPile?.notes?.length ?? 0) + 0.42, mySpot.z]} center distanceFactor={4.2} zIndexRange={[28, 0]}>
+          <div className="felt-float">
+            <PixelText size={2} color="#fff">{iConfirmed ? '已确认 · 等待其他农民' : '拖钱牌/债务牌到队友圈'}</PixelText>
+            <div className="clickable" onClick={() => send({ type: 'negotiate_confirm', confirmed: !iConfirmed })}>
+              <PixelText size={2} color="var(--px-gold)">{iConfirmed ? '撤销确认 [Enter]' : '确认分配 [Enter]'}</PixelText>
+            </div>
+            {alloc.deadline && <CountdownText deadline={alloc.deadline} />}
           </div>
         </Html>
-      ))}
-      {/* 拿取 (F)：只出现在自己的堆上 */}
+      )}
+
+      {/* 拿取 [F]：与钱堆金额标签同款纯文字（无背景板），呼吸提示可点。
+          自己的堆离相机近，distanceFactor 压小一档与金额标签视觉等大。 */}
       {canTake && mySpot && (
-        <Html position={[mySpot.x, stackTopY(myPile.notes.length) + 0.34, mySpot.z]} center distanceFactor={6.5} zIndexRange={[30, 0]}>
-          <button className="take-prompt" onClick={() => send({ type: 'take_payout' })}>
-            <PixelText size={2} color="var(--c-wood-900)">拿取</PixelText>
-            <span className="take-key">F</span>
-          </button>
+        <Html position={[mySpot.x, stackTopY(myPile.notes.length) + 0.42, mySpot.z]} center distanceFactor={5} zIndexRange={[30, 0]}>
+          <div className="money-3d-amount take-float" onClick={() => send({ type: 'take_payout' })}>
+            <PixelText size={2} color={P.gold}>{'拿取 [F]'}</PixelText>
+          </div>
         </Html>
       )}
     </group>

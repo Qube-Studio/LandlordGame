@@ -5,7 +5,6 @@ import { useFrame } from '@react-three/fiber';
 import { Html } from '@react-three/drei';
 import * as THREE from 'three';
 import PixelText from '../assets/pixelfont/PixelText';
-import { ROLE_LABEL, factionOf } from '../game/roles';
 import { PROP_COLORS } from '../assets/palette';
 import { skinTex, tex } from '../assets/texlib';
 import { buildHeadProp } from './headProps';
@@ -131,16 +130,11 @@ export default function MinecraftPlayer({ player, expression, seed = 0, look = n
         {!bankrupt && <HeadProp role={role} />}
       </group>
 
-      {/* 头顶名牌(distanceFactor 6:第一人称落座相机视距变近,10 档会糊满半屏) */}
+      {/* 头顶名牌(distanceFactor 6:第一人称落座相机视距变近,10 档会糊满半屏)。
+          我的世界式纯文字:只有玩家名、无背景板——角色由头饰表达,破产由灰皮歪身表达。 */}
       <Html position={[0, 2.35, 0]} center distanceFactor={6} zIndexRange={[30, 0]}>
         <div className={`mc-nameplate ${player.online ? '' : 'offline'}`}>
-          <div className="np-row">
-            <PixelText size={2} className={`np-role ${factionOf(player.role) ?? ''}`}>
-              {ROLE_LABEL[player.role] ?? '?'}
-            </PixelText>
-            <PixelText size={2}>{player.name}</PixelText>
-            {player.bankrupt && <PixelText size={2} className="np-tag-bankrupt">破产</PixelText>}
-          </div>
+          <PixelText size={2} color="#fff">{player.name}</PixelText>
         </div>
       </Html>
     </group>

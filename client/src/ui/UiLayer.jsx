@@ -15,21 +15,31 @@ import SettingsPanel from './SettingsPanel';
 import Dock from './Dock';
 import RoleWall from './RoleWall';
 import LedgerBook from './LedgerBook';
-import { P, shade } from '../assets/palette';
 import { EVENT_TEXT } from '../game/settleText';
 import { ROLE_LABEL, ROLE_GLYPH, factionOf, isFarmerSide, isLandlordSide } from '../game/roles';
+import { IS_3D_INPUT } from '../game/inputMode';
 
 const Icon = getArt('icon');
 
 const PHASE_META = {
   LOBBY: { label: '准备大厅', hint: '在招募令墙上选择角色（R 呼出/收起），房主按 Enter 开始' },
   DISCUSSION: { label: '战术讨论', hint: '农民可密谈，所有人按 Enter 准备后进入下注' },
-  BETTING: { label: '下注中', hint: '选钱牌组成下注额（长按拆分），Enter 确认' },
+  BETTING: {
+    label: '下注中',
+    hint: IS_3D_INPUT
+      ? '把手里的钱牌拖到自己的圆圈下注（长按拆分，点圈里的牌收回），Enter 确认'
+      : '选钱牌组成下注额（长按拆分），Enter 确认',
+  },
   REVEAL: { label: '揭牌', hint: '各家下注已公开，Enter 确认后掷硬币' },
   COIN_FLIP: { label: '掷硬币', hint: '正面地主阵营胜，反面农民阵营胜' },
   REFLIP: { label: '重掷决策', hint: '农民输了！暴食者可请求重掷硬币（每局 3 次）' },
   SETTLE: { label: '系统结算', hint: '桌上的钱聚拢成彩池，按规则分成几份送到各家圈里' },
-  NEGOTIATE: { label: '农民协商', hint: '农民内部重新分配钱与债务（桌面实时跟着变），Enter 确认' },
+  NEGOTIATE: {
+    label: '农民协商',
+    hint: IS_3D_INPUT
+      ? '拖动圈里的钱牌/红色债务牌到队友圈重新分配（长按拆分），Enter 确认'
+      : '农民内部重新分配钱与债务（桌面实时跟着变），Enter 确认',
+  },
   FINALIZE: { label: '正式结算', hint: '钱还在桌上——按 F 拿取自己那份才入账（按 L 翻账本）' },
   ENDED: { label: '对局结束', hint: '' },
 };
@@ -105,7 +115,7 @@ function useGameKeys() {
 
       const me = state.me;
       const phase = state.phase;
-      if (phase === 'BETTING') return;          // 下注确认由 MoneyHand 自己处理
+      if (phase === 'BETTING') return;          // 下注确认由 HandLayer(3D)/MoneyHand(2D) 自己处理
       let acted = false;
       if (phase === 'LOBBY' && me?.isHost) { send({ type: 'start_game' }); acted = true; }
       else if (phase === 'DISCUSSION' && !me?.ready && !me?.spectator) { send({ type: 'ready' }); acted = true; }
@@ -346,7 +356,7 @@ function GoalHud() {
     : null;
   return (
     <div className={`goal-hud hud-card ${behind ? 'behind' : ''}`}>
-      <div className="goal-line hud-card-title"><PixelText size={2} color="var(--c-wood-900)">地主目标</PixelText></div>
+      <div className="goal-line hud-card-title"><PixelText size={2} color="var(--px-gold)">地主目标</PixelText></div>
       <div className="goal-line gap">
         <PixelText size={3} color={behind ? 'var(--danger)' : 'var(--px-gold)'}>{`¥${g.goal}`}</PixelText>
       </div>
@@ -371,8 +381,8 @@ function CapitalistHud() {
   const taxNext = Math.max(c.taxMin ?? 0, Math.floor(Math.max(0, c.pool) * (c.taxRate ?? 0)));
   const low = c.pool <= taxNext * 2;
   return (
-    <div className={`goal-hud hud-card pool ${low ? 'behind' : ''}`}>
-      <div className="goal-line hud-card-title"><PixelText size={2} color="var(--c-wood-900)">资金池</PixelText></div>
+    <div className={`goal-hud hud-card ${low ? 'behind' : ''}`}>
+      <div className="goal-line hud-card-title"><PixelText size={2} color="var(--px-gold)">资金池</PixelText></div>
       <div className="goal-line gap"><PixelText size={3} color={low ? 'var(--danger)' : 'var(--px-gold)'}>{`¥${c.pool}`}</PixelText></div>
       <div className="goal-line"><PixelText size={2} color="var(--danger)">{`下回合税 ¥${taxNext}`}</PixelText></div>
       <div className="goal-line"><PixelText size={2} color="var(--ink-dim)">{`耗尽即破产`}</PixelText></div>
@@ -386,10 +396,10 @@ function WageHud() {
   const w = state.me?.wage;
   if (!w) return null;
   return (
-    <div className="goal-hud hud-card parchment">
-      <div className="goal-line hud-card-title"><PixelText size={2} color="var(--c-wood-900)">工资</PixelText></div>
-      <div className="goal-line gap"><PixelText size={3} color={shade(P.ok, -38)}>{`+${w.amount}`}</PixelText></div>
-      <div className="goal-line"><PixelText size={2} color="var(--c-parch-ink)">
+    <div className="goal-hud hud-card">
+      <div className="goal-line hud-card-title"><PixelText size={2} color="var(--px-gold)">工资</PixelText></div>
+      <div className="goal-line gap"><PixelText size={3} color="var(--ok)">{`+${w.amount}`}</PixelText></div>
+      <div className="goal-line"><PixelText size={2} color="var(--ink-dim)">
         {w.roundsToNext <= 0 ? '本回合发放' : `还剩 ${w.roundsToNext} 回合`}
       </PixelText></div>
     </div>
@@ -403,11 +413,11 @@ function GluttonHud() {
   if (me?.role !== 'glutton' || me?.mealAllowance == null) return null;
   const owes = me.mealAllowance > 0;
   return (
-    <div className="goal-hud hud-card chalk">
-      <div className="goal-line hud-card-title"><PixelText size={2} color="var(--c-wood-900)">饭账</PixelText></div>
-      <div className="goal-line gap"><PixelText size={3} color={owes ? 'var(--danger)' : 'var(--c-chalk-ink)'}>{`¥${me.mealAllowance}`}</PixelText></div>
-      <div className="goal-line"><PixelText size={2} color="var(--c-chalk-ink)">胜时扣除</PixelText></div>
-      <div className="goal-line"><PixelText size={2} color="var(--c-chalk-ink)">{`重掷剩 ${me.reflipsLeft ?? 0} 次`}</PixelText></div>
+    <div className="goal-hud hud-card">
+      <div className="goal-line hud-card-title"><PixelText size={2} color="var(--px-gold)">饭账</PixelText></div>
+      <div className="goal-line gap"><PixelText size={3} color={owes ? 'var(--danger)' : 'var(--px-gold)'}>{`¥${me.mealAllowance}`}</PixelText></div>
+      <div className="goal-line"><PixelText size={2} color="var(--ink-dim)">胜时扣除</PixelText></div>
+      <div className="goal-line"><PixelText size={2} color="var(--ink-dim)">{`重掷剩 ${me.reflipsLeft ?? 0} 次`}</PixelText></div>
     </div>
   );
 }
@@ -446,6 +456,8 @@ function BettingPanel() {
   const state = useGameStore(s => s.state); const me = state.me;
   if (me?.spectator || !factionOf(me?.role)) return <div className="phase-panel"><p className="dim">观战中：等待玩家下注…</p></div>;
   if (me.bet != null) return <div className="phase-panel"><p className="ok">已下注，等待其他玩家…</p></div>;
+  // 3D 交互模式：下注全在场景里做（HandLayer 手牌拖拽 + 圆圈浮字），底部不出面板
+  if (IS_3D_INPUT) return null;
   return <MoneyHand key={`${state.round}-${me.balance}`} />;
 }
 function RevealPanel() {
@@ -501,27 +513,23 @@ function SettlePanel() {
 function NegotiatePanel() {
   const state = useGameStore(s => s.state); const me = state.me;
   if (isLandlordSide(me?.role) && !me?.spectator) return <div className="phase-panel"><p className="dim">农民正在协商分配，请稍候…</p></div>;
+  // 3D 交互模式：协商在桌面上做（拖钱牌/债务牌到队友圈，圆圈浮字确认），2D 协商板退场
+  if (IS_3D_INPUT) return null;
   return <div className="phase-panel"><NegotiationBoard /></div>;
 }
 function FinalizePanel() {
   const state = useGameStore(s => s.state); const playerId = useGameStore(s => s.playerId);
-  const send = useGameStore(s => s.send);
   const last = state.history[state.history.length - 1];
   if (!last) return null;
   const myDelta = last.deltas?.[playerId] ?? 0;
   const nameOf = id => state.players.find(p => p.id === id)?.name ?? id;
   const landlordName = nameOf(state.landlordGoal?.landlordId);
   const po = state.payout;
-  const canTake = !!po && po.eligible?.includes(playerId) && !po.taken?.includes(playerId);
-  const waiting = po ? po.eligible.filter(id => !po.taken.includes(id)) : [];
+  // 等待名单不含自己：自己该做的事（按 F 拿取）由桌面浮字与阶段提示表达
+  const waiting = po ? po.eligible.filter(id => !po.taken.includes(id) && id !== playerId) : [];
   return (
     <div className="phase-panel">
-      {canTake && (
-        <button className="btn primary wide" onClick={() => send({ type: 'take_payout' })}>
-          拿取我的钱 <span className="keycap">F</span>
-        </button>
-      )}
-      {!canTake && waiting.length > 0 && (
+      {waiting.length > 0 && (
         <p className="dim">等待 {waiting.map(nameOf).join('、')} 拿取桌上的钱…</p>
       )}
       <p className={`delta-big ${myDelta >= 0 ? 'ok' : 'danger'}`}>本回合 {myDelta >= 0 ? `+${myDelta}` : myDelta}</p>
@@ -612,11 +620,14 @@ export default function UiLayer() {
       {!connected && <div className="hud-disconnect"><PixelText size={2} color="var(--danger)">连接已断开，正在重连…</PixelText></div>}
       <PhaseCoachmark />
       <PlayerRail />
-      <div className="corner-stack">
+      {/* 角色/机制 HUD：左上角房间号下纵列（黑底半透明）；右下角只留自己的资金蜡烛 */}
+      <div className="hud-left-stack">
         <GoalHud />
         <CapitalistHud />
         <WageHud />
         <GluttonHud />
+      </div>
+      <div className="corner-stack">
         <BalanceHud />
       </div>
       <div className="hud-bottom" data-hand-anchor>

@@ -53,6 +53,17 @@ const investorBet = mk({
   me: { id: 'me', role: 'investor', balance: 8, bet: null, bounds: { minStake: 1, min: 1, max: 7, forceAllIn: false }, pledge: 0, premium: 0, pledgeMax: 3 },
 });
 
+// 3D 手牌下注（交互 3D 化）：余额分解成纸牌捏在相机前，拖进圆圈=暂存下注，点圈内牌收回；
+// 圈外右侧保留金（正面朝上不可交互）；圈上白字浮提示（无背景板）。
+const betting3d = mk({
+  players: [
+    { id: 'me', name: '我', role: 'farmer', seat: 0, online: true, isHost: true, hasBet: false, bet: null, balance: 12 },
+    opp('l', '地主张', 'landlord', { bet: 6 }),
+    opp('f', '农民周', 'farmer'),
+  ],
+  me: { id: 'me', role: 'farmer', balance: 12, bet: null, bounds: { minStake: 1, min: 1, max: 11, forceAllIn: false } },
+});
+
 const reflip = mk({
   phase: 'REFLIP', coinResult: 'heads',
   players: [
@@ -316,17 +327,18 @@ const SCENES = [
   { key: 'lobby', label: '选角墙(竞技)', kind: 'game', state: lobby, note: '进大厅自动升起招募令墙;R/Esc 收起,点羊皮令应征;火漆印=已被占' },
   { key: 'roleWallQuick', label: '选角墙(快速)', kind: 'game', state: quickWall, note: '快速模式只有地主/农民两张招募令' },
   { key: 'ledger', label: '酒馆账本', kind: 'game', state: ledgerScene, panel: 'ledger', note: '桌沿抽屉 L 呼出;一行一轮(最新在上),点击摊开明细;他人余额保密' },
-  { key: 'investorBet', label: '投资人投保槽', kind: 'game', state: investorBet, note: '把手牌拖进左侧槽 → 确认下注：注上桌、保单掉屏' },
+  { key: 'betting3d', label: '3D手牌·拖拽下注', kind: 'game', state: betting3d, note: '手牌捏在相机前(鼠标移到屏幕上方=收起);拖到圆圈=暂存,点圈内牌收回,长按拆分;圈外右侧保留金;圈上白字浮提示' },
+  { key: 'investorBet', label: '投资人投保圈', kind: 'game', state: investorBet, note: '3D 模式:圆圈左侧投保圈,拖牌进圈=投保、点保单牌收回(加 ?input=2d 可看旧 2D 槽)' },
   { key: 'insDrop', label: '投保掉落动画', kind: 'game', state: insDrop, note: '保单牌一张张掉出屏幕（循环演示）' },
   { key: 'reflip', label: '暴食者重掷/放弃', kind: 'game', state: reflip },
-  { key: 'huds', label: '四类 HUD', kind: 'game', state: huds },
+  { key: 'huds', label: '四类 HUD', kind: 'game', state: huds, note: '四类 HUD 已移到左上角房间号下,黑底半透明;右下角只留资金蜡烛' },
   { key: 'capitalistLoss', label: '资本家蜡烛变色', kind: 'game', state: capitalistLoss, note: '资本家上回合池亏损→右下角蜡烛应为红(个人本金恒定,须按资金池净变动判色)' },
   { key: 'ledgerCapitalist', label: '账本(资本家视角)', kind: 'game', state: ledgerCapitalist, panel: 'ledger', note: 'R1 我 +7(绿) / R2 我 −5(红)——摘要行与摘开明细的「我」都须走资金池净变动,不是恒 0 的 deltas.me' },
   { key: 'finalize', label: '结算播报', kind: 'game', state: finalize },
   { key: 'payoutSettle', label: '结算·分堆演出', kind: 'game', state: payoutSettle, note: '§3.8 聚拢→彩池→分堆→派送(农民胜 6/5);重进场景可重播' },
-  { key: 'payoutNegotiate', label: '结算·协商镜像', kind: 'game', state: payoutNegotiate, note: '协商板拖拽转移时桌面钱堆实时跟飞(预览无后端,拖拽只打日志)' },
-  { key: 'payoutDebt', label: '结算·债务标记', kind: 'game', state: payoutDebt, note: '地主胜缺口:全池归地主圈,农民圈内侧红色债务牌(协商可拖债)' },
-  { key: 'payoutTake', label: '结算·拿取(F)', kind: 'game', state: payoutTake, note: '钱留桌上,自己的堆浮「拿取 F」;农民周已拿取,地主无份自动完成' },
+  { key: 'payoutNegotiate', label: '结算·协商拖拽', kind: 'game', state: payoutNegotiate, note: '3D 直接操作:重力枪拖自己的钱牌到队友圈=转移(长按拆分);圈上白字确认行(预览无后端,消息只打日志)' },
+  { key: 'payoutDebt', label: '结算·债务标记', kind: 'game', state: payoutDebt, note: '地主胜缺口:全池归地主圈,农民圈内侧红色债务牌(3D 拖债给队友)' },
+  { key: 'payoutTake', label: '结算·拿取(F)', kind: 'game', state: payoutTake, note: '钱留桌上,自己的堆浮纯文字「拿取 [F]」(与金额标签同款);农民周已拿取,地主无份自动完成' },
   { key: 'coin', label: '硬币', kind: 'game', state: coin },
   { key: 'balance', label: '资金增长动画', kind: 'game', state: balance, controls: 'balance' },
   { key: 'disconnected', label: '断线横幅', kind: 'game', state: disconnected, connected: false, note: '!connected → 顶部红色「连接已断开，正在重连…」横幅' },

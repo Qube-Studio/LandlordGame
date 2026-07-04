@@ -53,8 +53,9 @@ export const blankNotes = (n) => Array.from({ length: Math.max(0, Math.min(n, ST
 
 export const easeInOut = (t) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
 
-// 静态钱堆（下注堆 / 彩池 / 派送后的圆圈堆 / 红色债务标记共用）
-export function MoneyStack({ notes, faceUp, position, amount = null, labelColor = P.gold }) {
+// 静态钱堆（下注堆 / 彩池 / 派送后的圆圈堆 / 红色债务标记共用）。
+// onNoteDown(note, i, event)：可选的逐张 pointerdown 入口（协商 3D 拖拽用），不传则纯展示。
+export function MoneyStack({ notes, faceUp, position, amount = null, labelColor = P.gold, onNoteDown }) {
   const shown = notes.slice(0, STACK_CAP);
   const topY = stackTopY(shown.length);
   return (
@@ -66,6 +67,7 @@ export function MoneyStack({ notes, faceUp, position, amount = null, labelColor 
           position={cardLocal(i)}
           rotation={[faceUp ? 0 : Math.PI, cardYaw(i), 0]}
           castShadow
+          onPointerDown={onNoteDown ? (e) => onNoteDown(n, i, e) : undefined}
         >
           <boxGeometry args={[CARD_W, CARD_T, CARD_D]} />
         </mesh>

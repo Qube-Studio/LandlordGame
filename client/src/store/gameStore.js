@@ -62,6 +62,10 @@ export const useGameStore = create((set, get) => ({
     });
   },
   finalizeBetFlight() { set({ betFlight: null }); },
+  // 3D 直接下注：牌已被拖到桌上（HandLayer 暂存），确认时无需飞行——这批牌原地成为 myStack。
+  placeTableStack({ round, notes }) {
+    set({ myStack: { round, notes: notes.map((n, i) => ({ id: n.id, value: n.value, slot: i })) }, betFlight: null });
+  },
 
   showToast(text, kind = 'error') {
     set({ toast: { text, kind } });

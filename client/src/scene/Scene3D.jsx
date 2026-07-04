@@ -10,9 +10,12 @@ import * as THREE from 'three';
 import { useGameStore } from '../store/gameStore';
 import { useSettingsStore } from '../store/settingsStore';
 import { decompose } from '../game/notes';
+import { factionOf } from '../game/roles';
+import { IS_3D_INPUT } from '../game/inputMode';
 import MinecraftPlayer from './MinecraftPlayer';
 import Coin from './Coin';
 import PayoutLayer from './PayoutLayer';
+import HandLayer from './HandLayer';
 import { TABLE_TOP, CARD_W, CARD_T, CARD_D, cardMaterials, cardLocal, cardYaw, blankNotes, easeInOut, MoneyStack } from './cards';
 import { coinFaceTexture } from './textures';
 import { getCoinRest } from './coinSim';
@@ -949,6 +952,18 @@ function SceneContents({ look, freeCam = false }) {
           <CoinBurst key={`burst-${state.round}-${state.coinResult}`} tableTop={TABLE_TOP} />
         )}
       </group>
+
+      {/* 3D 手牌层（交互 3D 化）：BETTING 期把余额捏在相机前，拖进圆圈下注。
+          挂在旋转组之外（手随相机走、拖拽射线都在世界系），桌面暂存牌由它内部按 rot 对齐。 */}
+      {IS_3D_INPUT && state.phase === 'BETTING' && state.me && !state.me.spectator
+        && factionOf(state.me.role) && state.me.bet == null && (
+          <HandLayer
+            key={`hand-${state.round}-${state.me.balance}`}
+            look={look}
+            rot={rot}
+            mySpot={mySpot}
+          />
+        )}
 
       {/* 柔和接触阴影：低分辨率(够糊)，避免每帧高分重渲拖帧 */}
       <ContactShadows position={[0, 0.02, 0]} scale={18} blur={2.6} opacity={0.5} far={4.5} resolution={256} color={P.wood900} />

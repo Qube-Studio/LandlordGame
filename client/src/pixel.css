@@ -122,24 +122,17 @@ img, svg, canvas { -webkit-user-drag: none; user-drag: none; }
 .r3f-scene { position: absolute; inset: 0; touch-action: none; }
 .r3f-scene canvas { display: block; }
 
-/* 头顶名牌（drei <Html> 内容） */
+/* 头顶名牌（drei <Html> 内容）：我的世界式纯文字——只有玩家名，无背景板；
+   靠双层投影保证亮暗背景下都可读。角色由头饰表达，破产由灰皮歪身表达。 */
 .mc-nameplate {
   display: flex; flex-direction: column; align-items: center; gap: 2px;
   transform: translateY(-100%);
   white-space: nowrap;
   pointer-events: none;
   user-select: none;
-}
-.mc-nameplate .np-row {
-  display: flex; align-items: center; gap: 5px;
-  background: rgba(8, 9, 13, 0.62);
-  padding: 3px 7px;
-  border: 2px solid rgba(0,0,0,0.6);
+  filter: drop-shadow(0 1px 0 rgba(0, 0, 0, 0.9)) drop-shadow(0 0 5px rgba(0, 0, 0, 0.55));
 }
 .mc-nameplate.offline { opacity: 0.5; }
-.np-role.landlord { color: var(--px-gold); }
-.np-role.farmer { color: var(--px-grass); }
-.np-tag-bankrupt { color: var(--danger); }
 
 /* 竞技：选角分组 / 角色技能面板 */
 .role-pick-groups { display: flex; flex-direction: column; gap: 8px; align-items: center; }
@@ -271,6 +264,14 @@ img, svg, canvas { -webkit-user-drag: none; user-drag: none; }
   z-index: 42;
 }
 
+/* ---- 左上角 HUD 纵列（房间号下）：地主目标/资金池/工资/饭账 ---- */
+.hud-left-stack {
+  position: absolute; top: 64px; left: 12px;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 8px;
+  z-index: 41;
+  pointer-events: none;
+}
+
 /* ---- 自己总资金（大号像素字） ---- */
 .balance-hud {
   display: flex; flex-direction: column; align-items: flex-end; gap: 4px;
@@ -283,7 +284,7 @@ img, svg, canvas { -webkit-user-drag: none; user-drag: none; }
 
 /* ---- 地主资金目标（贴在资金上方，右对齐） ---- */
 .goal-hud {
-  display: flex; flex-direction: column; align-items: flex-end; gap: 3px;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 3px;
   min-width: 150px;
   background: rgba(10, 11, 15, 0.74);
   border: 2px solid #000;
@@ -291,7 +292,7 @@ img, svg, canvas { -webkit-user-drag: none; user-drag: none; }
   padding: 7px 9px;
 }
 .goal-hud.behind { border-color: var(--danger); }
-.goal-line { display: flex; align-items: baseline; gap: 6px; justify-content: flex-end; }
+.goal-line { display: flex; align-items: baseline; gap: 6px; justify-content: flex-start; }
 .goal-line.gap { margin: 1px 0; }
 
 /* ---- 阶段提示 banner ---- */
@@ -532,7 +533,7 @@ img, svg, canvas { -webkit-user-drag: none; user-drag: none; }
 }
 /* 自己资金大字 + 地主目标 + 角色金牌：暖金辉光 */
 .balance-hud .bh-value svg { filter: drop-shadow(0 0 8px rgba(232, 194, 90, 0.45)); }
-.np-role.landlord, .rail-dot.landlord { filter: drop-shadow(0 0 3px rgba(232, 194, 90, 0.5)); }
+.rail-dot.landlord { filter: drop-shadow(0 0 3px rgba(232, 194, 90, 0.5)); }
 
 /* 结算跳字 juice：本回合 ±N 蹦出(back-out) + 输赢辉光；播报行错峰入场 */
 .delta-big { display: inline-block; animation: delta-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
@@ -575,41 +576,29 @@ img, svg, canvas { -webkit-user-drag: none; user-drag: none; }
   background-color: var(--c-wood-700);
   background-image: var(--rivets), var(--tex-wood);
 }
-.px-chip, .goal-hud, .hud-banner, .mc-chat-input {
+.px-chip, .hud-banner, .mc-chat-input {
   background-color: var(--c-wood-700);
   background-image: var(--tex-wood);
   border-color: var(--c-wood-950);
 }
 
-/* ---- 四类角落 HUD:188px 三段式挂牌(黄铜标题条 + 数值 + 注脚) ---- */
+/* ---- 四类 HUD(左上角,房间号下):188px 三段式,黑底半透明——与顶部 px-chip 同一图形语言 ---- */
 .goal-hud.hud-card {
   width: 188px;
   min-width: 0;
   padding: 0 0 7px;
-  background-image: var(--rivets), var(--tex-wood);
+  background: rgba(10, 11, 15, 0.72);
+  border-color: #000;
 }
 .goal-hud.hud-card .goal-line { padding: 0 10px; }
 .goal-hud.hud-card .hud-card-title {
   width: 100%;
   box-sizing: border-box;
-  justify-content: center;
+  justify-content: flex-start;
   padding: 4px 10px 3px;
   margin-bottom: 4px;
-  background: linear-gradient(180deg, var(--c-brass-hi), var(--c-brass));
-  border-bottom: 2px solid var(--c-wood-950);
-  box-shadow: inset 0 1px 0 rgba(255, 235, 190, 0.5);
-}
-/* 铜盘(资金池):铜色调身 */
-.goal-hud.hud-card.pool { background-color: var(--c-wood-500); }
-/* 羊皮纸(工资) */
-.goal-hud.hud-card.parchment {
-  background-color: var(--c-parchment);
-  background-image: var(--rivets), var(--tex-parchment);
-}
-/* 黑板(饭账) */
-.goal-hud.hud-card.chalk {
-  background-color: var(--c-chalk-board);
-  background-image: var(--rivets), var(--tex-chalk);
+  background: rgba(0, 0, 0, 0.5);
+  border-bottom: 2px solid rgba(232, 194, 90, 0.28);
 }
 /* 落后/未达标:炭火色边框 steps(2) 脉冲 */
 .goal-hud.behind {
@@ -632,13 +621,6 @@ img, svg, canvas { -webkit-user-drag: none; user-drag: none; }
   font-weight: 700;
 }
 .btn.primary:hover:not(:disabled) { background: linear-gradient(180deg, var(--c-brass-hi), var(--c-brass)); filter: brightness(1.12); }
-
-/* ---- 昵称牌:小号木瓦牌 ---- */
-.mc-nameplate .np-row {
-  background: var(--c-wood-700);
-  border: 2px solid var(--c-wood-950);
-  box-shadow: inset 0 0 0 1px rgba(232, 194, 90, 0.25), 0 2px 0 rgba(0, 0, 0, 0.45);
-}
 
 /* ---- 动效时长/缓动接管为 MOTION token(--t-* 与 --e-*,真源 palette.js §1.9) ---- */
 .money-hand { animation: ui-rise var(--t-ui) var(--e-enter) both; }
@@ -1031,59 +1013,33 @@ body {
   pointer-events: none;
 }
 
-/* ---- 桌面显式结算（§3.8）：拿取按钮 + 结算浮动标签 ---- */
-/* 拿取 (F)：自己的钱堆上方的黄铜小木牌，1.6s 呼吸辉光提示可交互 */
-.take-prompt {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 7px 12px;
-  border: 2px solid var(--c-wood-900);
-  background: linear-gradient(180deg, var(--c-brass-hi), var(--c-brass));
-  box-shadow: 0 3px 0 var(--c-wood-900), inset 0 1px 0 rgba(255, 255, 255, 0.35);
-  cursor: pointer;
-  animation: take-breathe 1.6s ease-in-out infinite;
-  pointer-events: auto;
+/* ---- 桌面文字层（3D 场景 Html）：钱堆金额标签 / 拿取提示 / 圆圈浮字 ---- */
+/* 钱堆金额（¥N）：纯像素字无背景板；双层投影保证毡面上可读 */
+.money-3d-amount {
   white-space: nowrap;
+  filter: drop-shadow(0 1px 0 rgba(0, 0, 0, 0.85)) drop-shadow(0 0 4px rgba(0, 0, 0, 0.5));
 }
-.take-prompt:hover { filter: brightness(1.08); }
-.take-prompt:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--c-wood-900); }
-.take-key {
-  display: inline-block;
-  min-width: 15px;
-  padding: 2px 4px;
-  border: 1px solid var(--c-wood-900);
-  background: var(--c-wood-700);
-  color: var(--c-brass-hi);
-  font: 700 11px/1 monospace;
-  text-align: center;
+/* 拿取 [F]：与钱堆金额同款纯文字（无背景板），呼吸明暗提示可交互 */
+.take-float {
+  cursor: pointer;
+  pointer-events: auto;
+  animation: take-float-breathe 1.6s ease-in-out infinite;
 }
-@keyframes take-breathe {
-  0%, 100% { box-shadow: 0 3px 0 var(--c-wood-900), inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 0 0 0 rgba(232, 194, 90, 0); }
-  50% { box-shadow: 0 3px 0 var(--c-wood-900), inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 0 14px 2px rgba(232, 194, 90, 0.45); }
+.take-float:hover { animation: none; opacity: 1; filter: drop-shadow(0 1px 0 rgba(0, 0, 0, 0.85)) drop-shadow(0 0 6px rgba(232, 194, 90, 0.6)); }
+@keyframes take-float-breathe {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
 }
-/* 结算调整浮动标签（工资 +2 / 饭账 −3 / 无力偿还…）：升起并淡出，时长与导演的 1.6s 移除对齐 */
-.payout-float {
-  padding: 3px 7px;
-  border: 1px solid var(--c-wood-900);
-  background-color: var(--c-wood-700);
-  background-image: var(--tex-wood);
-  box-shadow: 0 2px 0 var(--c-wood-900);
-  animation: payout-float-rise 1.6s ease-out forwards;
+/* 圆圈上方浮字（下注提示/协商确认状态）：白字无背景板，可含多行；仅标记为 clickable 的行接事件 */
+.felt-float {
+  display: flex; flex-direction: column; align-items: center; gap: 5px;
   white-space: nowrap;
   pointer-events: none;
+  user-select: none;
+  filter: drop-shadow(0 1px 0 rgba(0, 0, 0, 0.9)) drop-shadow(0 0 5px rgba(0, 0, 0, 0.55));
 }
-@keyframes payout-float-rise {
-  0% { opacity: 0; transform: translateY(8px); }
-  12% { opacity: 1; transform: translateY(0); }
-  70% { opacity: 1; transform: translateY(-10px); }
-  100% { opacity: 0; transform: translateY(-20px); }
-}
+.felt-float .clickable { pointer-events: auto; cursor: pointer; }
+.felt-float .clickable:hover { filter: brightness(1.2); }
 @media (prefers-reduced-motion: reduce) {
-  .take-prompt { animation: none; }
-  .payout-float { animation: payout-float-hold 1.6s steps(1) forwards; }
-}
-@keyframes payout-float-hold {
-  0% { opacity: 1; }
-  100% { opacity: 0; }
+  .take-float { animation: none; }
 }
