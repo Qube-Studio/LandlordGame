@@ -74,6 +74,7 @@ place_bet          {amount}              // BETTING
 confirm_reveal     {}                    // REVEAL 阶段确认
 negotiate_transfer {toId, kind: 'take'|'debt', amount}   // NEGOTIATE，把自己的钱/债转给队友
 negotiate_confirm  {confirmed: bool}     // NEGOTIATE 确认/撤销确认
+take_payout        {}                    // FINALIZE，从桌面拿取自己的钱堆（此刻余额才入账，见 §3.8）
 chat               {channel: 'public'|'farmer', text}
 restart_game       {}                    // 仅房主，ENDED 内
 get_state          {}
@@ -122,10 +123,10 @@ LOBBY ──房主开始──► DISCUSSION ──全员准备──► BETTING
 - **COIN_FLIP（掷硬币）**：播放抛硬币动画；**正面 = 地主胜，反面 = 农民胜**；`coinAnimMs` 后自动进入系统结算。
   - 动画用**客户端预烘焙动画池**：`scene/coinSim.js` 以确定性**两段式平面物理**（弹跳翻飞 → 贴台衰减摇摆 → 躺平，见该文件头注释）离线模拟若干轨迹，按落定朝面分桶到正反各 `POOL_SIZE`（24）条并缓存；服务端权威决定 `coinResult` 后，客户端从对应池随机取一条回放（保证不穿桌；落定为真实翻转硬币的**平面翻滚 + 摇摆**而非陀螺式绕边打转）。**抛点高度每回合不同 + 短滞空 + 落台后较长的翻滚/摆动收尾**（约 8 次摆动）→ **落定时间 ~3–5.2s**；摇摆用平滑势 −sin(2·rx)，硬币立起后会自然倒下继续动、绝不被瞬间放平。故 `coinAnimMs` 须 ≥ 客户端 `DURATION`（6.0s）以免最长抛掷被打断。
   - **公平观感设计**（结果本就服务端 50/50，难点在让动画「看起来」公平）：① 起始朝面 50/50 随机，开局不暗示结果；② 高速自旋使滞空成「糊影」、人眼无法追踪正反 → 落定前有悬念、像真随机；③ 飞行参数对正反同分布、盲采后按落定面分桶 → 过程不泄露结果；④ 回放期叠加绕竖轴偏航 + 水平镜像（均不改变朝上的面）→ 同一条轨迹每次都不同，消除「在放固定录像」的观感。
-- **分钱（四个子阶段）**：
-  1. **SETTLE 系统结算**：服务端按 3.5 计算默认分配方案并展示，`settleViewMs` 后自动进入下一步。
-  2. **NEGOTIATE 农民协商**：每个农民以钞票牌形式看到分给自己的钱或债务，可拖拽给队友（金额守恒，仅在农民之间转移）。任何变动会重置所有人的确认。全部活跃农民确认（或 `negotiateTimeoutMs` 超时按当前方案）后生效。若只有 1 个活跃农民、或本回合农民既无钱可分也无债可摊，则自动跳过。
-  3. **FINALIZE 正式结算**：按最终方案入账（桌上的钱播放回到各家 UI 层的动画），记录回合历史，判定破产。
+- **分钱（四个子阶段，全部在桌面上显式演出，见 §3.8）**：
+  1. **SETTLE 系统结算**：服务端按 3.5 计算默认分配方案，并生成**编导脚本**：桌上各家下注堆**聚拢成彩池 → 按方案分成几份 → 各份滑进每人面前的圆圈**；缺口债务以红色债务牌出现在欠款农民圈内。`settleViewMs` 后自动进入下一步。
+  2. **NEGOTIATE 农民协商**：每个农民以钞票牌形式看到分给自己的钱或债务，可拖拽给队友（金额守恒，仅在农民之间转移）；**桌面钱堆实时镜像协商结果**（钱牌在圆圈间飞移）。任何变动会重置所有人的确认。全部活跃农民确认（或 `negotiateTimeoutMs` 超时按当前方案）后生效。若只有 1 个活跃农民、或本回合农民既无钱可分也无债可摊，则自动跳过。
+  3. **FINALIZE 正式结算（收账 + 调整 + 拿取）**：确认后**钱不入账、留在桌上**——先播放收账（债务补偿从欠款者手中飞向地主堆）与**调整步**（技能/机制逐条改变钱堆：地主目标罚金、工资、饭账、资金池换算、税收…每条带浮动标签），然后每个有钱堆的玩家的堆上浮现「**拿取 (F)**」：按 F（或点击）钱堆才飞回手中、余额此刻入账。全员拿取完成后记录回合历史、判定破产。
   4. **农民讨论**：即下一回合的 DISCUSSION——结算后回到讨论阶段，农民复盘战术、全员再点准备，形成循环。
 - **ENDED**：地主破产 → 农民胜；全部农民破产 → 地主胜。展示结果，房主可"再来一局"（重置资金回到第 1 回合 DISCUSSION）。
 
@@ -160,6 +161,45 @@ LOBBY ──房主开始──► DISCUSSION ──全员准备──► BETTING
 - **惩罚**：检查点回合 FINALIZE 时若地主余额 < 该目标，扣除 `max(minPenalty, floor(余额·penaltyRate))`（默认 `max(2, floor(余额·0.2))`）。**惩罚资金按最大余数法平分给本回合农民**（在破产判定前入账，可能救活濒临破产的农民），可直接使地主破产 → 农民胜。
 - **展示（合理显示在每个人的 UI）**：`viewFor` 下发 `landlordGoal = { goal, dueRound, roundsLeft, initial, landlordId, landlordBalance }`——目标值与到期回合对所有人可见（给农民施压、给地主紧迫感）；`landlordBalance`（进度）仅地主本人/观战者可见（隐私边界）。FINALIZE 面板播报达标/受罚。
 - 默认参数与调法见 `docs/TUNING.md`。
+
+### 3.8 桌面显式结算（编导脚本 + 拿取；`logic/payout.js`）
+钱是桌上的实体：结算不再是「数字瞬间入账 + 面板播报」，而是钱堆在桌面上的连续演出。**金额算法（§3.5–3.7、§8）一个数都不变，只重新定义"何时写 balance"**。
+
+**入账时刻**：
+- 下注扣款：`place_bet` 时（不变）。
+- **手上支出**（债务补偿、超出钱堆部分的技能扣款）：FINALIZE 进入时一次性入账——钱可视地离开手。
+- **桌上收入**（自己的钱堆）：玩家 `take_payout` 时**逐人入账**。恒等式：`pile[id] = max(0, after[id] − (balanceNow[id] − handDebit[id]))`，全员拿完后每人余额 === 旧算法的 `after[id]`，分毫不差。
+- 破产判定、回合收尾（→ 下一回合 / ENDED）：**全员拿取完成后**（`finalizeMs` 收尾间隔）。回合历史仍在 FINALIZE 进入时写入（供播报/账本）。
+- **不丢钱兜底**：若在 FINALIZE 中途对局被迫结束（弃局/降级），先把所有未拿取的钱堆静默入账再进 ENDED。
+
+**服务端模型**（`Room.payout`，随 `viewFor().payout` 下发）：
+```
+payout: {
+  script:   [step...],      // 编导脚本：追加式、带自增 id；客户端只播放没见过的 id
+  piles:    {playerId: n},  // 当前各家圆圈里的钱（权威值；客户端播完脚本后与它对账）
+  taken:    [playerId...],  // 已拿取
+  eligible: [playerId...],  // FINALIZE 时有钱可拿的人（pile > 0）
+  deadline: ts|null,        // 拿取超时（takeTimeoutMs）
+}
+step 词汇（可扩展）：
+  {id, t:'gather', from:[{id,amount}], pot}          // 各家下注堆 → 彩池
+  {id, t:'split',  shares:[{id,amount}]}             // 彩池重新数钱、分成几份、滑进各家圆圈
+  {id, t:'adjust', source, label, flows:[{from:{kind,id?}, to:{kind,id?}, amount}]}
+      // kind ∈ pile(圆圈钱堆)/hand(手中)/pool(资本家资金池)/void(凭空出现或消失)
+```
+**`adjust` 是唯一扩展点**：债务收账（`debtCollect`）、地主目标罚金（`goalPenalty`）、工资（`wage`）、饭账（`mealAllowance`）、资本家本金/池换算（`capitalistPool`）、税收（`capitalistTax`）全部是一条 `adjust`。**将来新机制 = 服务端多推一条 adjust（新的 source + flows），客户端通用动画自动生效，零客户端改动**；客户端本地文案表未收录的 source 回落显示服务端 `label`。台账（`createLedger`）保证 flows 的 pile/hand 归属与最终 `after` 恒等（扣款先扣堆、不足再扣手；进账进堆）。
+
+**各情况的演出**：
+- 农民胜：gather(全部下注) → split(农民均分) → NEGOTIATE 镜像 → adjust(工资/饭账/罚金…) → 各农民拿取；地主无堆自动完成。
+- 地主胜·盈余：gather → split(地主 target+盈余份 / 农民盈余份) → (农民份>0 且 >1 农民才协商) → adjust → 拿取。
+- 地主胜·缺口：gather → split(全池归地主圈) + 农民圈出现红色债务牌 → NEGOTIATE 拖债 → adjust:debtCollect(实付从欠款者飞向地主堆、付不起的红牌熄灭=uncovered) → adjust… → 地主拿取，农民无堆自动完成。
+- 竞技资本家：本金 L 由恒等式自然成为他的堆；`capitalistPool` flows 把堆与 L 的差额在 堆↔池 间搬运（池为私密血条，动画只显差额——该值本就可由公开信息推出）；税收 pool→void。
+- 离线/AFK：进入拿取阶段 `takeAutoDelayMs` 后自动代离线者拿取；`takeTimeoutMs` 超时全员自动拿取（0=不超时）。断线重连/中途加入观战：客户端**冷挂载直接摆出 `piles` 终态**，不重播动画。
+- 观战者：看到全部钱堆与动画，无拿取交互。
+
+**隐私边界**：script/piles 里的金额（下注、takes、debts、工资、罚金、饭账、池差额）在结算阶段本就全部公开（见 §5.1 与 history 公开字段），无新增泄露。唯一例外：**NEGOTIATE 期间地主看到的 `piles` 冻结在系统方案**（协商过程仍是农民私密，与 `allocation` 的可见性一致），FINALIZE 进入时地主的桌面用一次快速对账动画追平最终方案。
+
+**客户端**（`scene/PayoutLayer.jsx`，纯表现）：SETTLE 起接管全部桌面钱渲染（自己的堆沿用下注飞行那批牌模型，零跳变）；顺序播放脚本步骤（每步 = 一组世界坐标贝塞尔弧飞牌 + 落定重组，错峰 80ms）；播完与 `payout.piles` 对账、差额自动飞牌追平——协商实时镜像与地主的 FINALIZE 追平共用这一机制。拿取 = 自己的堆飞向手牌区（反投影）、他人的堆飞向其身体收拢。
 
 ---
 
@@ -255,9 +295,11 @@ data/              运行时数据（gitignore）
 | minFarmers / maxFarmers | 1 / 4 | 人数 |
 | timing.revealAnimMs | 2200 | 揭牌动画时长（之后等确认） |
 | timing.coinAnimMs | 6000 | 硬币动画后自动进结算（须 ≥ 客户端 coinSim DURATION 6.0s；落定 ~3–5.2s：抛点高度不一 + 长摆动收尾） |
-| timing.settleViewMs | 3500 | 系统结算展示时长 |
-| timing.finalizeMs | 2600 | 正式结算动画时长 |
+| timing.settleViewMs | 5200 | 系统结算展示时长（须容纳聚拢→分堆→派送三拍演出，见 §3.8） |
+| timing.finalizeMs | 2600 | 全员拿取完成后 → 下一回合的收尾间隔 |
 | timing.negotiateTimeoutMs | 120000 | 协商超时（0=不超时） |
+| timing.takeTimeoutMs | 45000 | FINALIZE 拿取超时，到点全员自动拿取（0=不超时） |
+| timing.takeAutoDelayMs | 2600 | 进入拿取阶段后，代离线玩家自动拿取的延迟（让观众看完演出） |
 | reconnectGraceSec | 0 | 断线保座；0=永久保座（永不超时降级），>0=超时降级观战 |
 | autoActForOffline | true | 离线玩家自动准备/确认 |
 | heartbeatSec | 30 | 心跳 |
@@ -272,7 +314,7 @@ data/              运行时数据（gitignore）
 4. REVEAL：翻牌显金额，可聊天，全员确认进硬币。
 5. COIN_FLIP：动画后正/反对应地主/农民胜。
 6. SETTLE→NEGOTIATE：>1 农民时可拖拽转移钱/债，全员确认生效；1 农民自动跳过。
-7. FINALIZE：余额变动正确（含缺口分摊、付不起破产）、钱回手动画、回合历史落盘。
+7. FINALIZE：余额变动正确（含缺口分摊、付不起破产）；钱留在桌上、技能调整逐条演出、按 F 拿取后余额才入账（§3.8）；回合历史落盘。
 8. 循环回 DISCUSSION，round+1；地主或全部农民破产 → ENDED，房主可重开。
 9. 断线重连回原座位；顶号踢旧连接；大厅在线人数正确。
 10. `npm run build` 与 `npm run lint` 通过；经典在大厅显示但禁用（竞技见 §8）。

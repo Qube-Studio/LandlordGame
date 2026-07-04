@@ -9,6 +9,7 @@ import { getMode } from './modes/index.js';
 import { flipCoin, betBounds, validateBet, settleRound, applyAllocation } from './logic/rules.js';
 import { upcomingGoal, goalForRound, goalPenalty } from './logic/landlordGoal.js';
 import { computeWage, wageDueThisRound, investorWaiver, computeTax } from './logic/competitive.js';
+import { createLedger, buildSettleScript, flowsFromParts } from './logic/payout.js';
 import { apportion } from './logic/apportion.js';
 import { saveGameRecord } from './storage.js';
 
@@ -45,6 +46,8 @@ export class Room {
     this.settlement = null;
     this.allocation = null;        // {takes, debts} 协商中的方案
     this.negotiateDeadline = null;
+    this.payout = null;            // 桌面显式结算（§3.8）：{script, piles, taken, eligible, after, …}
+    this._stepSeq = 0;             // 编导脚本步骤自增 id（每回合重置）
     this.landlordInitial = 0;      // 地主开局资金（地主资金目标的基准）
     this.roundFarmerIds = [];
     this.roundStartBalances = {};
@@ -263,6 +266,8 @@ export class Room {
     this.settlement = null;
     this.allocation = null;
     this.negotiateDeadline = null;
+    this.payout = null;
+    this._stepSeq = 0;
     this.winnerSide = null;
     this.endReason = null;
     this.debtWaiver = 0;
@@ -351,6 +356,8 @@ export class Room {
     this.settlement = null;
     this.allocation = null;
     this.negotiateDeadline = null;
+    this.payout = null;
+    this._stepSeq = 0;
     for (const p of this.players.values()) {
       p.ready = false;
       p.confirmed = false;
@@ -552,6 +559,23 @@ export class Room {
       takes: { ...this.settlement.takes },
       debts: { ...this.settlement.debts },
     };
+    // 桌面显式结算（§3.8）：生成聚拢/分堆编导脚本。钱堆此刻只是「摆出来的方案」，
+    // FINALIZE 才收账/调整，拿取才入账（REFLIP 窗在 SETTLE 之前，本方法每回合只进一次）。
+    this.payout = {
+      script: buildSettleScript({
+        settlement: this.settlement,
+        bets: this.bets,
+        landlordId: this._landlord()?.id,
+        farmerIds: this.roundFarmerIds,
+      }, () => ++this._stepSeq),
+      piles: null,          // FINALIZE 前由 viewFor 按方案/协商推导；FINALIZE 起为权威值
+      taken: new Set(),
+      eligible: [],
+      after: null,
+      newlyBankrupt: [],
+      deadline: null,
+      done: false,
+    };
     this._broadcastState();
     this._after(this.config.timing.settleViewMs, () => this._enterNegotiate());
   }
@@ -626,13 +650,39 @@ export class Room {
       config: this.config,
     });
 
+    // === 桌面台账（§3.8）：起点 = 协商定稿的桌面（农民圈 = takes，地主圈 = landlordTake）。===
+    // 之后每笔机制入账都同步产出一条 adjust 步（flows 标注堆/手来源）供客户端通用演出；
+    // 台账保证恒等式 pile[id] === after[id] − (balanceNow[id] − handDebit[id])。
+    const ledger = createLedger({
+      ...Object.fromEntries(this.roundFarmerIds.map(id => [id, this.allocation.takes[id] ?? 0])),
+      ...(landlordId ? { [landlordId]: this.settlement.landlordTake } : {}),
+    });
+    const steps = [];
+    const nextId = () => ++this._stepSeq;
+
     // 双倍补偿精确入账（任务 8）：地主胜且桌面不足目标时，按最终（可能经协商的）债务实际收齐的
     // 部分重算缺口，使展示与入账一致——地主拿到 pot + 实际补偿，剩余无人能付的即 uncovered。
     // 缺口已在 settleRound 乘过乘数并扣减债；FINALIZE 直接复用其最终债额，避免重算口径分叉。
     const shortfall = this.coinResult === 'heads' ? (this.settlement.shortfall ?? 0) : 0;
     const uncovered = Math.max(0, shortfall - result.collected);
 
-    // 地主资金目标（任务 6）：检查点回合的 FINALIZE 若地主未达标，扣除惩罚（资金沉没，可致破产）。
+    // ① 债务收账：各农民实付 → 地主堆；付不起的部分（uncovered）红色债务牌就地熄灭。
+    if (landlordId) {
+      const collectFlows = [];
+      for (const id of this.roundFarmerIds) {
+        const paid = result.paidBy?.[id] ?? 0;
+        if (paid <= 0) continue;
+        for (const part of ledger.debit(id, paid)) {
+          collectFlows.push({ from: { kind: part.kind, id }, to: { kind: 'pile', id: landlordId }, amount: part.amount });
+        }
+      }
+      if (collectFlows.length > 0 || uncovered > 0) {
+        ledger.credit(landlordId, result.collected);
+        steps.push({ id: nextId(), t: 'adjust', source: 'debtCollect', label: '补偿地主', flows: collectFlows, uncovered });
+      }
+    }
+
+    // ② 地主资金目标（任务 6）：检查点回合的 FINALIZE 若地主未达标，扣除惩罚（资金沉没，可致破产）。
     let landlordPenalty = 0;
     let landlordGoalValue = null;
     let landlordGoalMet = null;
@@ -645,6 +695,8 @@ export class Room {
           landlordPenalty = goalPenalty(after, this.config);
           result.after[landlordId] = after - landlordPenalty;
           result.deltas[landlordId] = (result.deltas[landlordId] ?? 0) - landlordPenalty;
+          const parts = ledger.debit(landlordId, landlordPenalty);
+          const recipients = [];
           // 惩罚资金平分给本回合农民（最大余数法；破产判定前入账，可能救活濒临破产者）。
           if (landlordPenalty > 0 && this.roundFarmerIds.length > 0) {
             const shares = apportion(
@@ -653,15 +705,22 @@ export class Room {
             );
             for (const id of this.roundFarmerIds) {
               const s = shares[id] ?? 0;
+              if (s <= 0) continue;
               result.after[id] = (result.after[id] ?? 0) + s;
               result.deltas[id] = (result.deltas[id] ?? 0) + s;
+              ledger.credit(id, s);
+              recipients.push({ to: { kind: 'pile', id }, amount: s });
             }
           }
+          steps.push({
+            id: nextId(), t: 'adjust', source: 'goalPenalty', label: '地主未达标罚金',
+            flows: flowsFromParts(landlordId, parts, recipients),
+          });
         }
       }
     }
 
-    // === 竞技模式入账（§8）：资本家资金池换算、基础农民工资、暴食者伙食费。均在破产判定前。===
+    // === ③ 竞技模式入账（§8）：资本家资金池换算、基础农民工资、暴食者伙食费。均在破产判定前。===
     let capitalistPool = null, capitalistTax = 0, capitalistPoolDelta = 0;
     const wagePaid = {}, allowanceCharged = {};
     if (this._competitive) {
@@ -676,21 +735,48 @@ export class Room {
         capitalistTax = computeTax(cap.pool, this.config);
         cap.pool -= capitalistTax;
         capitalistPool = cap.pool;
+        // 桌面演出：堆与本金 L 的差额在 堆↔池 间搬运（差额 === capitalistPoolDelta，可由公开信息推出，无泄密）。
+        const principal = this.bets[cap.id] ?? 0;
+        const d = ledger.pileOf(cap.id) - principal;
+        if (d > 0) {
+          ledger.debit(cap.id, d);
+          steps.push({
+            id: nextId(), t: 'adjust', source: 'capitalistPool', label: '盈余入池',
+            flows: [{ from: { kind: 'pile', id: cap.id }, to: { kind: 'pool', id: cap.id }, amount: d }],
+          });
+        } else if (d < 0) {
+          ledger.credit(cap.id, -d);
+          steps.push({
+            id: nextId(), t: 'adjust', source: 'capitalistPool', label: '资金池垫付本金',
+            flows: [{ from: { kind: 'pool', id: cap.id }, to: { kind: 'pile', id: cap.id }, amount: -d }],
+          });
+        }
+        if (capitalistTax > 0) {
+          steps.push({
+            id: nextId(), t: 'adjust', source: 'capitalistTax', label: '税收',
+            flows: [{ from: { kind: 'pool', id: cap.id }, to: { kind: 'void' }, amount: capitalistTax }],
+          });
+        }
       }
       // 基础农民工资：按活跃农民数缩放，到点发薪给存活的基础农民。
       const { interval, amount } = computeWage(this.roundFarmerIds.length, this.config);
       if (wageDueThisRound(this.round, interval) && amount > 0) {
+        const wageFlows = [];
         for (const id of this.roundFarmerIds) {
           if (this.players.get(id)?.role === 'farmer') {
             result.after[id] = (result.after[id] ?? 0) + amount;
             result.deltas[id] = (result.deltas[id] ?? 0) + amount;
             wagePaid[id] = amount;
+            ledger.credit(id, amount);
+            wageFlows.push({ from: { kind: 'void' }, to: { kind: 'pile', id }, amount });
           }
         }
+        if (wageFlows.length > 0) steps.push({ id: nextId(), t: 'adjust', source: 'wage', label: '发工资', flows: wageFlows });
       }
       // 暴食者饭账：每回合累积成「饭账」（成本）。农民胜时从余额扣除并清零（允许扣到破产）；
       // 农民负则饭账继续累积——含重掷仍输也不清零（§8.4）。
       const farmersWon = this.coinResult === 'tails';
+      const mealFlows = [];
       for (const id of this.roundFarmerIds) {
         const p = this.players.get(id);
         if (!p || p.role !== 'glutton') continue;
@@ -698,18 +784,23 @@ export class Room {
           result.after[id] = (result.after[id] ?? 0) - p.mealAllowance;
           result.deltas[id] = (result.deltas[id] ?? 0) - p.mealAllowance;
           allowanceCharged[id] = p.mealAllowance;
+          for (const part of ledger.debit(id, p.mealAllowance)) {
+            mealFlows.push({ from: { kind: part.kind, id }, to: { kind: 'void' }, amount: part.amount });
+          }
           p.mealAllowance = 0;
         }
       }
+      if (mealFlows.length > 0) steps.push({ id: nextId(), t: 'adjust', source: 'mealAllowance', label: '结饭账', flows: mealFlows });
     }
 
-    for (const [id, balance] of Object.entries(result.after)) {
+    // === 入账时刻重定义（§3.8）：手上支出此刻入账（钱可视地离开手）；堆上的钱等拿取才入账。===
+    for (const [id, debit] of Object.entries(ledger.handDebits)) {
       const p = this.players.get(id);
-      if (p) p.balance = balance;
+      if (p) p.balance -= debit;
     }
 
-    // 破产判定在惩罚扣除之后重算（惩罚可能直接压垮地主）。
-    // 资本家用资金池判定（个人资金恒定不破产）；其余按余额。
+    // 破产名单在全部调整之后计算（惩罚/饭账可能直接压垮）；标记在全员拿取完成时才落
+    // （_checkTakeGate），钱还摆在桌上的人不该先倒下。资本家用资金池判定（个人资金恒定不破产）。
     const newlyBankrupt = [];
     for (const id of [landlordId, ...this.roundFarmerIds]) {
       const p = this.players.get(id);
@@ -717,8 +808,20 @@ export class Room {
       const broke = p.role === 'capitalist'
         ? (p.pool ?? 0) <= this.config.bankruptcyThreshold
         : (result.after[id] ?? 0) <= this.config.bankruptcyThreshold;
-      if (broke) { p.bankrupt = true; newlyBankrupt.push(id); }
+      if (broke) newlyBankrupt.push(id);
     }
+
+    const timing = this.config.timing;
+    this.payout = {
+      script: [...(this.payout?.script ?? []), ...steps],
+      piles: { ...ledger.piles },   // 自此为权威值（拿取清零）
+      taken: new Set(),
+      eligible: [landlordId, ...this.roundFarmerIds].filter(id => id && (ledger.piles[id] ?? 0) > 0),
+      after: result.after,
+      newlyBankrupt,
+      deadline: timing.takeTimeoutMs > 0 ? Date.now() + timing.takeTimeoutMs : null,
+      done: false,
+    };
     this.history.push({
       round: this.round,
       coinResult: this.coinResult,
@@ -744,6 +847,66 @@ export class Room {
       } : {}),
     });
     this._broadcastState();
+
+    // 拿取闸门（§3.8）：离线/降级者延迟代拿（让观众看完演出）；超时全员自动；无人可拿直接收尾。
+    if (timing.takeAutoDelayMs > 0) this._after(timing.takeAutoDelayMs, () => this._autoTakeOffline());
+    else this._autoTakeOffline();
+    if (timing.takeTimeoutMs > 0) this._after(timing.takeTimeoutMs, () => this._autoTakePending(() => true));
+    this._checkTakeGate();
+  }
+
+  // ---------- 拿取（分钱子阶段三的收尾交互，§3.8） ----------
+
+  // 玩家从桌面拿取自己的钱堆：此刻余额才入账（拿取前 viewFor 的余额 = 手上现钱）。
+  takePayout(playerId) {
+    if (this.phase !== 'FINALIZE' || !this.payout) return { error: '当前不是拿取阶段' };
+    const player = this.players.get(playerId);
+    if (!player) return { error: '不在房间中' };
+    if (!this.payout.eligible.includes(playerId)) return { error: '没有可拿取的钱' };
+    if (this.payout.taken.has(playerId)) return { error: '已经拿过了' };
+    this._bookTake(playerId);
+    this._touch();
+    this._broadcastState();
+    this._checkTakeGate();
+    return { ok: true };
+  }
+
+  _bookTake(id) {
+    const p = this.players.get(id);
+    this.payout.taken.add(id);
+    this.payout.piles[id] = 0;
+    if (p && this.payout.after?.[id] != null) p.balance = this.payout.after[id];
+  }
+
+  // 代拿：已降级观战者，以及（按配置）离线玩家。
+  _autoTakeOffline() {
+    this._autoTakePending(p => p.spectator || (!p.online && this.config.autoActForOffline));
+  }
+
+  _autoTakePending(filter) {
+    if (this.phase !== 'FINALIZE' || !this.payout || this.payout.done) return;
+    let changed = false;
+    for (const id of this.payout.eligible) {
+      if (this.payout.taken.has(id)) continue;
+      const p = this.players.get(id);
+      if (!p || filter(p)) { this._bookTake(id); changed = true; }
+    }
+    if (changed) this._broadcastState();
+    this._checkTakeGate();
+  }
+
+  // 全员拿取完成：落破产标记（数值与旧算法一致，只是时刻后移到钱真正到手时），
+  // finalizeMs 收尾间隔后进入下一回合/终局。
+  _checkTakeGate() {
+    if (this.phase !== 'FINALIZE' || !this.payout || this.payout.done) return;
+    if (this.payout.eligible.some(id => !this.payout.taken.has(id))) return;
+    this.payout.done = true;
+    let bankrupted = false;
+    for (const id of this.payout.newlyBankrupt) {
+      const p = this.players.get(id);
+      if (p && !p.bankrupt) { p.bankrupt = true; bankrupted = true; }
+    }
+    if (bankrupted) this._broadcastState();
     this._after(this.config.timing.finalizeMs, () => this._afterRound());
   }
 
@@ -762,6 +925,17 @@ export class Room {
   }
 
   _endGame(winnerSide, reason) {
+    // 拿取阶段被迫终局（弃局/降级）：未拿的钱堆静默入账，破产标记补齐——不丢钱（§3.8）。
+    if (this.phase === 'FINALIZE' && this.payout && !this.payout.done) {
+      for (const id of this.payout.eligible) {
+        if (!this.payout.taken.has(id)) this._bookTake(id);
+      }
+      this.payout.done = true;
+      for (const id of this.payout.newlyBankrupt) {
+        const p = this.players.get(id);
+        if (p) p.bankrupt = true;
+      }
+    }
     this._setPhase('ENDED');
     this.winnerSide = winnerSide;
     this.endReason = reason;
@@ -948,6 +1122,17 @@ export class Room {
             deadline: this.negotiateDeadline,
           }
         : null,
+      // 桌面显式结算（§3.8）：编导脚本 + 当前钱堆 + 拿取进度。script/piles 里的金额在
+      // 结算阶段均已公开；piles 的协商实时性按观察者区分（_pilesView）。
+      payout: PAYOUT_PHASES.includes(this.phase) && this.payout
+        ? {
+            script: this.payout.script,
+            piles: this._pilesView(viewer, spectator),
+            taken: [...this.payout.taken],
+            eligible: this.payout.eligible,
+            deadline: this.payout.deadline,
+          }
+        : null,
       roundFarmerIds: this.roundFarmerIds,
       landlordGoal,
       capitalist,
@@ -1006,6 +1191,20 @@ export class Room {
     return !!factionOf(player.role) && !player.bankrupt && !player.spectator;
   }
 
+  // 桌面钱堆的观察者视图（§3.8 隐私）：FINALIZE 起是权威 piles（拿取清零）；之前由方案推导——
+  // 协商期间农民/观战者看实时 allocation，地主阵营看冻结的系统方案（协商过程对地主保密，
+  // 与 allocation 的可见性一致；FINALIZE 进入时地主客户端用一次对账动画追平）。
+  _pilesView(viewer, spectator) {
+    if (this.payout?.piles) return this.payout.piles;
+    const landlordId = this._landlord()?.id;
+    const live = this.phase !== 'NEGOTIATE' || spectator || factionOf(viewer?.role) === 'farmer';
+    const takes = (live ? this.allocation?.takes : this.settlement?.takes) ?? {};
+    const piles = {};
+    for (const id of this.roundFarmerIds) piles[id] = takes[id] ?? 0;
+    if (landlordId) piles[landlordId] = this.settlement?.landlordTake ?? 0;
+    return piles;
+  }
+
   // 暴食者中仍可重掷者（活跃 + 本回合参与 + 尚有次数）。
   _reflipGluttons() {
     return this.roundFarmerIds
@@ -1047,6 +1246,8 @@ export class Room {
       this._checkGate('confirmed', () => this._enterCoinFlip());
     } else if (this.phase === 'NEGOTIATE') {
       this._checkNegotiateGate();
+    } else if (this.phase === 'FINALIZE') {
+      this._autoTakeOffline();
     } else if (this.phase === 'REFLIP') {
       this._checkReflipGate();
     }

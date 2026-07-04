@@ -66,6 +66,14 @@ function drive(P) {
   } else if (ph === 'NEGOTIATE') {
     // ≥2 名农民时协商阶段不会自动跳过:农民直接确认系统方案,否则整局卡死在这里
     if (!P.acted['ngo' + rd]) { P.acted['ngo' + rd] = true; send(P, { type: 'negotiate_confirm', confirmed: true }); }
+  } else if (ph === 'FINALIZE') {
+    // 桌面显式结算(§3.8):有堆的人按 F 拿取,余额才入账、回合才收尾
+    const po = s.payout;
+    if (po?.eligible?.includes(P.playerId) && !po.taken?.includes(P.playerId) && !P.acted['take' + rd]) {
+      P.acted['take' + rd] = true;
+      log(`-> take_payout p${P.idx} pile=${po.piles?.[P.playerId]}`);
+      send(P, { type: 'take_payout' });
+    }
   }
   // record settlement from history
   const last = s.history?.[s.history.length - 1];

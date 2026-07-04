@@ -15,8 +15,6 @@ import SettingsPanel from './SettingsPanel';
 import Dock from './Dock';
 import RoleWall from './RoleWall';
 import LedgerBook from './LedgerBook';
-import { decompose } from '../game/notes';
-import { projectPoint } from '../scene/projection';
 import { P, shade } from '../assets/palette';
 import { EVENT_TEXT } from '../game/settleText';
 import { ROLE_LABEL, ROLE_GLYPH, factionOf, isFarmerSide, isLandlordSide } from '../game/roles';
@@ -30,9 +28,9 @@ const PHASE_META = {
   REVEAL: { label: '揭牌', hint: '各家下注已公开，Enter 确认后掷硬币' },
   COIN_FLIP: { label: '掷硬币', hint: '正面地主阵营胜，反面农民阵营胜' },
   REFLIP: { label: '重掷决策', hint: '农民输了！暴食者可请求重掷硬币（每局 3 次）' },
-  SETTLE: { label: '系统结算', hint: '系统按规则给出默认分配方案' },
-  NEGOTIATE: { label: '农民协商', hint: '农民内部重新分配钱与债务，Enter 确认' },
-  FINALIZE: { label: '正式结算', hint: '钱已入账（按 L 翻账本），即将进入下一回合' },
+  SETTLE: { label: '系统结算', hint: '桌上的钱聚拢成彩池，按规则分成几份送到各家圈里' },
+  NEGOTIATE: { label: '农民协商', hint: '农民内部重新分配钱与债务（桌面实时跟着变），Enter 确认' },
+  FINALIZE: { label: '正式结算', hint: '钱还在桌上——按 F 拿取自己那份才入账（按 L 翻账本）' },
   ENDED: { label: '对局结束', hint: '' },
 };
 
@@ -50,6 +48,13 @@ function statusOf(p, state) {
     case 'REFLIP':
       if (p.role === 'glutton') return p.reflipsLeft > 0 ? { text: '可重掷', cls: 'ok' } : { text: '无次数', cls: 'dim' };
       return { text: '等待', cls: 'dim' };
+    case 'FINALIZE': {
+      const po = state.payout;
+      if (!po) return { text: '', cls: 'dim' };
+      if (po.taken?.includes(p.id)) return { text: '已拿取', cls: 'ok' };
+      if (po.eligible?.includes(p.id)) return { text: '待拿取', cls: 'dim' };
+      return { text: '等待', cls: 'dim' };
+    }
     default: return { text: '', cls: 'dim' };
   }
 }
@@ -91,6 +96,11 @@ function useGameKeys() {
       if (e.key === 'r' || e.key === 'R') { e.preventDefault(); togglePanel('roles'); return; }
       if (e.key === 'l' || e.key === 'L') { e.preventDefault(); togglePanel('ledger'); return; }
       if (e.key === 'Escape') { if (panel) { e.preventDefault(); setPanel(null); } return; }
+      // 拿取 (F)：FINALIZE 从桌面收取自己的钱堆（§3.8），Enter/Space 同效
+      const po = state.payout;
+      const canTake = state.phase === 'FINALIZE' && !!po
+        && po.eligible?.includes(playerId) && !po.taken?.includes(playerId);
+      if ((e.key === 'f' || e.key === 'F') && canTake) { e.preventDefault(); send({ type: 'take_payout' }); return; }
       if (e.key !== 'Enter' && e.key !== ' ') return;
 
       const me = state.me;
@@ -102,7 +112,8 @@ function useGameKeys() {
       else if (phase === 'REVEAL' && !me?.confirmed && !me?.spectator) { send({ type: 'confirm_reveal' }); acted = true; }
       else if (phase === 'NEGOTIATE' && state.roundFarmerIds?.includes(playerId)) {
         send({ type: 'negotiate_confirm', confirmed: !me?.negotiateConfirmed }); acted = true;
-      } else if (phase === 'ENDED' && me?.isHost) { send({ type: 'restart_game' }); acted = true; }
+      } else if (phase === 'FINALIZE' && canTake) { send({ type: 'take_payout' }); acted = true; }
+      else if (phase === 'ENDED' && me?.isHost) { send({ type: 'restart_game' }); acted = true; }
       if (acted) e.preventDefault();
     };
     window.addEventListener('keydown', onKey);
@@ -494,13 +505,25 @@ function NegotiatePanel() {
 }
 function FinalizePanel() {
   const state = useGameStore(s => s.state); const playerId = useGameStore(s => s.playerId);
+  const send = useGameStore(s => s.send);
   const last = state.history[state.history.length - 1];
   if (!last) return null;
   const myDelta = last.deltas?.[playerId] ?? 0;
   const nameOf = id => state.players.find(p => p.id === id)?.name ?? id;
   const landlordName = nameOf(state.landlordGoal?.landlordId);
+  const po = state.payout;
+  const canTake = !!po && po.eligible?.includes(playerId) && !po.taken?.includes(playerId);
+  const waiting = po ? po.eligible.filter(id => !po.taken.includes(id)) : [];
   return (
     <div className="phase-panel">
+      {canTake && (
+        <button className="btn primary wide" onClick={() => send({ type: 'take_payout' })}>
+          拿取我的钱 <span className="keycap">F</span>
+        </button>
+      )}
+      {!canTake && waiting.length > 0 && (
+        <p className="dim">等待 {waiting.map(nameOf).join('、')} 拿取桌上的钱…</p>
+      )}
       <p className={`delta-big ${myDelta >= 0 ? 'ok' : 'danger'}`}>本回合 {myDelta >= 0 ? `+${myDelta}` : myDelta}</p>
       <div className="settle-detail">
         {Object.entries(last.deltas ?? {}).map(([id, d]) => <span key={id} className={d >= 0 ? 'ok' : 'danger'}>{nameOf(id)} {d >= 0 ? `+${d}` : d}</span>)}
@@ -560,29 +583,7 @@ const PHASE_PANELS = {
   SETTLE: SettlePanel, NEGOTIATE: NegotiatePanel, FINALIZE: FinalizePanel, ENDED: EndedPanel,
 };
 
-// FINALIZE：赢到的钱从桌面飞回手牌区（保留原飞牌表现）
-function useFinalizeFlight() {
-  const state = useGameStore(s => s.state);
-  const playerId = useGameStore(s => s.playerId);
-  const addFlights = useGameStore(s => s.addFlights);
-  useEffect(() => {
-    if (state.phase !== 'FINALIZE') return;
-    const last = state.history[state.history.length - 1];
-    const myDelta = last?.deltas?.[playerId] ?? 0;
-    if (myDelta <= 0) return;
-    const toEl = document.querySelector('[data-hand-anchor]');
-    if (!toEl) return;
-    const fp = projectPoint(0, 1.1, 0);                 // 桌心彩池 → 屏幕
-    const fromX = fp ? fp.x : window.innerWidth / 2;
-    const fromY = fp ? fp.y : window.innerHeight * 0.42;
-    const to = toEl.getBoundingClientRect();
-    addFlights(decompose(myDelta).map((n, i) => ({
-      id: `fin-${last.round}-${n.id}`, value: n.value, faceDown: false,
-      from: { x: fromX - 26 + i * 6, y: fromY, w: 52, h: 73 },
-      to: { x: to.x + to.width / 2 - 26 + i * 10, y: to.y, w: 52, h: 73 },
-    })));
-  }, [state.phase, state.history, playerId, addFlights]);
-}
+// （旧「FINALIZE 桌面→手牌 2D 幽灵飞行」已退役：拿取的钱由 3D 编导层 PayoutLayer 飞向资金蜡烛，§3.8）
 
 export default function UiLayer() {
   const state = useGameStore(s => s.state);
@@ -590,7 +591,6 @@ export default function UiLayer() {
   const panel = useGameStore(s => s.panel);
   const setPanel = useGameStore(s => s.setPanel);
   useGameKeys();
-  useFinalizeFlight();
   const meta = PHASE_META[state.phase] ?? { label: state.phase, hint: '' };
   const Panel = PHASE_PANELS[state.phase] ?? NullPanel;
 

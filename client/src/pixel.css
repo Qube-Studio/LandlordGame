@@ -1030,3 +1030,60 @@ body {
   box-shadow: 0 -3px 0 var(--c-wood-900), inset 0 2px 0 rgba(255, 255, 255, 0.08);
   pointer-events: none;
 }
+
+/* ---- 桌面显式结算（§3.8）：拿取按钮 + 结算浮动标签 ---- */
+/* 拿取 (F)：自己的钱堆上方的黄铜小木牌，1.6s 呼吸辉光提示可交互 */
+.take-prompt {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 12px;
+  border: 2px solid var(--c-wood-900);
+  background: linear-gradient(180deg, var(--c-brass-hi), var(--c-brass));
+  box-shadow: 0 3px 0 var(--c-wood-900), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  cursor: pointer;
+  animation: take-breathe 1.6s ease-in-out infinite;
+  pointer-events: auto;
+  white-space: nowrap;
+}
+.take-prompt:hover { filter: brightness(1.08); }
+.take-prompt:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--c-wood-900); }
+.take-key {
+  display: inline-block;
+  min-width: 15px;
+  padding: 2px 4px;
+  border: 1px solid var(--c-wood-900);
+  background: var(--c-wood-700);
+  color: var(--c-brass-hi);
+  font: 700 11px/1 monospace;
+  text-align: center;
+}
+@keyframes take-breathe {
+  0%, 100% { box-shadow: 0 3px 0 var(--c-wood-900), inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 0 0 0 rgba(232, 194, 90, 0); }
+  50% { box-shadow: 0 3px 0 var(--c-wood-900), inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 0 14px 2px rgba(232, 194, 90, 0.45); }
+}
+/* 结算调整浮动标签（工资 +2 / 饭账 −3 / 无力偿还…）：升起并淡出，时长与导演的 1.6s 移除对齐 */
+.payout-float {
+  padding: 3px 7px;
+  border: 1px solid var(--c-wood-900);
+  background-color: var(--c-wood-700);
+  background-image: var(--tex-wood);
+  box-shadow: 0 2px 0 var(--c-wood-900);
+  animation: payout-float-rise 1.6s ease-out forwards;
+  white-space: nowrap;
+  pointer-events: none;
+}
+@keyframes payout-float-rise {
+  0% { opacity: 0; transform: translateY(8px); }
+  12% { opacity: 1; transform: translateY(0); }
+  70% { opacity: 1; transform: translateY(-10px); }
+  100% { opacity: 0; transform: translateY(-20px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .take-prompt { animation: none; }
+  .payout-float { animation: payout-float-hold 1.6s steps(1) forwards; }
+}
+@keyframes payout-float-hold {
+  0% { opacity: 1; }
+  100% { opacity: 0; }
+}

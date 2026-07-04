@@ -134,6 +134,74 @@ const finalize = mk({
   }],
 });
 
+// ---- 桌面显式结算（§3.8）四场景 ----
+const payoutPlayers = [
+  { id: 'me', name: '我', role: 'farmer', seat: 0, online: true, isHost: true, hasBet: true, bet: 3, betCount: 2, balance: 5 },
+  opp('l', '地主张', 'landlord', { bet: 6, betCount: 3 }),
+  opp('f', '农民周', 'farmer', { bet: 2, betCount: 1 }),
+];
+const payoutBase = {
+  mode: 'quick', roundFarmerIds: ['me', 'f'],
+  players: payoutPlayers,
+  me: { id: 'me', role: 'farmer', balance: 5, bet: 3 },
+};
+// SETTLE：切进场景即播放 聚拢→分堆→派送（重进场景可重播）
+const payoutSettle = mk({
+  ...payoutBase, phase: 'SETTLE', coinResult: 'tails',
+  settlement: { coinResult: 'tails', pot: 11, landlordTake: 0, takes: { me: 6, f: 5 }, debts: {}, uncovered: 0, events: [{ type: 'farmers_win', pot: 11 }] },
+  payout: {
+    script: [
+      { id: 1, t: 'gather', from: [{ id: 'l', amount: 6 }, { id: 'me', amount: 3 }, { id: 'f', amount: 2 }], pot: 11 },
+      { id: 2, t: 'split', shares: [{ id: 'me', amount: 6 }, { id: 'f', amount: 5 }] },
+    ],
+    piles: { me: 6, f: 5, l: 0 }, taken: [], eligible: [], deadline: null,
+  },
+});
+// NEGOTIATE（农民胜）：桌面钱堆镜像协商方案
+const payoutNegotiate = mk({
+  ...payoutBase, phase: 'NEGOTIATE', coinResult: 'tails',
+  settlement: { coinResult: 'tails', pot: 11, landlordTake: 0, takes: { me: 6, f: 5 }, debts: {}, uncovered: 0, events: [{ type: 'farmers_win', pot: 11 }] },
+  allocation: { takes: { me: 6, f: 5 }, debts: {}, confirms: [], deadline: null },
+  payout: {
+    script: [
+      { id: 1, t: 'gather', from: [{ id: 'l', amount: 6 }, { id: 'me', amount: 3 }, { id: 'f', amount: 2 }], pot: 11 },
+      { id: 2, t: 'split', shares: [{ id: 'me', amount: 6 }, { id: 'f', amount: 5 }] },
+    ],
+    piles: { me: 6, f: 5, l: 0 }, taken: [], eligible: [], deadline: null,
+  },
+});
+// NEGOTIATE（地主胜·缺口）：全池归地主圈，农民圈红色债务牌可拖
+const payoutDebt = mk({
+  ...payoutBase, phase: 'NEGOTIATE', coinResult: 'heads',
+  settlement: { coinResult: 'heads', pot: 11, landlordTake: 11, takes: { me: 0, f: 0 }, debts: { me: 2, f: 1 }, shortfall: 3, uncovered: 0, target: 12, events: [{ type: 'landlord_win_shortfall', target: 12, base: 1, shortfall: 3, uncovered: 0 }] },
+  allocation: { takes: { me: 0, f: 0 }, debts: { me: 2, f: 1 }, confirms: [], deadline: null },
+  payout: {
+    script: [
+      { id: 1, t: 'gather', from: [{ id: 'l', amount: 6 }, { id: 'me', amount: 3 }, { id: 'f', amount: 2 }], pot: 11 },
+      { id: 2, t: 'split', shares: [{ id: 'l', amount: 11 }] },
+    ],
+    piles: { me: 0, f: 0, l: 11 }, taken: [], eligible: [], deadline: null,
+  },
+});
+// FINALIZE 拿取：自己的堆浮「拿取 (F)」，f 已拿取、l 无份自动完成
+const payoutTake = mk({
+  ...payoutBase, phase: 'FINALIZE', coinResult: 'tails',
+  settlement: { coinResult: 'tails', pot: 11, landlordTake: 0, takes: { me: 6, f: 5 }, debts: {}, uncovered: 0, events: [{ type: 'farmers_win', pot: 11 }] },
+  payout: {
+    script: [
+      { id: 1, t: 'gather', from: [{ id: 'l', amount: 6 }, { id: 'me', amount: 3 }, { id: 'f', amount: 2 }], pot: 11 },
+      { id: 2, t: 'split', shares: [{ id: 'me', amount: 6 }, { id: 'f', amount: 5 }] },
+      { id: 3, t: 'adjust', source: 'wage', label: '发工资', flows: [{ from: { kind: 'void' }, to: { kind: 'pile', id: 'me' }, amount: 2 }] },
+    ],
+    piles: { me: 8, f: 0, l: 0 }, taken: ['f'], eligible: ['me', 'f'], deadline: null,
+  },
+  history: [{
+    round: 2, coinResult: 'tails', bets: { me: 3, l: 6, f: 2 }, pot: 11,
+    deltas: { me: 5, l: -6, f: 3 }, wagePaid: { me: 2 },
+    landlordGoalValue: null, landlordPenalty: 0, uncovered: 0, collected: 0, newlyBankrupt: [],
+  }],
+});
+
 const coin = mk({
   phase: 'COIN_FLIP', coinResult: 'heads',
   players: [
@@ -255,6 +323,10 @@ const SCENES = [
   { key: 'capitalistLoss', label: '资本家蜡烛变色', kind: 'game', state: capitalistLoss, note: '资本家上回合池亏损→右下角蜡烛应为红(个人本金恒定,须按资金池净变动判色)' },
   { key: 'ledgerCapitalist', label: '账本(资本家视角)', kind: 'game', state: ledgerCapitalist, panel: 'ledger', note: 'R1 我 +7(绿) / R2 我 −5(红)——摘要行与摘开明细的「我」都须走资金池净变动,不是恒 0 的 deltas.me' },
   { key: 'finalize', label: '结算播报', kind: 'game', state: finalize },
+  { key: 'payoutSettle', label: '结算·分堆演出', kind: 'game', state: payoutSettle, note: '§3.8 聚拢→彩池→分堆→派送(农民胜 6/5);重进场景可重播' },
+  { key: 'payoutNegotiate', label: '结算·协商镜像', kind: 'game', state: payoutNegotiate, note: '协商板拖拽转移时桌面钱堆实时跟飞(预览无后端,拖拽只打日志)' },
+  { key: 'payoutDebt', label: '结算·债务标记', kind: 'game', state: payoutDebt, note: '地主胜缺口:全池归地主圈,农民圈内侧红色债务牌(协商可拖债)' },
+  { key: 'payoutTake', label: '结算·拿取(F)', kind: 'game', state: payoutTake, note: '钱留桌上,自己的堆浮「拿取 F」;农民周已拿取,地主无份自动完成' },
   { key: 'coin', label: '硬币', kind: 'game', state: coin },
   { key: 'balance', label: '资金增长动画', kind: 'game', state: balance, controls: 'balance' },
   { key: 'disconnected', label: '断线横幅', kind: 'game', state: disconnected, connected: false, note: '!connected → 顶部红色「连接已断开，正在重连…」横幅' },
@@ -357,7 +429,7 @@ function BalanceControls() {
 function applyGameScene(scene) {
   useGameStore.setState({
     state: scene.state, playerId: 'me', connected: scene.connected ?? true, joining: false,
-    chat: scene.chat ?? [], chatOpen: scene.chatOpen ?? false, flights: [], insuranceDrops: [], betFlight: null, myStack: null, looks: {},
+    chat: scene.chat ?? [], chatOpen: scene.chatOpen ?? false, insuranceDrops: [], betFlight: null, myStack: null, looks: {},
     panel: scene.panel ?? null, // 桌沿抽屉:场景可注入初始面板(LOBBY 场景由 UiLayer 自动升起选角墙)
     send: (m) => console.log('[preview send]', m), // 预览不连后端：发送变 no-op，确认下注只跑动画
   });

@@ -171,6 +171,7 @@ export function settleRound({ coinResult, bets, balances, landlordId, farmerIds,
 export function applyAllocation({ settlement, allocation, balances, bets, landlordId, farmerIds, startBalances, config }) {
   const after = { ...balances };
   let collected = 0;
+  const paidBy = {}; // 各农民实付的债务补偿（供桌面收账演出精确标注，见 §3.8）
   for (const id of farmerIds) {
     // 农民只付得起手中余额（含本回合分到的钱）的部分；付不起的债务就此作废（地主收不到）。
     // 协商可把超出某农民承受力的债务全压给他（任务 7），他付光破产，地主只拿到这点钱。
@@ -179,6 +180,7 @@ export function applyAllocation({ settlement, allocation, balances, bets, landlo
     const paid = Math.min(allocation.debts[id] ?? 0, fundable);
     after[id] = (after[id] ?? 0) + take - paid;
     collected += paid;
+    paidBy[id] = paid;
   }
   // 任务 8：地主拿到桌面应得（landlordTake）+ 农民实际补偿（collected），补偿多少就多拿多少。
   after[landlordId] = (after[landlordId] ?? 0) + settlement.landlordTake + collected;
@@ -189,5 +191,5 @@ export function applyAllocation({ settlement, allocation, balances, bets, landlo
     deltas[id] = (after[id] ?? 0) - (startBalances[id] ?? 0);
     if ((after[id] ?? 0) <= config.bankruptcyThreshold) bankrupts.push(id);
   }
-  return { after, deltas, collected, bankrupts };
+  return { after, deltas, collected, bankrupts, paidBy };
 }

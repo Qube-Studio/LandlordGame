@@ -4,7 +4,7 @@
 /* eslint-disable react-hooks/immutability */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { Html, OrbitControls, ContactShadows } from '@react-three/drei';
+import { OrbitControls, ContactShadows } from '@react-three/drei';
 import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import { useGameStore } from '../store/gameStore';
@@ -12,15 +12,15 @@ import { useSettingsStore } from '../store/settingsStore';
 import { decompose } from '../game/notes';
 import MinecraftPlayer from './MinecraftPlayer';
 import Coin from './Coin';
-import { noteTexture, coinFaceTexture } from './textures';
+import PayoutLayer from './PayoutLayer';
+import { TABLE_TOP, CARD_W, CARD_T, CARD_D, cardMaterials, cardLocal, cardYaw, blankNotes, easeInOut, MoneyStack } from './cards';
+import { coinFaceTexture } from './textures';
 import { getCoinRest } from './coinSim';
 import { setProjector } from './projection';
 import { expressionFor } from './expression';
-import PixelText from '../assets/pixelfont/PixelText';
-import { P, DENOM_COLORS } from '../assets/palette';
+import { P } from '../assets/palette';
 import { tex } from '../assets/texlib';
 
-const TABLE_TOP = 1.0;
 const PAYOUT_PHASES = ['SETTLE', 'NEGOTIATE', 'FINALIZE'];
 
 // 任务③：仅本地测试（import.meta.env.DEV）才暴露的辅助开关。
@@ -687,38 +687,7 @@ function Table({ spots = [] }) {
   );
 }
 
-// 双面钞票卡材质：+y(顶)=正面值，-y(底)=反面；正/反由 rotation.x（0 / π）决定。按面额缓存。
-const CARD_W = 0.42, CARD_T = 0.05, CARD_D = 0.58;
-const CARD_MATS = new Map();
-function cardMaterials(value) {
-  if (CARD_MATS.has(value)) return CARD_MATS.get(value);
-  const face = new THREE.MeshStandardMaterial({ map: noteTexture({ value }), roughness: 0.85, flatShading: true });
-  const back = new THREE.MeshStandardMaterial({ map: noteTexture({ faceDown: true }), roughness: 0.85, flatShading: true });
-  // 边缘按面额 accent 色带(银行捆钞感,侧看一眼识面额)
-  const edge = new THREE.MeshStandardMaterial({ color: (DENOM_COLORS[value] ?? DENOM_COLORS[1]).accent, roughness: 1, flatShading: true });
-  const mats = [edge, edge, face, back, edge, edge]; // px,nx,py(正),ny(反),pz,nz
-  CARD_MATS.set(value, mats);
-  return mats;
-}
-// 钱堆布局：把牌分成若干小叠聚成一小堆，比单列细塔更有「钱多」的体量感。
-// 飞行落点与静态钱堆共用 cardLocal，保证无缝接力。
-const STACK_CAP = 36;   // 单堆最多渲染张数（超出只影响视觉，张数标签仍显示真实值）
-const COL_H = 5;        // 每小叠张数
-const STACK_SPOTS = [   // 各小叠在桌面上的散布位置（相对钱堆中心），随叠数外扩
-  [0, 0], [0.17, 0.07], [-0.15, 0.11], [0.07, -0.17], [-0.11, -0.15],
-  [0.21, -0.08], [-0.2, -0.04], [0.04, 0.19],
-];
-const cardLocal = (i) => {
-  const col = Math.floor(i / COL_H);
-  const row = i % COL_H;
-  const [sx, sz] = STACK_SPOTS[col % STACK_SPOTS.length];
-  return [sx + ((row % 2) - 0.5) * 0.025, TABLE_TOP + 0.03 + row * 0.045 + col * 0.012, sz + Math.sin(row * 2.1) * 0.02];
-};
-const cardYaw = (i) => ((i * 37) % 34 - 17) * Math.PI / 180;
-// 钱堆顶部（用于悬浮标签）：取最高小叠的高度
-const stackTopY = (count) => TABLE_TOP + 0.06 + Math.min(count, COL_H) * 0.045;
-// 反面占位牌（下注阶段对手只露张数，不露面额）
-const blankNotes = (n) => Array.from({ length: Math.max(0, Math.min(n, STACK_CAP)) }, (_, i) => ({ id: `b${i}`, value: 1 }));
+// 钱牌材质/堆叠槽位/静态钱堆已抽到 scene/cards.jsx（与 PayoutLayer 共用，保证飞行/静堆/彩池同源）。
 
 // 炉火点光:双正弦叠加闪烁(每帧只写 1 个 number,零分配)。
 // 画质设置「动态光效」关 / prefers-reduced-motion → 静态强度(反馈①)。
@@ -746,35 +715,8 @@ function Projector() {
   return null;
 }
 
-function MoneyStack({ notes, faceUp, position, amount = null }) {
-  const shown = notes.slice(0, STACK_CAP);
-  const topY = stackTopY(shown.length);
-  return (
-    <group position={position}>
-      {shown.map((n, i) => (
-        <mesh
-          key={n.id ?? i}
-          material={cardMaterials(n.value)}
-          position={cardLocal(i)}
-          rotation={[faceUp ? 0 : Math.PI, cardYaw(i), 0]}
-          castShadow
-        >
-          <boxGeometry args={[CARD_W, CARD_T, CARD_D]} />
-        </mesh>
-      ))}
-      {/* 不显示张数；金额仅在可见时标注（自己的堆始终可见，他人堆揭牌后可见） */}
-      {amount != null && (
-        <Html position={[0, topY + 0.15, 0]} center distanceFactor={6.5} zIndexRange={[20, 0]}>
-          <div className="money-3d-amount"><PixelText size={2} color={P.gold}>{`¥${amount}`}</PixelText></div>
-        </Html>
-      )}
-    </group>
-  );
-}
-
 // 一张飞行中的牌：从手牌屏幕位置（反投影到世界）沿二次贝塞尔弧线落到桌面槽位，
 // 同时从「正面朝向相机」翻转为「反面朝上平躺」。
-const easeInOut = (t) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
 function FlyingNote({ item, startRef, delay, duration, onDone }) {
   const ref = useRef();
   const done = useRef(false);
@@ -896,6 +838,8 @@ function SceneContents({ look, freeCam = false }) {
   }, [bankruptCount]);
 
   const betsVisible = !['LOBBY', 'DISCUSSION', 'BETTING'].includes(state.phase);
+  // 分钱阶段桌面钱全部交给编导层（聚拢/分堆/派送/调整/拿取，§3.8），常规下注堆让位
+  const payoutActive = PAYOUT_PHASES.includes(state.phase) && !!state.payout;
   const showFlip = state.phase === 'COIN_FLIP';
   // REFLIP（暴食者重掷决策窗）也保持硬币停在已落定的反面结果上，让玩家看到自己输了再决定是否重掷。
   const showRest = (PAYOUT_PHASES.includes(state.phase) || state.phase === 'REFLIP') && state.coinResult;
@@ -967,7 +911,7 @@ function SceneContents({ look, freeCam = false }) {
         })}
 
         {/* 桌面钱堆(每人落在自己座位前的烘焙圆圈里;自己的堆飞行中隐藏,落定后无缝接力) */}
-        {players.map((p, i) => {
+        {!payoutActive && players.map((p, i) => {
           if (!p.hasBet) return null;
           const spot = spots[i];
           if (p.id === playerId) {
@@ -986,6 +930,11 @@ function SceneContents({ look, freeCam = false }) {
             />
           );
         })}
+
+        {/* 分钱编导层：聚拢→分堆→派送→协商镜像→收账/调整→拿取（§3.8） */}
+        {payoutActive && (
+          <PayoutLayer players={players} seats={seats} spots={spots} playerId={playerId} rot={rot} />
+        )}
 
         {/* 下注飞行中的牌（手牌屏幕位→世界→组内坐标，弧线落进自己的圆圈） */}
         {flightActive && <FlyingNotes betFlight={betFlight} target={mySpot} rot={rot} />}

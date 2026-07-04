@@ -5,7 +5,7 @@ import reactRefresh from 'eslint-plugin-react-refresh'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist']),
+  globalIgnores(['dist', '**/.vite/**']), // .vite = dev 依赖预构建缓存，非源码
   {
     files: ['**/*.{js,jsx}'],
     extends: [

@@ -181,6 +181,7 @@ wss.on('connection', (ws, req) => {
       case 'pass_reflip': result = room.passReflip(pid); break;                              // 竞技暴食者放弃重掷
       case 'negotiate_transfer': result = room.negotiateTransfer(pid, msg.toId, msg.kind, Number(msg.amount)); break;
       case 'negotiate_confirm': result = room.negotiateConfirm(pid, msg.confirmed); break;
+      case 'take_payout': result = room.takePayout(pid); break;                              // 桌面显式结算：拿取（§3.8）
       case 'chat': result = room.chat(pid, msg.channel ?? 'public', msg.text); break;
       case 'set_emote': result = room.setEmote(pid, msg.emote ?? null); break; // 任务⑧ 预留：手动表情
       case 'look':

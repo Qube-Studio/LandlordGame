@@ -2,7 +2,6 @@ import { useGameStore } from '../store/gameStore';
 import Scene3D from '../scene/Scene3D';
 import UiLayer from '../ui/UiLayer';
 import McChat from '../ui/McChat';
-import FlightLayer from '../ui/FlightLayer';
 import InsuranceDropLayer from '../ui/InsuranceDropLayer';
 
 export default function GameScreen() {
@@ -17,7 +16,6 @@ export default function GameScreen() {
       <Scene3D />
       <UiLayer />
       <McChat />
-      <FlightLayer />
       <InsuranceDropLayer />
     </div>
   );

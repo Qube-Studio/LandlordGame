@@ -8,6 +8,7 @@ import { apportion } from '../logic/apportion.js';
 import { betBounds, settleRound, applyAllocation, allocateDebt } from '../logic/rules.js';
 import { buildGoalSchedule, upcomingGoal, goalForRound, goalPenalty } from '../logic/landlordGoal.js';
 import { computeWage, wageDueThisRound, investorWaiver, computeTax } from '../logic/competitive.js';
+import { createLedger, buildSettleScript, flowsFromParts } from '../logic/payout.js';
 
 let passed = 0;
 const cfg = mergeConfig();
@@ -130,6 +131,62 @@ test('allocateDebt：容量封顶 + 递归重摊，uncovered 正确', () => {
   assert.equal(debts.A, 2);
   assert.equal(debts.B, 1);
   assert.equal(uncovered, 3);
+});
+test('applyAllocation 返回 paidBy：逐人实付且 Σ == collected', () => {
+  const { result, allocation } = runRound({
+    coinResult: 'heads', bets: { L: 8, A: 1, B: 1 }, postBetBalances: { L: 0, A: 2, B: 8 },
+    landlordId: 'L', farmerIds: ['A', 'B'], config: cfgWin2,
+  });
+  assert.equal(result.paidBy.A + result.paidBy.B, result.collected);
+  assert.ok(result.paidBy.A <= (allocation.debts.A ?? 0));
+  assert.ok(result.paidBy.B <= (allocation.debts.B ?? 0));
+});
+
+console.log('payout（§3.8 台账/编导脚本）');
+test('createLedger：扣款先扣堆、不足再扣手；进账进堆', () => {
+  const led = createLedger({ A: 3 });
+  assert.deepEqual(led.debit('A', 5), [{ kind: 'pile', amount: 3 }, { kind: 'hand', amount: 2 }]);
+  assert.equal(led.pileOf('A'), 0);
+  assert.equal(led.handDebits.A, 2);
+  led.credit('A', 4);
+  assert.deepEqual(led.debit('A', 1), [{ kind: 'pile', amount: 1 }]);
+  assert.equal(led.pileOf('A'), 3);
+  assert.deepEqual(led.debit('A', 0), []);
+});
+test('createLedger 恒等式：pile == after − (now − handDebit)', () => {
+  // 模拟：A 桌上分到 5，又被扣 8（罚金），手上原有 10 → after 应为 10+5−8=7
+  const now = { A: 10 };
+  const led = createLedger({ A: 5 });
+  led.debit('A', 8);
+  const after = 10 + 5 - 8;
+  assert.equal(led.pileOf('A'), Math.max(0, after - (now.A - led.handDebits.A)));
+});
+test('buildSettleScript：gather 含全部非零下注、split 份额 = 方案；0 份额省略', () => {
+  const settlement = settleRound({
+    coinResult: 'tails', bets: { L: 4, A: 2, B: 1 }, balances: { L: 10, A: 6, B: 7 },
+    landlordId: 'L', farmerIds: ['A', 'B'], config: cfg,
+  });
+  let seq = 0;
+  const steps = buildSettleScript({ settlement, bets: { L: 4, A: 2, B: 1 }, landlordId: 'L', farmerIds: ['A', 'B'] }, () => ++seq);
+  assert.equal(steps[0].t, 'gather');
+  assert.deepEqual(steps[0].from.map(f => f.amount), [4, 2, 1]);
+  assert.equal(steps[0].pot, 7);
+  assert.equal(steps[1].t, 'split');
+  assert.equal(steps[1].shares.reduce((s, x) => s + x.amount, 0), 7);       // 份额守恒 == pot
+  assert.equal(steps[1].shares.find(s => s.id === 'L'), undefined);         // 地主 0 份省略
+  assert.ok(steps[1].id > steps[0].id);
+});
+test('flowsFromParts：按接收方份额精确切分，跨 pile/hand 边界', () => {
+  const flows = flowsFromParts('L', [{ kind: 'pile', amount: 3 }, { kind: 'hand', amount: 2 }], [
+    { to: { kind: 'pile', id: 'A' }, amount: 2 },
+    { to: { kind: 'pile', id: 'B' }, amount: 3 },
+  ]);
+  assert.deepEqual(flows, [
+    { from: { kind: 'pile', id: 'L' }, to: { kind: 'pile', id: 'A' }, amount: 2 },
+    { from: { kind: 'pile', id: 'L' }, to: { kind: 'pile', id: 'B' }, amount: 1 },
+    { from: { kind: 'hand', id: 'L' }, to: { kind: 'pile', id: 'B' }, amount: 2 },
+  ]);
+  assert.equal(flows.reduce((s, f) => s + f.amount, 0), 5);
 });
 
 console.log('landlordGoal');

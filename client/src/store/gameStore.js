@@ -1,6 +1,5 @@
 // 房间/游戏状态镜像 + WebSocket 生命周期。
-// state 是服务端 viewFor 的原样镜像，客户端绝不自行计算余额/胜负；
-// flights 是飞牌动画的瞬态队列（纯表现）。
+// state 是服务端 viewFor 的原样镜像，客户端绝不自行计算余额/胜负。
 
 import { create } from 'zustand';
 import { configureSocket, connectSocket, sendMsg, disconnectSocket } from '../net/socket';
@@ -14,7 +13,6 @@ export const useGameStore = create((set, get) => ({
   chat: [],          // {channel, from, name, text, ts}
   toast: null,       // {text, kind}
   kicked: null,      // 被顶号原因
-  flights: [],       // {id, value, faceDown, debt, from:{x,y,w,h}, to:{x,y,w,h}} —— 仅用于结算回收的 2D 飞行
   insuranceDrops: [],// 投资人投保确认后，保单牌一张张掉出屏幕（不上桌）的瞬态队列
   chatOpen: false,   // 左下角聊天输入是否展开（也用于屏蔽游戏快捷键）
   betFlight: null,   // 下注时手牌→桌面的 3D 飞行：{round, items:[{id,value,fromScreen:{x,y}}]}
@@ -29,7 +27,7 @@ export const useGameStore = create((set, get) => ({
   disconnect() {
     disconnectSocket();
     sessionStorage.removeItem('llg_room');
-    set({ connected: false, joining: false, roomId: null, playerId: null, state: null, chat: [], flights: [], insuranceDrops: [], betFlight: null, myStack: null, looks: {}, panel: null });
+    set({ connected: false, joining: false, roomId: null, playerId: null, state: null, chat: [], insuranceDrops: [], betFlight: null, myStack: null, looks: {}, panel: null });
   },
 
   joinRoom(roomId) {
@@ -42,7 +40,7 @@ export const useGameStore = create((set, get) => ({
   leaveRoom() {
     sendMsg({ type: 'leave_room' });
     sessionStorage.removeItem('llg_room');
-    set({ roomId: null, playerId: null, state: null, chat: [], joining: false, flights: [], insuranceDrops: [], betFlight: null, myStack: null, looks: {}, panel: null });
+    set({ roomId: null, playerId: null, state: null, chat: [], joining: false, insuranceDrops: [], betFlight: null, myStack: null, looks: {}, panel: null });
   },
 
   send(msg) {
@@ -70,13 +68,6 @@ export const useGameStore = create((set, get) => ({
   },
   clearToast() { set({ toast: null }); },
   clearKicked() { set({ kicked: null }); },
-
-  addFlights(items) {
-    set(s => ({ flights: [...s.flights, ...items] }));
-  },
-  removeFlight(id) {
-    set(s => ({ flights: s.flights.filter(f => f.id !== id) }));
-  },
 
   dropInsurance(items) {
     set(s => ({ insuranceDrops: [...s.insuranceDrops, ...items] }));
