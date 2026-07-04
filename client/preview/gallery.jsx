@@ -88,10 +88,35 @@ const capitalistLoss = mk({
   me: { id: 'me', role: 'capitalist', balance: 12, pool: 13, bounds: { minStake: 1 } },
   capitalist: { id: 'me', personal: 12, pool: 13, taxRate: 0.1, taxMin: 2 },
   history: [{
-    round: 1, coinResult: 'tails', deltas: { me: 0, f: 4, g: -2 },
+    round: 1, coinResult: 'tails', bets: { me: 3, f: 2, g: 2 }, pot: 7, deltas: { me: 0, f: 4, g: -2 },
     capitalistPool: 13, capitalistPoolDelta: -3, capitalistTax: 2,
     landlordGoalValue: null, landlordPenalty: 0, uncovered: 0, newlyBankrupt: [],
   }],
+});
+
+// 账本资本家视角(bug 修复回归):摘要行「我 ±N」与摘开明细里「我」那一行都必须走资金池净变动，
+// 不能沿用恒为 0 的 deltas.me——两轮分别验证盈利(+7)与亏损(−5)都正确显示且颜色正确。
+const ledgerCapitalist = mk({
+  phase: 'DISCUSSION', round: 3,
+  players: [
+    { id: 'me', name: '我', role: 'capitalist', seat: 0, online: true, isHost: true, balance: 20 },
+    opp('f', '农民周', 'farmer', { hasBet: false, bet: null }),
+    opp('g', '暴食李', 'glutton', { hasBet: false, bet: null }),
+  ],
+  me: { id: 'me', role: 'capitalist', balance: 20, pool: 20, bounds: { minStake: 1 } },
+  capitalist: { id: 'me', personal: 20, pool: 20, taxRate: 0.1, taxMin: 2 },
+  history: [
+    {
+      round: 1, coinResult: 'heads', bets: { me: 6, f: 2, g: 2 }, pot: 10, deltas: { me: 0, f: -2, g: -2 },
+      capitalistPool: 15, capitalistPoolDelta: 9, capitalistTax: 2,
+      landlordGoalValue: null, landlordPenalty: 0, uncovered: 0, newlyBankrupt: [],
+    },
+    {
+      round: 2, coinResult: 'tails', bets: { me: 4, f: 3, g: 3 }, pot: 10, deltas: { me: 0, f: 5, g: 5 },
+      capitalistPool: 10, capitalistPoolDelta: -5, capitalistTax: 0,
+      landlordGoalValue: null, landlordPenalty: 0, uncovered: 0, newlyBankrupt: [],
+    },
+  ],
 });
 
 const finalize = mk({
@@ -228,6 +253,7 @@ const SCENES = [
   { key: 'reflip', label: '暴食者重掷/放弃', kind: 'game', state: reflip },
   { key: 'huds', label: '四类 HUD', kind: 'game', state: huds },
   { key: 'capitalistLoss', label: '资本家蜡烛变色', kind: 'game', state: capitalistLoss, note: '资本家上回合池亏损→右下角蜡烛应为红(个人本金恒定,须按资金池净变动判色)' },
+  { key: 'ledgerCapitalist', label: '账本(资本家视角)', kind: 'game', state: ledgerCapitalist, panel: 'ledger', note: 'R1 我 +7(绿) / R2 我 −5(红)——摘要行与摘开明细的「我」都须走资金池净变动,不是恒 0 的 deltas.me' },
   { key: 'finalize', label: '结算播报', kind: 'game', state: finalize },
   { key: 'coin', label: '硬币', kind: 'game', state: coin },
   { key: 'balance', label: '资金增长动画', kind: 'game', state: balance, controls: 'balance' },

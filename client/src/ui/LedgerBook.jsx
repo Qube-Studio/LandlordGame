@@ -24,9 +24,19 @@ function coinUrls() {
 
 const OK_INK = shade(P.ok, -30); // 羊皮纸上的深绿（与 WageHud 同法）
 
-function Row({ h, players, myId, open, onToggle, showBalances }) {
+// 某人这一轮的真实盈亏：资本家个人本金每回合原封归还（deltas 恒 0，见 UiLayer#BalanceHud 同一修复），
+// 真实盈亏体现在资金池——本人视角下用 capitalistPoolDelta − capitalistTax 代替 deltas[id]。
+// 该字段仅资本家本人可见（服务端 viewFor 过滤），故只在 id === myId 且本人是资本家时生效。
+function deltaOf(h, id, myId, myRole) {
+  if (id === myId && myRole === 'capitalist' && h.capitalistPoolDelta != null) {
+    return h.capitalistPoolDelta - (h.capitalistTax ?? 0);
+  }
+  return h.deltas?.[id] ?? 0;
+}
+
+function Row({ h, players, myId, myRole, open, onToggle, showBalances }) {
   const nameOf = (id) => players.find(p => p.id === id)?.name ?? '?';
-  const my = h.deltas?.[myId];
+  const my = h.deltas ? deltaOf(h, myId, myId, myRole) : null;
   const heads = h.coinResult === 'heads';
   return (
     <div className={`ledger-entry ${open ? 'open' : ''}`}>
@@ -53,7 +63,10 @@ function Row({ h, players, myId, open, onToggle, showBalances }) {
           )}
           {h.deltas && (
             <div className="settle-detail">
-              {Object.entries(h.deltas).map(([id, d]) => <span key={id} className={d >= 0 ? 'ok' : 'danger'}>{nameOf(id)} {d >= 0 ? `+${d}` : d}</span>)}
+              {Object.keys(h.deltas).map((id) => {
+                const d = deltaOf(h, id, myId, myRole);
+                return <span key={id} className={d >= 0 ? 'ok' : 'danger'}>{nameOf(id)} {d >= 0 ? `+${d}` : d}</span>;
+              })}
             </div>
           )}
           {h.landlordGoalValue != null && (h.landlordPenalty > 0
@@ -84,6 +97,7 @@ export default function LedgerBook() {
   const playerId = useGameStore(s => s.playerId);
   const setPanel = useGameStore(s => s.setPanel);
   const history = state.history ?? [];
+  const myRole = state.me?.role;
   // 打开抽屉时默认摊开最新一轮（抽屉关闭即卸载，重开会重新对准最新）。
   const [openRound, setOpenRound] = useState(history.length ? history[history.length - 1].round : null);
   const rows = [...history].reverse(); // 最新在上（轮数有限，无需缓存）
@@ -104,7 +118,7 @@ export default function LedgerBook() {
           ? <div className="ledger-empty"><PixelText size={2} color="var(--c-parch-ink)">还没有账——第一轮结算后,这里会记下每一笔。</PixelText></div>
           : rows.map(h => (
             <Row
-              key={h.round} h={h} players={state.players} myId={playerId}
+              key={h.round} h={h} players={state.players} myId={playerId} myRole={myRole}
               open={openRound === h.round}
               onToggle={() => setOpenRound(openRound === h.round ? null : h.round)}
               showBalances={showBalances}
