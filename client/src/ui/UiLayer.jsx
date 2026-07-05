@@ -354,81 +354,169 @@ function BalanceHud() {
   );
 }
 
-// ---------- 地主资金目标（所有人可见；地主/观战者另见进度） ----------
+// ---------- 任务风 HUD 图形件（精简二轮：图形承担语义，文字压到每卡一行） ----------
+// 值变化 → 递增 key（首帧/重连注入不算变化），key 变化令元素重挂载重播 .quest-bump 强调动画。
+function useBumpKey(value) {
+  const [key, setKey] = useState(0);
+  const prev = useRef(value);
+  const inited = useRef(false);
+  useEffect(() => {
+    if (!inited.current) { inited.current = true; prev.current = value; return; }
+    if (value !== prev.current) { prev.current = value; setKey(k => k + 1); }
+  }, [value]);
+  return key;
+}
+const clamp01 = (r) => Math.max(0, Math.min(1, r || 0));
+const pct = (r) => `${Math.round(clamp01(r) * 100)}%`;
+
+// 无缝细进度条。ratio=null 表示进度不可知（农民看地主目标）：满宽暗斜纹。
+// cost = 填充段右端的红色开销区（占填充段的比例，如 罚款/当前余额）。
+function QuestTrack({ ratio, cost = 0 }) {
+  return (
+    <span className="quest-track">
+      {ratio == null
+        ? <span className="quest-fill unknown" />
+        : (
+          <span className="quest-fill" style={{ width: pct(ratio) }}>
+            <span className="quest-cost" style={{ width: pct(cost) }} />
+          </span>
+        )}
+    </span>
+  );
+}
+// 薄有缝计数条：total 等宽格、亮 filled 格。独立用（重掷）或作 .quest-ring 外包环。
+function QuestSegs({ total, filled, className = '' }) {
+  const T = Math.max(1, Math.min(12, Math.floor(total || 0) || 1));
+  const F = Math.max(0, Math.min(T, Math.floor(filled || 0)));
+  return (
+    <span className={`quest-segs ${className}`}>
+      {Array.from({ length: T }, (_, i) => <span key={i} className={`quest-seg ${i < F ? 'on' : ''}`} />)}
+    </span>
+  );
+}
+// 始终填满、两端渐隐的占比条：左区=可挪用比例（绿）、右区=开销占比（红），宽度带阻尼过渡。
+function QuestFullBar({ left = 0, right = 0 }) {
+  const r = clamp01(right);
+  const l = Math.min(clamp01(left), 1 - r);
+  return (
+    <span className="quest-pool">
+      <span className="qp-left" style={{ width: pct(l) }} />
+      <span className="qp-right" style={{ width: pct(r) }} />
+    </span>
+  );
+}
+// 单行紧凑文案：[label, value, color?] 对——标签暗、数值按语义着色；bump 时整行金闪。
+// value 传空串 = 纯标签项（如「不可重掷」）。
+function QuestLine({ pairs, bump = 0 }) {
+  return (
+    <div key={bump} className={`quest-line ${bump ? 'quest-bump' : ''}`}>
+      {pairs.map(([label, value, color], i) => (
+        <span key={i} className="quest-pair">
+          <PixelText size={2} color="var(--ink-dim)">{label}</PixelText>
+          {String(value) !== '' && <PixelText size={2} color={color ?? 'var(--px-gold)'}>{String(value)}</PixelText>}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+// ---------- 地主资金目标 ----------
+// 内=无缝细条（当前余额→目标的填充；农民看不到余额=暗斜纹"不可知"）；
+// 外包薄有缝环=还剩回合数；结算回合外环耗尽→改为轮廓闪光（达标绿/未达红/不可知金）。
 function GoalHud() {
   const state = useGameStore(s => s.state);
   const g = state.landlordGoal;
+  const bump = useBumpKey(g?.landlordBalance);
   if (!g) return null;
-  const behind = g.landlordBalance != null && g.landlordBalance < g.goal;
-  // 未达标惩罚 = max(minPenalty, floor(余额 × penaltyRate))；仅在地主余额可见时展示（不泄露隐私）。
+  const cur = g.landlordBalance;                      // 农民视角 null（不泄露）
+  const met = cur != null && cur >= g.goal;
   const lg = state.config?.landlordGoal;
-  const penalty = (g.landlordBalance != null && lg)
-    ? Math.max(lg.minPenalty ?? 0, Math.floor(Math.max(0, g.landlordBalance) * (lg.penaltyRate ?? 0)))
+  const penalty = (cur != null && lg)
+    ? Math.max(lg.minPenalty ?? 0, Math.floor(Math.max(0, cur) * (lg.penaltyRate ?? 0)))
     : null;
+  const due = g.roundsLeft <= 0;
+  const glow = due ? `due ${cur == null ? '' : met ? 'met' : 'miss'}` : '';
+  // 地主本人看「目标」，其他人（农民/观战）看「地主目标」
+  const label = state.me?.id === g.landlordId ? '目标：' : '地主目标：';
+  const pairs = [[label, cur != null ? `${cur}/${g.goal}` : String(g.goal), met ? 'var(--ok)' : 'var(--px-gold)']];
+  if (penalty != null) pairs.push(['罚款：', penalty, 'var(--danger)']);
   return (
-    <div className={`goal-hud hud-card ${behind ? 'behind' : ''}`}>
-      <div className="goal-line hud-card-title"><PixelText size={2} color="var(--px-gold)">地主目标</PixelText></div>
-      <div className="goal-line gap">
-        <PixelText size={3} color={behind ? 'var(--danger)' : 'var(--px-gold)'}>{`¥${g.goal}`}</PixelText>
+    <div className="goal-hud hud-card quest-card">
+      <QuestLine bump={bump} pairs={pairs} />
+      <div className={`quest-wrap ${glow}`}>
+        {!due && <QuestSegs total={g.interval ?? 1} filled={g.roundsLeft} className="quest-ring" />}
+        <QuestTrack
+          ratio={cur != null ? (g.goal > 0 ? cur / g.goal : 1) : null}
+          cost={cur != null && cur > 0 && penalty != null ? penalty / cur : 0}
+        />
       </div>
-      <div className="goal-line"><PixelText size={2} color="var(--ink-dim)">
-        {g.roundsLeft <= 0 ? '本回合结算' : `还剩 ${g.roundsLeft} 回合`}
-      </PixelText></div>
-      {g.landlordBalance != null && (
-        <div className="goal-line"><PixelText size={2} color={behind ? 'var(--danger)' : 'var(--ok)'}>{`当前 ¥${g.landlordBalance}`}</PixelText></div>
-      )}
-      {penalty != null && (
-        <div className="goal-line"><PixelText size={2} color="var(--danger)">{`未达罚 ¥${penalty}`}</PixelText></div>
-      )}
     </div>
   );
 }
 
-// ---------- 资本家资金池 HUD（本人/观战可见血条；耗尽即破产） ----------
+// ---------- 资本家资金池 HUD（本人/观战可见） ----------
+// 始终填满的渐隐条：左区（绿）=个人资金/池=可挪用比例，右区（红）=下回合税/池=税负比例；
+// 区宽随池涨跌阻尼变化。税额服务端直发（§8.6 恒定税），客户端只渲染。
 function CapitalistHud() {
   const state = useGameStore(s => s.state);
   const c = state.capitalist;
+  const bump = useBumpKey(c?.pool);
   if (!c || c.pool == null) return null;
-  const taxNext = Math.max(c.taxMin ?? 0, Math.floor(Math.max(0, c.pool) * (c.taxRate ?? 0)));
-  const low = c.pool <= taxNext * 2;
+  const pool = Math.max(0, c.pool);
+  const tax = c.taxNext ?? 0;
+  // 左区分子固定用开局个人资金（下注中 balance 暂时下探，占比不该跟着抖）
+  const personal = c.personalInitial ?? c.personal ?? 0;
   return (
-    <div className={`goal-hud hud-card ${low ? 'behind' : ''}`}>
-      <div className="goal-line hud-card-title"><PixelText size={2} color="var(--px-gold)">资金池</PixelText></div>
-      <div className="goal-line gap"><PixelText size={3} color={low ? 'var(--danger)' : 'var(--px-gold)'}>{`¥${c.pool}`}</PixelText></div>
-      <div className="goal-line"><PixelText size={2} color="var(--danger)">{`下回合税 ¥${taxNext}`}</PixelText></div>
-      <div className="goal-line"><PixelText size={2} color="var(--ink-dim)">{`耗尽即破产`}</PixelText></div>
+    <div className="goal-hud hud-card quest-card">
+      <QuestLine bump={bump} pairs={[['担保资金：', pool], ['回合税务：', tax, 'var(--danger)']]} />
+      <QuestFullBar
+        left={pool > 0 ? personal / pool : 0}
+        right={pool > 0 ? tax / pool : (tax > 0 ? 1 : 0)}
+      />
     </div>
   );
 }
 
-// ---------- 基础农民工资 HUD（本人可见：还剩几回合、每次发多少） ----------
+// ---------- 基础农民工资 HUD（本人可见） ----------
+// 与目标卡同语法：内条=距发薪的进度填充，外环=还剩回合；发放回合外环耗尽→绿光闪。
 function WageHud() {
   const state = useGameStore(s => s.state);
   const w = state.me?.wage;
+  const bump = useBumpKey(w?.amount);
   if (!w) return null;
+  const due = w.roundsToNext <= 0;
   return (
-    <div className="goal-hud hud-card">
-      <div className="goal-line hud-card-title"><PixelText size={2} color="var(--px-gold)">工资</PixelText></div>
-      <div className="goal-line gap"><PixelText size={3} color="var(--ok)">{`+${w.amount}`}</PixelText></div>
-      <div className="goal-line"><PixelText size={2} color="var(--ink-dim)">
-        {w.roundsToNext <= 0 ? '本回合发放' : `还剩 ${w.roundsToNext} 回合`}
-      </PixelText></div>
+    <div className="goal-hud hud-card quest-card">
+      <QuestLine bump={bump} pairs={[['工资：', `+${w.amount}`, 'var(--ok)']]} />
+      <div className={`quest-wrap ${due ? 'due met' : ''}`}>
+        {!due && <QuestSegs total={w.interval ?? 1} filled={w.roundsToNext} className="quest-ring" />}
+        <QuestTrack ratio={w.interval > 0 ? 1 - w.roundsToNext / w.interval : 1} />
+      </div>
     </div>
   );
 }
 
-// ---------- 暴食者饭账 HUD（本人可见：累积欠账 + 剩余重掷） ----------
+// ---------- 暴食者饭账 HUD（本人可见） ----------
+// 满填渐隐条：右区（红）=待结算饭账/总资金（吃掉身家的比例）；
+// 下方紧贴浅黄重掷条（同款两端渐隐）：初始填满，每用一次扣掉一段。
 function GluttonHud() {
   const state = useGameStore(s => s.state);
   const me = state.me;
+  const bump = useBumpKey(me?.mealAllowance);
   if (me?.role !== 'glutton' || me?.mealAllowance == null) return null;
-  const owes = me.mealAllowance > 0;
+  const meal = me.mealAllowance;
+  const bal = Math.max(0, me.balance ?? 0);
+  const maxReflips = state.config?.competitive?.glutton?.maxReflips ?? 3;
+  const left = Math.max(0, me.reflipsLeft ?? 0);
+  const pairs = [['伙食费：', meal, meal > 0 ? 'var(--danger)' : 'var(--px-gold)']];
+  pairs.push(left > 0 ? ['可重掷：', left] : ['不可重掷', '']);
   return (
-    <div className="goal-hud hud-card">
-      <div className="goal-line hud-card-title"><PixelText size={2} color="var(--px-gold)">饭账</PixelText></div>
-      <div className="goal-line gap"><PixelText size={3} color={owes ? 'var(--danger)' : 'var(--px-gold)'}>{`¥${me.mealAllowance}`}</PixelText></div>
-      <div className="goal-line"><PixelText size={2} color="var(--ink-dim)">胜时扣除</PixelText></div>
-      <div className="goal-line"><PixelText size={2} color="var(--ink-dim)">{`重掷剩 ${me.reflipsLeft ?? 0} 次`}</PixelText></div>
+    <div className="goal-hud hud-card quest-card">
+      <QuestLine bump={bump} pairs={pairs} />
+      <QuestFullBar right={bal > 0 ? meal / bal : (meal > 0 ? 1 : 0)} />
+      <span className="quest-reflip">
+        <span className="qr-fill" style={{ width: pct(maxReflips > 0 ? left / maxReflips : 0) }} />
+      </span>
     </div>
   );
 }
@@ -646,7 +734,10 @@ export default function UiLayer() {
           去底板、细金线分隔、文字投影（样式见 pixel.css 末尾 quest 段）；右下角只留自己的资金蜡烛 */}
       <div className="hud-left-stack quest">
         <div className="quest-phase">
-          <PixelText size={3} color="var(--px-gold)">{PHASE_META[state.phase]?.label ?? state.phase}</PixelText>
+          {/* key=phase：换阶段重挂载，重播淡入 */}
+          <PixelText key={state.phase} size={3} color="var(--px-gold)" className="quest-fade">
+            {PHASE_META[state.phase]?.label ?? state.phase}
+          </PixelText>
         </div>
         <GoalHud />
         <CapitalistHud />

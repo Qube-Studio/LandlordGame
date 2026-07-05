@@ -246,6 +246,9 @@ export class Room {
     for (const p of all) {
       p.balance = getInitialBalance(p.role, farmers.length, this.config, { ...opts, farmerTotal });
       p.pool = getInitialPool(p.role, farmers.length, this.config); // 资本家资金池；非资本家 null
+      p.poolInitial = p.pool;   // 开局池量（资金池血条的满格基准，随局固定）
+      // 开局个人资金（HUD 占比区基准，随局固定——下注中 balance 暂时下探，不能让占比抖动）
+      p.personalInitial = p.role === 'capitalist' ? p.balance : null;
       p.bankrupt = false;
       p.lobbyReady = false;
       p.pledge = 0;
@@ -292,6 +295,8 @@ export class Room {
       p.negotiateConfirmed = false;
       p.emote = null;
       p.pool = null;          // 竞技角色技能状态清空
+      p.poolInitial = null;
+      p.personalInitial = null;
       p.pledge = 0;
       p.premium = 0;
       p.mealAllowance = 0;
@@ -754,7 +759,7 @@ export class Room {
         result.after[cap.id] = start;          // 个人资金恒定
         result.deltas[cap.id] = 0;
         cap.pool = (cap.pool ?? 0) + capitalistPoolDelta;
-        capitalistTax = computeTax(cap.pool, this.config);
+        capitalistTax = computeTax(cap.pool, cap.poolInitial ?? 0, this.config);
         cap.pool -= capitalistTax;
         capitalistPool = cap.pool;
         // 桌面演出：堆与本金 L 的差额在 堆↔池 间搬运（差额 === capitalistPoolDelta，可由公开信息推出，无泄密）。
@@ -1106,7 +1111,11 @@ export class Room {
     const capitalist = (this._competitive && cap && IN_GAME_PHASES.includes(this.phase)) ? {
       id: cap.id,
       personal: (viewerId === cap.id || spectator) ? cap.balance : null,
+      personalInitial: (viewerId === cap.id || spectator) ? (cap.personalInitial ?? null) : null,
       pool: (viewerId === cap.id || spectator) ? cap.pool : null,
+      poolInitial: (viewerId === cap.id || spectator) ? (cap.poolInitial ?? null) : null,
+      // 下回合税（§8.6 恒定税）：服务端算好直发，客户端只渲染（不再自行套税率公式）
+      taxNext: (viewerId === cap.id || spectator) ? computeTax(cap.pool ?? 0, cap.poolInitial ?? 0, this.config) : null,
       taxRate: this.config.competitive.capitalist.taxRate,
       taxMin: this.config.competitive.capitalist.taxMin,
     } : null;

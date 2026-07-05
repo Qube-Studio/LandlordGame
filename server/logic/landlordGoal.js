@@ -23,12 +23,15 @@ export function buildGoalSchedule(initial, config) {
   return schedule;
 }
 
-// 即将到来的检查点（含当前回合本身）：{ goal, dueRound, roundsLeft } | null。用于 UI 展示。
+// 即将到来的检查点（含当前回合本身）：{ goal, dueRound, roundsLeft, interval } | null。用于 UI 展示。
+// interval = 本检查点与上一检查点的回合跨度（首个检查点从第 0 回合起算），供倒计时计点画满格。
 export function upcomingGoal(round, initial, config) {
   const schedule = buildGoalSchedule(initial, config);
-  const cp = schedule.find(c => c.round >= round);
-  if (!cp) return null;
-  return { goal: cp.goal, dueRound: cp.round, roundsLeft: Math.max(0, cp.round - round) };
+  const idx = schedule.findIndex(c => c.round >= round);
+  if (idx < 0) return null;
+  const cp = schedule[idx];
+  const prevRound = idx > 0 ? schedule[idx - 1].round : 0;
+  return { goal: cp.goal, dueRound: cp.round, roundsLeft: Math.max(0, cp.round - round), interval: cp.round - prevRound };
 }
 
 // 若 `round` 恰好是某检查点回合，返回其目标值；否则 null。用于 FINALIZE 结算。

@@ -11,7 +11,7 @@ import { useGameStore } from './store/gameStore';
 const phase = new URLSearchParams(location.search).get('phase') || 'REVEAL';
 
 const players = [
-  { id: 'p1', name: '我', role: 'farmer', balance: 8, online: true, isHost: true, hasBet: true, bet: 3, confirmed: false, negotiateConfirmed: false, bounds: { minStake: 1, min: 1, max: 7, forceAllIn: false } },
+  { id: 'p1', name: '我', role: 'farmer', balance: 8, online: true, isHost: true, hasBet: true, bet: 3, confirmed: false, negotiateConfirmed: false, bounds: { minStake: 1, min: 1, max: 7, forceAllIn: false }, wage: { interval: 3, amount: 2, roundsToNext: 2 } },
   { id: 'p2', name: '地主张', role: 'landlord', balance: null, online: true, isHost: false, hasBet: true, bet: 5, confirmed: true },
   { id: 'p3', name: '农民李', role: 'farmer', balance: null, online: true, isHost: false, hasBet: true, bet: 2, confirmed: false, negotiateConfirmed: false },
   { id: 'p4', name: '农民王', role: 'farmer', balance: null, online: false, isHost: false, hasBet: true, bet: 4, confirmed: false, negotiateConfirmed: false },
@@ -24,14 +24,16 @@ const base = {
   roomId: 'ABCD',
   players,
   me: players[0],
-  config: { timing: { coinAnimMs: 2200 } },
+  config: { timing: { coinAnimMs: 2200 }, landlordGoal: { minPenalty: 2, penaltyRate: 0.2 } },
   history: [],
   coinResult: null,
   winnerSide: null,
   settlement: null,
   allocation: null,
   roundFarmerIds: ['p1', 'p3', 'p4'],
-  landlordGoal: { goal: 25, dueRound: 3, roundsLeft: 1, initial: 31, landlordId: 'p2', landlordBalance: null },
+  // 截图核对用：landlordBalance/capitalist 在真实农民视角本应为 null/不可见，这里点亮只为核对图形
+  landlordGoal: { goal: 25, dueRound: 3, roundsLeft: 1, interval: 3, initial: 31, landlordId: 'p2', landlordBalance: 20 },
+  capitalist: { id: 'p2', personal: 8, personalInitial: 8, pool: 22, poolInitial: 30, taxNext: 3, taxRate: 0.1, taxMin: 2 },
 };
 
 if (phase === 'BETTING') {

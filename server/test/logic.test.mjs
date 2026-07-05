@@ -312,11 +312,13 @@ test('settleRound：投资人担保作用于【乘后】缺口（减 2n 后再�
   assert.equal(s.shortfall, 1);            // 乘后 3 − 担保 2 = 1
   assert.equal(s.debts.A + s.debts.B, 1);  // 剩余 1 由农民补
 });
-test('资本家税：max(taxMin, ⌊pool×10%⌋)，pool≤0 不扣', () => {
-  assert.equal(computeTax(30, comp), 3);   // floor(3)
-  assert.equal(computeTax(15, comp), 2);   // floor(1.5)=1 → 下限 2
-  assert.equal(computeTax(0, comp), 0);
-  assert.equal(computeTax(-5, comp), 0);
+test('资本家税：随局恒定 max(taxMin, ⌊开局池×10%⌋)，pool≤0 不扣、至多扣到池空', () => {
+  assert.equal(computeTax(30, 30, comp), 3);  // floor(3)
+  assert.equal(computeTax(15, 30, comp), 3);  // 池亏损，税不变（恒定税）
+  assert.equal(computeTax(15, 15, comp), 2);  // floor(1.5)=1 → 下限 2
+  assert.equal(computeTax(1, 30, comp), 1);   // 至多扣到池空
+  assert.equal(computeTax(0, 30, comp), 0);
+  assert.equal(computeTax(-5, 30, comp), 0);
 });
 
 console.log(`\n全部通过：${passed} 项 ✅`);

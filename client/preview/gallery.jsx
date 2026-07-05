@@ -93,8 +93,8 @@ const huds = mk({
     opp('f', '农民周', 'farmer'),
   ],
   me: { id: 'me', role: 'glutton', balance: 14, reflipsLeft: 2, mealAllowance: 3, wage: { interval: 2, amount: 4, roundsToNext: 1 }, bounds: { minStake: 1 } },
-  landlordGoal: { goal: 36, dueRound: 3, roundsLeft: 1, initial: 24, landlordId: 'l', landlordBalance: 20 },
-  capitalist: { id: 'me', personal: 12, pool: 18, taxRate: 0.1, taxMin: 2 },
+  landlordGoal: { goal: 36, dueRound: 3, roundsLeft: 1, interval: 3, initial: 24, landlordId: 'l', landlordBalance: 20 },
+  capitalist: { id: 'me', personal: 12, personalInitial: 12, pool: 18, poolInitial: 30, taxNext: 3, taxRate: 0.1, taxMin: 2 },
 });
 
 // 资本家资金蜡烛盈亏变色(bug 修复回归):个人本金恒定,deltas 恒 0——蜡烛须改用资金池净变动判色。
@@ -107,7 +107,7 @@ const capitalistLoss = mk({
     opp('g', '暴食李', 'glutton', { hasBet: false, bet: null }),
   ],
   me: { id: 'me', role: 'capitalist', balance: 12, pool: 13, bounds: { minStake: 1 } },
-  capitalist: { id: 'me', personal: 12, pool: 13, taxRate: 0.1, taxMin: 2 },
+  capitalist: { id: 'me', personal: 12, personalInitial: 12, pool: 13, poolInitial: 20, taxNext: 2, taxRate: 0.1, taxMin: 2 },
   history: [{
     round: 1, coinResult: 'tails', bets: { me: 3, f: 2, g: 2 }, pot: 7, deltas: { me: 0, f: 4, g: -2 },
     capitalistPool: 13, capitalistPoolDelta: -3, capitalistTax: 2,
@@ -125,7 +125,7 @@ const ledgerCapitalist = mk({
     opp('g', '暴食李', 'glutton', { hasBet: false, bet: null }),
   ],
   me: { id: 'me', role: 'capitalist', balance: 20, pool: 20, bounds: { minStake: 1 } },
-  capitalist: { id: 'me', personal: 20, pool: 20, taxRate: 0.1, taxMin: 2 },
+  capitalist: { id: 'me', personal: 20, personalInitial: 20, pool: 20, poolInitial: 20, taxNext: 2, taxRate: 0.1, taxMin: 2 },
   history: [
     {
       round: 1, coinResult: 'heads', bets: { me: 6, f: 2, g: 2 }, pot: 10, deltas: { me: 0, f: -2, g: -2 },

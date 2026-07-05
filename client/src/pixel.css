@@ -1085,6 +1085,106 @@ body {
 /* 落后/未达标：无边框可染，保留 hud-ember 的辉光脉冲（作用在文字上） */
 .hud-left-stack.quest .goal-hud.behind { border: none; }
 
+/* ---- 任务风图形件（精简二轮）：每卡 = 图形 + 单行文案，图形承担语义 ---- */
+.hud-left-stack.quest .goal-hud.quest-card { gap: 4px; }
+.quest-line { display: flex; align-items: baseline; gap: 12px; }
+.quest-pair { display: inline-flex; align-items: baseline; gap: 2px; }
+
+/* 无缝细进度条（黑槽 + 金填充，宽度阻尼过渡）；.unknown = 进度不可知（暗斜纹满宽） */
+.quest-track {
+  position: relative; display: block;
+  width: 144px; height: 5px;
+  background: rgba(0, 0, 0, 0.62);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.9);
+  overflow: hidden;
+}
+.quest-fill {
+  position: relative; display: block; height: 100%;
+  background: linear-gradient(180deg, #f6dd7a, var(--px-gold));
+  transition: width 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+  overflow: hidden;
+}
+/* 填充段右端的红色开销区（罚款/当前余额）：真要挨罚时会烧掉的那截 */
+.quest-cost {
+  position: absolute; top: 0; right: 0; height: 100%;
+  background: linear-gradient(180deg, #f09a8a, var(--danger));
+  transition: width 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.quest-fill.unknown {
+  width: 100%;
+  background: repeating-linear-gradient(-45deg, rgba(232, 194, 90, 0.18) 0 3px, rgba(0, 0, 0, 0) 3px 6px);
+  transition: none;
+}
+
+/* 薄有缝计数条：total 等宽格、亮 filled 格（独立=重掷；.quest-ring=外包环） */
+.quest-segs { display: flex; gap: 2px; width: 144px; height: 3px; }
+.quest-seg { flex: 1; background: rgba(255, 255, 255, 0.13); }
+.quest-seg.on { background: var(--px-gold); box-shadow: 0 0 3px rgba(232, 194, 90, 0.4); }
+
+/* 重掷条（暴食卡，紧贴饭账条下方）：浅黄区分、同款两端渐隐；初始填满，每用一次扣一段 */
+.quest-reflip {
+  position: relative; display: block;
+  width: 144px; height: 3px;
+  margin-top: -1px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+  -webkit-mask: linear-gradient(90deg, rgba(0, 0, 0, 0), #000 14%, #000 86%, rgba(0, 0, 0, 0));
+  mask: linear-gradient(90deg, rgba(0, 0, 0, 0), #000 14%, #000 86%, rgba(0, 0, 0, 0));
+}
+.quest-reflip .qr-fill {
+  display: block; height: 100%;
+  background: linear-gradient(180deg, #fbf5dd, #ece0b0);
+  transition: width 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* 外包环：外层整块是有缝计数条，内条内嵌居中——四周露出 3px 有缝薄环（回合倒数）。
+   结算/发放回合环耗尽（不渲染）：内条轮廓闪光——达标绿 / 未达红 / 不可知金 */
+.quest-wrap { position: relative; display: block; width: 144px; height: 11px; }
+.quest-wrap .quest-ring { position: absolute; inset: 0; width: 100%; height: 100%; }
+.quest-wrap .quest-track { position: absolute; inset: 3px; width: auto; height: auto; }
+.quest-wrap.due .quest-track { animation: quest-due 0.9s steps(2) infinite; }
+.quest-wrap.due.met .quest-track { --quest-glow: rgba(126, 200, 106, 0.75); }
+.quest-wrap.due.miss .quest-track { --quest-glow: rgba(227, 98, 98, 0.8); }
+@keyframes quest-due {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.9); }
+  50% { box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.9), 0 0 8px var(--quest-glow, rgba(232, 194, 90, 0.65)); }
+}
+
+/* 始终填满、两端渐隐的占比条：左区绿=可挪用比例，右区红=开销占比；区宽阻尼过渡 */
+.quest-pool {
+  position: relative; display: block;
+  width: 144px; height: 4px;
+  background: linear-gradient(180deg, #f6dd7a, var(--px-gold));
+  overflow: hidden;
+  -webkit-mask: linear-gradient(90deg, rgba(0, 0, 0, 0), #000 14%, #000 86%, rgba(0, 0, 0, 0));
+  mask: linear-gradient(90deg, rgba(0, 0, 0, 0), #000 14%, #000 86%, rgba(0, 0, 0, 0));
+}
+.qp-left, .qp-right {
+  position: absolute; top: 0; height: 100%;
+  transition: width 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.qp-left { left: 0; background: linear-gradient(180deg, #b9e3a4, var(--ok)); }
+.qp-right { right: 0; background: linear-gradient(180deg, #f09a8a, var(--danger)); }
+
+/* 变化强调：金闪 + 轻弹（元素以 bump key 重挂载重播） */
+.quest-bump { animation: quest-bump 0.55s var(--e-pop); }
+@keyframes quest-bump {
+  0%   { filter: brightness(2.4) drop-shadow(0 0 8px rgba(232, 194, 90, 0.8)); transform: translateY(0); }
+  35%  { transform: translateY(-3px); }
+  100% { filter: none; transform: none; }
+}
+/* 阶段名切换淡入 */
+.quest-fade { animation: quest-fade 0.45s ease-out both; }
+@keyframes quest-fade {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .quest-fill, .quest-cost, .qp-left, .qp-right, .quest-reflip .qr-fill { transition: none; }
+  .quest-bump, .quest-fade { animation: none; }
+  .quest-wrap.due .quest-track { animation: none; }
+}
+
 /* ---- 回合横幅（⑦）：回合开始屏幕中上方浮现「第 N 回合」，~2s 后淡出 ---- */
 .round-banner {
   position: absolute; top: 16%; left: 50%;

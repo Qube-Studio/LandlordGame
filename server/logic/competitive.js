@@ -23,9 +23,10 @@ export function investorWaiver(totalPledge, config) {
   return Math.max(0, totalPledge) * config.competitive.investor.waiveMultiplier;
 }
 
-// 资本家每回合资金池税（§8.6）= max(taxMin, ⌊pool × taxRate⌋)；pool ≤ 0 则不再扣（已破产）。
-export function computeTax(pool, config) {
+// 资本家每回合资金池税（§8.6，2026-07-05 调参）：税额随局恒定 = max(taxMin, ⌊开局池量 × taxRate⌋)
+//（不随当前池涨跌——亏损时不再越亏越轻，HUD 税占比条也更可读）；单次至多扣到池空，pool ≤ 0 不再扣。
+export function computeTax(pool, initialPool, config) {
   const t = config.competitive.capitalist;
   if (!(pool > 0)) return 0;
-  return Math.min(pool, Math.max(t.taxMin, Math.floor(pool * t.taxRate)));
+  return Math.min(pool, Math.max(t.taxMin, Math.floor(Math.max(0, initialPool || 0) * t.taxRate)));
 }
