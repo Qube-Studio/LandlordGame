@@ -13,8 +13,10 @@ import { useGameStore } from '../store/gameStore';
 import { decompose, splitNote, SPLITS } from '../game/notes';
 import { IS_3D_INPUT } from '../game/inputMode';
 import { getCoinRest } from './coinSim';
-import { MoneyStack, ArcNote, cardLocal, cardYaw, stackTopY, TABLE_TOP, CARD_W, CARD_T, CARD_D, cardMaterials } from './cards';
-import { groundFromPointer, CarrySpring } from './carry';
+import { MoneyStack, ArcNote, cardLocal, cardYaw, stackTopY, promptAnchor, TABLE_TOP, CARD_W, CARD_T, CARD_D, cardMaterials } from './cards';
+import { aimFromPointer, groundFromPointer, CarrySpring, CARRY_HEIGHT } from './carry';
+import PromptFloat, { pushFloat } from './PromptFloat';
+import { KEY_SPACE } from '../game/keys';
 import PixelText from '../assets/pixelfont/PixelText';
 import { P } from '../assets/palette';
 
@@ -419,8 +421,10 @@ function DirectorClock({ dir }) {
   return null;
 }
 
-// 协商拖拽中被抓着的牌（局部系：PayoutLayer 挂在场景旋转组内，指针射线先回世界再反旋进来）
+// 协商拖拽中被抓着的牌（局部系：PayoutLayer 挂在场景旋转组内，指针射线先回世界再反旋进来）。
+// 射线直接与携带高度平面求交——牌钉在指针正下方（反馈③，与 HandLayer 拖拽同手感）。
 const _negoTarget = new THREE.Vector3(); // 每帧即用即弃的划痕向量
+const _negoFelt = new THREE.Vector3();   // 松手瞬间「指针指到毡面哪里」的落点判定用
 function NegoCarriedNote({ note, carryRef, ndcRef, rot }) {
   const ref = useRef();
   const { camera } = useThree();
@@ -428,9 +432,8 @@ function NegoCarriedNote({ note, carryRef, ndcRef, rot }) {
     const c = carryRef.current;
     const m = ref.current;
     if (!c || !m) return;
-    groundFromPointer(camera, ndcRef.current, _negoTarget);
+    aimFromPointer(camera, ndcRef.current, CARRY_HEIGHT, _negoTarget);
     _negoTarget.applyAxisAngle(UP, -rot);
-    _negoTarget.y = TABLE_TOP + 0.55;
     c.spring.update(_negoTarget, dt);
     m.position.copy(c.spring.pos);
     c.spring.tilt(m.rotation);
@@ -458,7 +461,7 @@ export default function PayoutLayer({ players, seats, spots, playerId, rot }) {
   const state = useGameStore(s => s.state);
   const myStack = useGameStore(s => s.myStack);
   const send = useGameStore(s => s.send);
-  const { camera, size } = useThree();
+  const { camera, size } = useThree(); // camera 另用于协商松手时按指针所指毡面点判定落圈（反馈③）
   // 导演是「可变外部模型」：每次变动调 bump 触发重渲，render = f(dir.model)。挂载期恒定单例。
   const [, bump] = useState(0);
   const ctxRef = useRef(null);
@@ -592,15 +595,17 @@ export default function PayoutLayer({ players, seats, spots, playerId, rot }) {
       negoCarryRef.current = null;
       setNegoCarry(null);
       const debt = c.kind === 'debt';
-      const pos = c.spring.pos; // 局部系
+      const pos = c.spring.pos; // 局部系（牌此刻的视觉位置，作飞行起点）
       const { spotByPid: spots, farmerIds } = negoCtxRef.current; // 读最新快照（监听器只挂一次）
-      // 落点判定：最近的本回合队友圈（不能给自己/地主/观战者）
+      // 落点判定按「指针指到毡面哪里」（世界→反旋进局部系，与玩家所见一致，反馈③）：
+      // 最近的本回合队友圈（不能给自己/地主/观战者）
+      const felt = groundFromPointer(camera, ndcRef.current, _negoFelt).applyAxisAngle(UP, -rot);
       let toId = null, best = 0.8;
       for (const pid of farmerIds) {
         if (pid === playerId) continue;
         const s = spots[pid];
         if (!s) continue;
-        const dd = Math.hypot(pos.x - s.x, pos.z - s.z);
+        const dd = Math.hypot(felt.x - s.x, felt.z - s.z);
         if (dd < best) { best = dd; toId = pid; }
       }
       const settle = (pid) => {
@@ -652,7 +657,7 @@ export default function PayoutLayer({ players, seats, spots, playerId, rot }) {
         dir.bump();
       }
     };
-  }, [canNegotiate, playerId, dir, send]);
+  }, [canNegotiate, playerId, dir, send, camera, rot]);
 
   const m = dir.model;
   const potAmount = m.potAmount;
@@ -717,26 +722,26 @@ export default function PayoutLayer({ players, seats, spots, playerId, rot }) {
         const n = m.piles[pid]?.notes?.length ?? 0;
         return (
           <Html key={`nc-${pid}`} position={[s.x, stackTopY(n) + 0.5, s.z]} center distanceFactor={6.5} zIndexRange={[26, 0]}>
-            <div className="felt-float"><PixelText size={2} color="var(--ok)">已确认</PixelText></div>
+            <div className="felt-float">
+              <div className="pushable" onPointerDown={pushFloat}><PixelText size={2} color="var(--ok)">已确认</PixelText></div>
+            </div>
           </Html>
         );
       })}
       {negoIdle && mySpot && (
-        <Html position={[mySpot.x, stackTopY(myPile?.notes?.length ?? 0) + 0.42, mySpot.z]} center distanceFactor={4.2} zIndexRange={[28, 0]}>
-          <div className="felt-float">
-            <PixelText size={2} color="#fff">{iConfirmed ? '已确认 · 等待其他农民' : '拖钱牌/债务牌到队友圈'}</PixelText>
-            <div className="clickable" onClick={() => send({ type: 'negotiate_confirm', confirmed: !iConfirmed })}>
-              <PixelText size={2} color="var(--px-gold)">{iConfirmed ? '撤销确认 [Enter]' : '确认分配 [Enter]'}</PixelText>
-            </div>
-            {alloc.deadline && <CountdownText deadline={alloc.deadline} />}
+        <PromptFloat spot={mySpot} nw>
+          <PixelText size={2} color="#fff">{iConfirmed ? '已确认 · 等待其他农民' : '拖钱牌/债务牌到队友圈'}</PixelText>
+          <div className="clickable" onClick={() => send({ type: 'negotiate_confirm', confirmed: !iConfirmed })}>
+            <PixelText size={2} color="var(--px-gold)">{iConfirmed ? `撤销确认 ${KEY_SPACE}` : `确认分配 ${KEY_SPACE}`}</PixelText>
           </div>
-        </Html>
+          {alloc.deadline && <CountdownText deadline={alloc.deadline} />}
+        </PromptFloat>
       )}
 
-      {/* 拿取 [F]：与钱堆金额标签同款纯文字（无背景板），呼吸提示可点。
-          自己的堆离相机近，distanceFactor 压小一档与金额标签视觉等大。 */}
+      {/* 拿取 [F]：与钱堆金额标签同款纯文字（无背景板），呼吸提示可点（可交互 → 无受击动效）。
+          位置同浮字规范：自己圈的「西北」压低（反馈⑤），distanceFactor 压小一档与金额标签视觉等大。 */}
       {canTake && mySpot && (
-        <Html position={[mySpot.x, stackTopY(myPile.notes.length) + 0.42, mySpot.z]} center distanceFactor={5} zIndexRange={[30, 0]}>
+        <Html position={promptAnchor(mySpot.x, mySpot.z)} center distanceFactor={5} zIndexRange={[30, 0]}>
           <div className="money-3d-amount take-float" onClick={() => send({ type: 'take_payout' })}>
             <PixelText size={2} color={P.gold}>{'拿取 [F]'}</PixelText>
           </div>

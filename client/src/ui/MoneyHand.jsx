@@ -130,12 +130,12 @@ export default function MoneyHand() {
     send({ type: 'place_bet', amount, count, pledge: insurable ? premium : 0 });
   };
 
-  // 键盘：下注阶段按 Enter 确认（聊天/输入聚焦时让位）
+  // 键盘：下注阶段按空格确认（反馈⑩：回车退役；聊天/输入聚焦时让位）
   const confirmRef = useRef(null);
   useEffect(() => { confirmRef.current = confirm; });
   useEffect(() => {
     const onKey = (e) => {
-      if (e.key !== 'Enter') return;
+      if (e.key !== ' ' || e.repeat) return;
       const el = document.activeElement;
       if (chatOpen || (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA'))) return;
       e.preventDefault();
@@ -158,7 +158,7 @@ export default function MoneyHand() {
           <span>已选 <b className="gold">{total}</b>（可下注 {bounds.min} ~ {effMax}{premium > 0 ? `，已投保 ${premium}` : ''}）</span>
         )}
         <button className="btn primary" disabled={!canConfirm} onClick={confirm}>
-          {bounds.forceAllIn ? `全押 ${me.balance}` : '确认下注'} <span className="keycap">⏎</span>
+          {bounds.forceAllIn ? `全押 ${me.balance}` : '确认下注'} <span className="keycap">空格</span>
         </button>
       </div>
       <div className="hand-row" data-hand-anchor>

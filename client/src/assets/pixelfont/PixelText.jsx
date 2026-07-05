@@ -2,22 +2,24 @@
 // ASCII 段用自制 5×7 点阵字体渲染为一张 crispEdges 的 SVG；中文回退到像素中文字体类 .pixel-cjk。
 // size = 单个像素点的边长(px)。字高固定 7 个像素点 = 7*size。
 
-import { GLYPH_ADVANCE, GLYPH_H, glyphPoints, hasGlyph } from './glyphs';
+import { GLYPH_H, glyphPoints, glyphWidth, hasGlyph } from './glyphs';
 
-// 把 ASCII 段渲染成一张 SVG（每个点亮像素一个 rect）
+// 把 ASCII 段渲染成一张 SVG（每个点亮像素一个 rect）；逐字按实际字宽步进（支持宽字形如 ␣）
 function AsciiRun({ run, size, color }) {
-  const cells = run.length * GLYPH_ADVANCE - 1; // 去掉末尾字间距
-  const w = cells * size;
-  const h = GLYPH_H * size;
   const rects = [];
+  let ox = 0;
   for (let i = 0; i < run.length; i++) {
     const pts = glyphPoints(run[i]);
-    if (!pts) continue;
-    const ox = i * GLYPH_ADVANCE;
-    for (const [px, py] of pts) {
-      rects.push(<rect key={`${i}-${px}-${py}`} x={ox + px} y={py} width={1.02} height={1.02} />);
+    if (pts) {
+      for (const [px, py] of pts) {
+        rects.push(<rect key={`${i}-${px}-${py}`} x={ox + px} y={py} width={1.02} height={1.02} />);
+      }
     }
+    ox += glyphWidth(run[i]) + 1; // 字宽 + 1 列字间距
   }
+  const cells = Math.max(1, ox - 1); // 去掉末尾字间距
+  const w = cells * size;
+  const h = GLYPH_H * size;
   return (
     <svg
       width={w}

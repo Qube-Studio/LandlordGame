@@ -19,6 +19,12 @@ export const PHASES = ['LOBBY', 'DISCUSSION', 'BETTING', 'REVEAL', 'COIN_FLIP', 
 const PAYOUT_PHASES = ['SETTLE', 'NEGOTIATE', 'FINALIZE'];
 const IN_GAME_PHASES = ['DISCUSSION', 'BETTING', 'REVEAL', 'COIN_FLIP', 'REFLIP', ...PAYOUT_PHASES];
 
+// 角色中文名（系统播报用，与客户端 game/roles.js#ROLE_LABEL 一致）。
+const ROLE_LABEL = {
+  landlord: '地主', capitalist: '资本家',
+  farmer: '农民', investor: '投资人', glutton: '暴食者', bank: '银行',
+};
+
 // 金额按 10/5/2/1 贪心分解后的张数（与客户端 game/notes.js decompose 一致）。
 // 张数对所有人可见（任务：桌面堆叠露张数，下注阶段仍不露金额）。
 function noteCount(amount) {
@@ -85,6 +91,7 @@ export class Room {
       bankrupt: false,
       online: true,
       ready: false,
+      lobbyReady: false,  // 大厅准备标记（纯协调信号，不做开局门槛——房主自行掌握时机）
       confirmed: false,
       negotiateConfirmed: false,
       spectator: false,   // 断线超时降级观战（任务⑥）
@@ -240,6 +247,7 @@ export class Room {
       p.balance = getInitialBalance(p.role, farmers.length, this.config, { ...opts, farmerTotal });
       p.pool = getInitialPool(p.role, farmers.length, this.config); // 资本家资金池；非资本家 null
       p.bankrupt = false;
+      p.lobbyReady = false;
       p.pledge = 0;
       p.premium = 0;
       p.mealAllowance = 0;
@@ -279,6 +287,7 @@ export class Room {
       p.bankrupt = false;
       p.spectator = false;    // 解除观战降级，可重新参战
       p.ready = false;
+      p.lobbyReady = false;
       p.confirmed = false;
       p.negotiateConfirmed = false;
       p.emote = null;
@@ -387,6 +396,19 @@ export class Room {
     player.ready = true;
     this._broadcastState();
     this._checkGate('ready', () => this._enterBetting());
+    return { ok: true };
+  }
+
+  // 大厅准备标记（UI 阶段二）：可反复切换的协调信号，让房主看到谁就绪了；
+  // 不做开局门槛（startGame 不检查），房主自行掌握时机。
+  setLobbyReady(playerId, ready) {
+    if (this.phase !== 'LOBBY') return { error: '只能在大厅准备' };
+    const player = this.players.get(playerId);
+    if (!player) return { error: '不在房间中' };
+    if (!player.role) return { error: '先选择角色再准备' };
+    player.lobbyReady = !!ready;
+    this._touch();
+    this._broadcastState();
     return { ok: true };
   }
 
@@ -904,7 +926,7 @@ export class Room {
     let bankrupted = false;
     for (const id of this.payout.newlyBankrupt) {
       const p = this.players.get(id);
-      if (p && !p.bankrupt) { p.bankrupt = true; bankrupted = true; }
+      if (p && !p.bankrupt) { p.bankrupt = true; bankrupted = true; this._announceBankrupt(p); }
     }
     if (bankrupted) this._broadcastState();
     this._after(this.config.timing.finalizeMs, () => this._afterRound());
@@ -933,7 +955,7 @@ export class Room {
       this.payout.done = true;
       for (const id of this.payout.newlyBankrupt) {
         const p = this.players.get(id);
-        if (p) p.bankrupt = true;
+        if (p && !p.bankrupt) { p.bankrupt = true; this._announceBankrupt(p); }
       }
     }
     this._setPhase('ENDED');
@@ -959,6 +981,20 @@ export class Room {
   }
 
   // ---------- 聊天（语音接口预留：见 index.js NOT_IMPLEMENTED 分支） ----------
+
+  // 系统播报：走公开频道进聊天记录（重连可回看），客户端按 system 标记单独渲染。
+  _systemChat(text) {
+    const entry = { channel: 'public', from: null, name: '', text, ts: Date.now(), system: true };
+    this.chatLog.push(entry);
+    if (this.chatLog.length > 200) this.chatLog.shift();
+    for (const p of this.players.values()) this._send(p, { type: 'chat', ...entry });
+  }
+
+  // 破产播报（UI 精简⑨）：破产不再走底部结算面板，改为聊天区一条系统消息。
+  _announceBankrupt(player) {
+    const role = ROLE_LABEL[player.role] ?? '玩家';
+    this._systemChat(`${player.username}（${role}）已破产`);
+  }
 
   chat(playerId, channel, text) {
     const player = this.players.get(playerId);
@@ -1033,6 +1069,7 @@ export class Room {
       isHost: p.id === this.hostId,
       bankrupt: p.bankrupt,
       ready: p.ready,
+      lobbyReady: !!p.lobbyReady,
       confirmed: p.confirmed,
       negotiateConfirmed: p.negotiateConfirmed,
       emote: p.emote ?? null,
@@ -1081,6 +1118,7 @@ export class Room {
       balance: viewer.balance,
       bet: this.bets[viewerId] ?? null,
       ready: viewer.ready,
+      lobbyReady: !!viewer.lobbyReady,
       confirmed: viewer.confirmed,
       negotiateConfirmed: viewer.negotiateConfirmed,
       spectator,

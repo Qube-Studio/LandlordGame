@@ -205,14 +205,13 @@ img, svg, canvas { -webkit-user-drag: none; user-drag: none; }
 .hud { position: absolute; inset: 0; pointer-events: none; z-index: 40; }
 .hud > * { pointer-events: auto; }
 
-/* ---- 顶部全局条 ---- */
+/* ---- 顶部全局条（HUD 精简⑥⑦：左侧房间牌/阶段牌退役，只剩右上设置+退出） ---- */
 .hud-top {
   position: absolute; top: 0; left: 0; right: 0;
-  display: flex; justify-content: space-between; align-items: flex-start;
+  display: flex; justify-content: flex-end; align-items: flex-start;
   padding: 10px 12px;
   gap: 10px;
 }
-.hud-top-left { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .px-chip {
   display: inline-flex; align-items: center; gap: 6px;
   background: rgba(10, 11, 15, 0.78);
@@ -264,9 +263,9 @@ img, svg, canvas { -webkit-user-drag: none; user-drag: none; }
   z-index: 42;
 }
 
-/* ---- 左上角 HUD 纵列（房间号下）：地主目标/资金池/工资/饭账 ---- */
+/* ---- 左上角 HUD 纵列（顶到左上角——房间牌已退役）：阶段名/地主目标/资金池/工资/饭账 ---- */
 .hud-left-stack {
-  position: absolute; top: 64px; left: 12px;
+  position: absolute; top: 12px; left: 14px;
   display: flex; flex-direction: column; align-items: flex-start; gap: 8px;
   z-index: 41;
   pointer-events: none;
@@ -1040,6 +1039,68 @@ body {
 }
 .felt-float .clickable { pointer-events: auto; cursor: pointer; }
 .felt-float .clickable:hover { filter: brightness(1.2); }
+/* 浮字受击（验收修订⑤）：整块板子顺着点击方向被推一把再弹回（动画由 PromptFloat#pushFloat
+   用 WAAPI 按点击点现算，无固定 keyframes）。.poke = PromptFloat 整板接事件（行间缝隙也可戳、
+   多行一体推；可交互行在 JS 侧例外）；.pushable = 独立单行浮字标记（如队友圈上的「已确认」）。
+   光标保持默认箭头，不用 pointer——它是等待时的小玩具，不是功能按钮 */
+.felt-float.poke { pointer-events: auto; }
+.felt-float .pushable { pointer-events: auto; user-select: none; }
 @media (prefers-reduced-motion: reduce) {
   .take-float { animation: none; }
+}
+
+/* ============================================================
+   阶段三 HUD 精简（反馈⑥⑦⑧⑨⑭⑮）：左上任务追踪风 HUD + 回合横幅。
+   写在最末覆盖上方 .goal-hud.hud-card 挂牌范式（设置面板不在 .quest 内，保持木牌观感）。
+   ============================================================ */
+
+/* ---- 任务追踪风（⑮）：去底板去边框，标题下一条右淡出的细金线，全文字投影保可读 ---- */
+.hud-left-stack.quest { gap: 12px; text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.9); }
+.hud-left-stack.quest svg {
+  filter: drop-shadow(1px 1px 0 rgba(0, 0, 0, 0.9)) drop-shadow(0 0 4px rgba(0, 0, 0, 0.5));
+}
+/* 首行阶段名（开放问题3当前方案：阶段名并入任务风 HUD 首行，顶栏阶段牌退役） */
+.quest-phase {
+  min-width: 150px;
+  padding: 2px 0 6px;
+  background: linear-gradient(90deg, rgba(232, 194, 90, 0.6), rgba(232, 194, 90, 0.1) 78%, transparent) bottom / 100% 1px no-repeat;
+}
+.hud-left-stack.quest .goal-hud.hud-card {
+  width: auto;
+  min-width: 150px;
+  padding: 0;
+  background: none;
+  border: none;
+  box-shadow: none;
+  animation: none; /* 无底板后飘移会读成文字晃动，任务条目保持静置 */
+}
+.hud-left-stack.quest .goal-hud.hud-card .hud-card-title {
+  padding: 0 0 4px;
+  margin-bottom: 4px;
+  background: linear-gradient(90deg, rgba(232, 194, 90, 0.42), rgba(232, 194, 90, 0.08) 78%, transparent) bottom / 100% 1px no-repeat;
+  border-bottom: none;
+}
+/* 数据行右缩一格，形成「标题-条目」层级 */
+.hud-left-stack.quest .goal-hud.hud-card .goal-line:not(.hud-card-title) { padding: 0 0 0 8px; }
+/* 落后/未达标：无边框可染，保留 hud-ember 的辉光脉冲（作用在文字上） */
+.hud-left-stack.quest .goal-hud.behind { border: none; }
+
+/* ---- 回合横幅（⑦）：回合开始屏幕中上方浮现「第 N 回合」，~2s 后淡出 ---- */
+.round-banner {
+  position: absolute; top: 16%; left: 50%;
+  transform: translate(-50%, 0);
+  z-index: 55;
+  pointer-events: none !important;
+  filter: drop-shadow(2px 2px 0 rgba(0, 0, 0, 0.85)) drop-shadow(0 0 16px rgba(232, 194, 90, 0.35));
+  animation: round-banner-in 2.4s ease-out both;
+}
+@keyframes round-banner-in {
+  0%   { opacity: 0; transform: translate(-50%, 14px); }
+  12%  { opacity: 1; transform: translate(-50%, 0); }
+  75%  { opacity: 1; transform: translate(-50%, 0); }
+  100% { opacity: 0; transform: translate(-50%, -10px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .round-banner { animation: round-banner-hold 2.4s step-end both; }
+  @keyframes round-banner-hold { from { opacity: 1; } to { opacity: 0; } }
 }

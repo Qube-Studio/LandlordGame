@@ -175,6 +175,7 @@ wss.on('connection', (ws, req) => {
       case 'take_role': result = room.takeRole(pid, msg.role); break;
       case 'start_game': result = room.startGame(pid); break;
       case 'ready': result = room.setReady(pid); break;
+      case 'lobby_ready': result = room.setLobbyReady(pid, !!msg.ready); break; // 大厅准备（协调信号，不门槛开局）
       case 'place_bet': result = room.placeBet(pid, Number(msg.amount), Number(msg.count), Number(msg.pledge)); break; // pledge：竞技投资人手牌投保（§8.3）
       case 'confirm_reveal': result = room.confirmReveal(pid); break;
       case 'request_reflip': result = room.requestReflip(pid); break;                        // 竞技暴食者重掷（§8.4）

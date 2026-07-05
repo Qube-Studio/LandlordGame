@@ -1,7 +1,8 @@
-// HUD 叠加层（HUD 2.0 信息三层制）：
-//   常驻层 = 顶部场次牌 + 右缘玩家条(单行,悬停展开) + 右下资金簇 + 左下聊天;
-//   决策层 = 底部行动区(阶段提示小字 + 当前阶段唯一主面板);
+// HUD 叠加层（HUD 2.0 信息三层制 + 阶段三精简）：
+//   常驻层 = 左上任务风 HUD(阶段名+机制卡) + 右上设置/退出 + 右缘玩家条(单行,悬停展开) + 右下资金簇 + 左下聊天;
+//   决策层 = 底部行动区(当前阶段唯一主面板；3D 模式多数阶段面板退役,交互在桌上);
 //   抽屉层 = 桌沿抽屉(Dock 把手 + 选角墙 R / 账本 L,收纳于屏幕正下方)。
+//   瞬态 = 回合开始居中「第 N 回合」横幅(⑦)；房间名/号在设置面板(⑥)；破产走聊天系统消息(⑨)。
 // 指针默认穿透到 3D 场景，仅交互元素接收事件。
 import { useEffect, useState, useRef } from 'react';
 import { useGameStore } from '../store/gameStore';
@@ -22,23 +23,23 @@ import { IS_3D_INPUT } from '../game/inputMode';
 const Icon = getArt('icon');
 
 const PHASE_META = {
-  LOBBY: { label: '准备大厅', hint: '在招募令墙上选择角色（R 呼出/收起），房主按 Enter 开始' },
-  DISCUSSION: { label: '战术讨论', hint: '农民可密谈，所有人按 Enter 准备后进入下注' },
+  LOBBY: { label: '准备大厅', hint: '在招募令墙上选择角色（R 呼出/收起），准备/开始按空格' },
+  DISCUSSION: { label: '战术讨论', hint: '农民可密谈，所有人按空格准备后进入下注' },
   BETTING: {
     label: '下注中',
     hint: IS_3D_INPUT
-      ? '把手里的钱牌拖到自己的圆圈下注（长按拆分，点圈里的牌收回），Enter 确认'
-      : '选钱牌组成下注额（长按拆分），Enter 确认',
+      ? '点/拖/横扫捋牌下注，捋起的叠拖回怀里可散回（手牌长按拆分，圈内钱堆长按整堆拿起），空格确认'
+      : '选钱牌组成下注额（长按拆分），空格确认',
   },
-  REVEAL: { label: '揭牌', hint: '各家下注已公开，Enter 确认后掷硬币' },
+  REVEAL: { label: '揭牌', hint: '各家下注已公开，空格确认后掷硬币' },
   COIN_FLIP: { label: '掷硬币', hint: '正面地主阵营胜，反面农民阵营胜' },
   REFLIP: { label: '重掷决策', hint: '农民输了！暴食者可请求重掷硬币（每局 3 次）' },
   SETTLE: { label: '系统结算', hint: '桌上的钱聚拢成彩池，按规则分成几份送到各家圈里' },
   NEGOTIATE: {
     label: '农民协商',
     hint: IS_3D_INPUT
-      ? '拖动圈里的钱牌/红色债务牌到队友圈重新分配（长按拆分），Enter 确认'
-      : '农民内部重新分配钱与债务（桌面实时跟着变），Enter 确认',
+      ? '拖动圈里的钱牌/红色债务牌到队友圈重新分配（长按拆分），空格确认'
+      : '农民内部重新分配钱与债务（桌面实时跟着变），空格确认',
   },
   FINALIZE: { label: '正式结算', hint: '钱还在桌上——按 F 拿取自己那份才入账（按 L 翻账本）' },
   ENDED: { label: '对局结束', hint: '' },
@@ -49,6 +50,7 @@ function statusOf(p, state) {
   if (p.spectator) return { text: '观战', cls: 'dim' };
   if (!p.online) return { text: '离线', cls: 'dim' };
   switch (state.phase) {
+    case 'LOBBY': return p.lobbyReady ? { text: '已准备', cls: 'ok' } : { text: '', cls: 'dim' };
     case 'DISCUSSION': return p.ready ? { text: '已准备', cls: 'ok' } : { text: '讨论中', cls: 'dim' };
     case 'BETTING': return p.hasBet ? { text: '已下注', cls: 'ok' } : { text: '思考中', cls: 'dim' };
     case 'REVEAL': return p.confirmed ? { text: '已确认', cls: 'ok' } : { text: '查看中', cls: 'dim' };
@@ -106,18 +108,21 @@ function useGameKeys() {
       if (e.key === 'r' || e.key === 'R') { e.preventDefault(); togglePanel('roles'); return; }
       if (e.key === 'l' || e.key === 'L') { e.preventDefault(); togglePanel('ledger'); return; }
       if (e.key === 'Escape') { if (panel) { e.preventDefault(); setPanel(null); } return; }
-      // 拿取 (F)：FINALIZE 从桌面收取自己的钱堆（§3.8），Enter/Space 同效
+      // 拿取 (F)：FINALIZE 从桌面收取自己的钱堆（§3.8），空格同效
       const po = state.payout;
       const canTake = state.phase === 'FINALIZE' && !!po
         && po.eligible?.includes(playerId) && !po.taken?.includes(playerId);
       if ((e.key === 'f' || e.key === 'F') && canTake) { e.preventDefault(); send({ type: 'take_payout' }); return; }
-      if (e.key !== 'Enter' && e.key !== ' ') return;
+      if (e.key !== ' ') return;                // 确认类动作统一空格（反馈⑩：回车退役）
 
       const me = state.me;
       const phase = state.phase;
       if (phase === 'BETTING') return;          // 下注确认由 HandLayer(3D)/MoneyHand(2D) 自己处理
       let acted = false;
-      if (phase === 'LOBBY' && me?.isHost) { send({ type: 'start_game' }); acted = true; }
+      if (phase === 'LOBBY') {
+        if (me?.isHost) { send({ type: 'start_game' }); acted = true; }
+        else if (!me?.spectator && me?.role) { send({ type: 'lobby_ready', ready: !me?.lobbyReady }); acted = true; }
+      }
       else if (phase === 'DISCUSSION' && !me?.ready && !me?.spectator) { send({ type: 'ready' }); acted = true; }
       else if (phase === 'REVEAL' && !me?.confirmed && !me?.spectator) { send({ type: 'confirm_reveal' }); acted = true; }
       else if (phase === 'NEGOTIATE' && state.roundFarmerIds?.includes(playerId)) {
@@ -131,39 +136,45 @@ function useGameKeys() {
   }, [state, send, playerId, chatOpen, setChatOpen, panel, setPanel, togglePanel]);
 }
 
-// ---------- 顶部信息条 ----------
+// ---------- 顶部信息条（HUD 精简⑥⑦：左侧房间牌/阶段牌退役——房间信息进设置面板，
+// 阶段名并入左上任务风 HUD 首行，回合号改由回合开始的居中横幅播报）----------
 function TopBar() {
   const state = useGameStore(s => s.state);
   const leaveRoom = useGameStore(s => s.leaveRoom);
-  const showToast = useGameStore(s => s.showToast);
 
   const inGame = !['LOBBY', 'ENDED'].includes(state.phase);
   const exit = () => {
     if (inGame && !window.confirm('游戏进行中，退出将视为弃局。确定退出？')) return;
     leaveRoom();
   };
-  const copyId = async () => {
-    try { await navigator.clipboard.writeText(state.roomId); showToast('房间号已复制', 'ok'); }
-    catch { showToast(`房间号：${state.roomId}`, 'ok'); }
-  };
   return (
     <div className="hud-top">
-      <div className="hud-top-left">
-        <button className="px-chip" onClick={copyId} title="复制房间号">
-          <PixelText size={2} color="#fff">{`${state.roomName}  ${state.roomId}`}</PixelText>
-        </button>
-        <span className="px-chip phase-chip">
-          <PixelText size={2} color="var(--px-gold)">
-            {state.round > 0
-              ? `第${state.round}轮 · ${PHASE_META[state.phase]?.label ?? state.phase}`
-              : (PHASE_META[state.phase]?.label ?? state.phase)}
-          </PixelText>
-        </span>
-      </div>
       <div className="hud-top-right">
         <SettingsPanel />
         <button className="btn small danger-btn" onClick={exit}><Icon name="exit" size={15} /> 退出</button>
       </div>
+    </div>
+  );
+}
+
+// ---------- 回合横幅（HUD 精简⑦）：每回合开始屏幕中上方浮现「第 N 回合」，约 2s 后淡出 ----------
+// 只在回合号真的发生变化时播（prev 从 null 起步：冷挂载/重连/画廊注入不播）。
+function RoundBanner() {
+  const round = useGameStore(s => s.state.round);
+  const [show, setShow] = useState(0);
+  const prevRef = useRef(null);
+  useEffect(() => {
+    const prev = prevRef.current;
+    prevRef.current = round;
+    if (prev === null || !round || round === prev) return undefined;
+    setShow(round);
+    const t = setTimeout(() => setShow(0), 2400);
+    return () => clearTimeout(t);
+  }, [round]);
+  if (!show) return null;
+  return (
+    <div className="round-banner" key={show}>
+      <PixelText size={5} color="var(--px-gold)">{`第 ${show} 回合`}</PixelText>
     </div>
   );
 }
@@ -423,11 +434,14 @@ function GluttonHud() {
 }
 
 // ---------- 阶段面板 ----------
-// LOBBY：选角已搬到招募令墙（RoleWall 抽屉，进大厅自动升起）；面板只留当前身份 + 开始。
+// LOBBY：选角已搬到招募令墙（RoleWall 抽屉，进大厅自动升起）。
+// 3D 输入模式（PC）底部木板面板退役（反馈⑪）——选角/准备/开始都在自己圈上的浮字（FeltPrompts）；
+// 2D 模式（?input=2d，备移动端）保留面板。
 function LobbyPanel() {
   const state = useGameStore(s => s.state); const send = useGameStore(s => s.send);
   const togglePanel = useGameStore(s => s.togglePanel);
   const me = state.me;
+  if (IS_3D_INPUT) return null;
   return (
     <div className="phase-panel">
       <div className="role-pick">
@@ -436,19 +450,21 @@ function LobbyPanel() {
         </button>
       </div>
       {me?.isHost
-        ? <button className="btn primary wide" onClick={() => send({ type: 'start_game' })}>开始游戏 <span className="keycap">⏎</span></button>
+        ? <button className="btn primary wide" onClick={() => send({ type: 'start_game' })}>开始游戏 <span className="keycap">空格</span></button>
         : <p className="dim">等待房主开始…</p>}
     </div>
   );
 }
 
+// DISCUSSION：3D 模式准备提示在圈上（FeltPrompts，反馈⑫），面板退役
 function DiscussionPanel() {
   const state = useGameStore(s => s.state); const send = useGameStore(s => s.send); const me = state.me;
+  if (IS_3D_INPUT) return null;
   if (me?.spectator) return <div className="phase-panel"><p className="dim">正在观战。</p></div>;
   return (
     <div className="phase-panel">
       {me?.ready ? <p className="ok">已准备，等待其他玩家…</p>
-        : <button className="btn primary wide" onClick={() => send({ type: 'ready' })}>准备完毕 <span className="keycap">⏎</span></button>}
+        : <button className="btn primary wide" onClick={() => send({ type: 'ready' })}>准备完毕 <span className="keycap">空格</span></button>}
     </div>
   );
 }
@@ -460,15 +476,17 @@ function BettingPanel() {
   if (IS_3D_INPUT) return null;
   return <MoneyHand key={`${state.round}-${me.balance}`} />;
 }
+// REVEAL：3D 模式确认提示在圈上（FeltPrompts），面板退役
 function RevealPanel() {
   const state = useGameStore(s => s.state); const send = useGameStore(s => s.send); const me = state.me;
+  if (IS_3D_INPUT) return null;
   const confirmedCount = state.players.filter(p => p.confirmed).length;
   const activeCount = state.players.filter(p => factionOf(p.role) && !p.bankrupt).length;
   return (
     <div className="phase-panel">
       <p className="dim">已确认 {confirmedCount}/{activeCount}</p>
       {me?.spectator ? null : me?.confirmed ? <p className="ok">已确认，等待其他玩家…</p>
-        : <button className="btn primary wide" onClick={() => send({ type: 'confirm_reveal' })}>看清了，掷硬币！ <span className="keycap">⏎</span></button>}
+        : <button className="btn primary wide" onClick={() => send({ type: 'confirm_reveal' })}>看清了，掷硬币！ <span className="keycap">空格</span></button>}
     </div>
   );
 }
@@ -495,8 +513,11 @@ function ReflipPanel() {
     </div>
   );
 }
+// SETTLE/FINALIZE：3D 模式底部面板退役（HUD 精简⑧）——分账过程即桌面演出，明细进账本 L；
+// 2D 模式（?input=2d，备移动端）保留文字版。
 function SettlePanel() {
   const state = useGameStore(s => s.state); const s = state.settlement;
+  if (IS_3D_INPUT) return null;
   if (!s) return null;
   const nameOf = id => state.players.find(p => p.id === id)?.name ?? id;
   return (
@@ -520,6 +541,7 @@ function NegotiatePanel() {
 function FinalizePanel() {
   const state = useGameStore(s => s.state); const playerId = useGameStore(s => s.playerId);
   const last = state.history[state.history.length - 1];
+  if (IS_3D_INPUT) return null;
   if (!last) return null;
   const myDelta = last.deltas?.[playerId] ?? 0;
   const nameOf = id => state.players.find(p => p.id === id)?.name ?? id;
@@ -575,7 +597,7 @@ function EndedPanel() {
         {state.players.map(p => <span key={p.id}>{p.name}：<CandleMark />{p.balance ?? '?'}{p.bankrupt ? '（破产）' : ''}</span>)}
       </div>
       <div className="role-pick">
-        {me?.isHost && <button className="btn primary" onClick={() => send({ type: 'restart_game' })}>再来一局 <span className="keycap">⏎</span></button>}
+        {me?.isHost && <button className="btn primary" onClick={() => send({ type: 'restart_game' })}>再来一局 <span className="keycap">空格</span></button>}
         <button className="btn" onClick={() => togglePanel('ledger')}>查看账本 <span className="keycap">L</span></button>
         <button className="btn" onClick={leaveRoom}>离开房间</button>
       </div>
@@ -599,7 +621,6 @@ export default function UiLayer() {
   const panel = useGameStore(s => s.panel);
   const setPanel = useGameStore(s => s.setPanel);
   useGameKeys();
-  const meta = PHASE_META[state.phase] ?? { label: state.phase, hint: '' };
   const Panel = PHASE_PANELS[state.phase] ?? NullPanel;
 
   // 抽屉随阶段自动开合：进大厅升起招募令墙；阶段切换一律收起（别挡住新阶段的行动区）。
@@ -619,9 +640,14 @@ export default function UiLayer() {
       <TopBar />
       {!connected && <div className="hud-disconnect"><PixelText size={2} color="var(--danger)">连接已断开，正在重连…</PixelText></div>}
       <PhaseCoachmark />
+      <RoundBanner />
       <PlayerRail />
-      {/* 角色/机制 HUD：左上角房间号下纵列（黑底半透明）；右下角只留自己的资金蜡烛 */}
-      <div className="hud-left-stack">
+      {/* 机制 HUD（HUD 精简⑮）：左上角 3A 任务追踪风纵列——首行阶段名，下接各机制卡；
+          去底板、细金线分隔、文字投影（样式见 pixel.css 末尾 quest 段）；右下角只留自己的资金蜡烛 */}
+      <div className="hud-left-stack quest">
+        <div className="quest-phase">
+          <PixelText size={3} color="var(--px-gold)">{PHASE_META[state.phase]?.label ?? state.phase}</PixelText>
+        </div>
         <GoalHud />
         <CapitalistHud />
         <WageHud />
@@ -631,7 +657,7 @@ export default function UiLayer() {
         <BalanceHud />
       </div>
       <div className="hud-bottom" data-hand-anchor>
-        {meta.hint && <div className="phase-caption"><PixelText size={2} color="var(--ink-dim)">{meta.hint}</PixelText></div>}
+        {/* 底部阶段提示横幅（phase-caption）暂时屏蔽（HUD 精简⑭）——文案保留在 PHASE_META.hint 备用 */}
         <Panel />
       </div>
       {panel === 'roles' && <RoleWall />}

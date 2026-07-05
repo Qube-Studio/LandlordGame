@@ -16,6 +16,7 @@ import MinecraftPlayer from './MinecraftPlayer';
 import Coin from './Coin';
 import PayoutLayer from './PayoutLayer';
 import HandLayer from './HandLayer';
+import FeltPrompts from './FeltPrompts';
 import { TABLE_TOP, CARD_W, CARD_T, CARD_D, cardMaterials, cardLocal, cardYaw, blankNotes, easeInOut, MoneyStack } from './cards';
 import { coinFaceTexture } from './textures';
 import { getCoinRest } from './coinSim';
@@ -106,9 +107,9 @@ function Chair({ x, z, ry = 0 }) {
 // 第一人称落座相机(反馈⑥):相机=「我」坐在自己座位上的眼睛。
 // 基准位 (0, EYE_Y, camZ)——绝对座位系统已把我的座位旋到 +z 近侧,camZ=座距+微退;
 // 注视点降到桌心略上。保留鼠标环视阻尼与破产微震(视距变近,幅度较旧俯视机位略降)。
-const EYE_Y = 1.82;   // 坐姿眼高(用户定夺:比头部略高,带一点俯视桌面的从容感)
+const EYE_Y = 1.98;   // 坐姿眼高(反馈⑬:再略抬高,俯视桌面更从容)
 const LOOK_Y = 1.03;  // 注视点=桌心略上
-const CAM_BACK = 0.62; // 相机比座位中心靠后(后仰靠椅背;离桌更远,桌面与对家更完整)
+const CAM_BACK = 0.82; // 相机比座位中心靠后(反馈⑬:再略退远,桌面与对家更完整)
 function CameraRig({ look, shakeRef, camZ = 3.0 }) {
   const { camera } = useThree();
   const target = useRef(new THREE.Vector3(0, LOOK_Y, 0));
@@ -892,9 +893,9 @@ function SceneContents({ look, freeCam = false }) {
 
         <Table spots={spots} />
 
-        {/* 全员入座(含自己的空椅;非自由相机时自己≈相机不建模,自己的椅背在相机身后不挡视野) */}
+        {/* 入座椅子(反馈⑬:第一人称不渲染自己的椅子——与不建模自己身体同理,低头/退远也不穿帮) */}
         {seats.map((seat, i) => (
-          <Chair key={`chair-${i}`} x={seat.x} z={seat.z} ry={Math.atan2(-seat.x, -seat.z)} />
+          (freeCam || i !== meIdx) && <Chair key={`chair-${i}`} x={seat.x} z={seat.z} ry={Math.atan2(-seat.x, -seat.z)} />
         ))}
         {players.map((p, i) => {
           if (p.id === playerId && !freeCam) return null;
@@ -919,8 +920,10 @@ function SceneContents({ look, freeCam = false }) {
           const spot = spots[i];
           if (p.id === playerId) {
             if (flightActive || !(selfNotes?.length || selfBetCount > 0)) return null;
+            // 3D 模式下注期：金额由圈边浮字「已下注 ¥N」承担（验收修订③），堆上标签让位
+            const selfAmount = IS_3D_INPUT && !betsVisible ? null : selfBet;
             return (
-              <MoneyStack key={`m-${p.id}`} notes={selfNotes ?? []} amount={selfBet} faceUp={betsVisible} position={[spot.x, 0, spot.z]} />
+              <MoneyStack key={`m-${p.id}`} notes={selfNotes ?? []} amount={selfAmount} faceUp={betsVisible} position={[spot.x, 0, spot.z]} />
             );
           }
           return (
@@ -937,6 +940,12 @@ function SceneContents({ look, freeCam = false }) {
         {/* 分钱编导层：聚拢→分堆→派送→协商镜像→收账/调整→拿取（§3.8） */}
         {payoutActive && (
           <PayoutLayer players={players} seats={seats} spots={spots} playerId={playerId} rot={rot} />
+        )}
+
+        {/* 圈上提示层（反馈⑪⑫）：大厅选角/准备/开始、讨论期准备下注、下注后金额驻留、揭牌确认——
+            底部木板面板退役；BETTING 只在已下注后有内容（下注操作中浮字由 HandLayer 负责） */}
+        {IS_3D_INPUT && ['LOBBY', 'DISCUSSION', 'BETTING', 'REVEAL'].includes(state.phase) && (
+          <FeltPrompts mySpot={mySpot} />
         )}
 
         {/* 下注飞行中的牌（手牌屏幕位→世界→组内坐标，弧线落进自己的圆圈） */}

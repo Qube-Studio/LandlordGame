@@ -1,8 +1,10 @@
-// 画质设置（反馈①）：顶栏齿轮按钮 + 下拉面板。任意阶段可开，纯点击交互（不占快捷键）。
+// 设置面板：顶栏齿轮按钮 + 下拉面板。任意阶段可开，纯点击交互（不占快捷键）。
+// 内容 = 房间信息（HUD 精简⑥：左上角房间牌收编于此，含复制房间号）+ 画质设置（反馈①）。
 // 面板复用 .goal-hud.hud-card 挂牌范式；仅布局/分段样式进 settings.css。
 
 import { useState } from 'react';
 import { useSettingsStore } from '../store/settingsStore';
+import { useGameStore } from '../store/gameStore';
 import PixelText from '../assets/pixelfont/PixelText';
 import './settings.css';
 
@@ -40,13 +42,20 @@ export default function SettingsPanel() {
   const [open, setOpen] = useState(false);
   const settings = useSettingsStore();
   const { renderScale, setSetting } = settings;
+  const state = useGameStore(s => s.state);
+  const showToast = useGameStore(s => s.showToast);
+
+  const copyId = async () => {
+    try { await navigator.clipboard.writeText(state.roomId); showToast('房间号已复制', 'ok'); }
+    catch { showToast(`房间号：${state.roomId}`, 'ok'); }
+  };
 
   return (
     <div className="settings-root">
       <button
         className="btn small settings-gear"
-        title="画质设置"
-        aria-label="画质设置"
+        title="设置"
+        aria-label="设置"
         aria-expanded={open}
         onClick={() => setOpen(o => !o)}
       ><GearIcon /></button>
@@ -54,9 +63,19 @@ export default function SettingsPanel() {
       {open && (
         <div className="goal-hud hud-card settings-panel">
           <div className="goal-line hud-card-title">
-            <PixelText size={2} color="var(--px-gold)">画质设置</PixelText>
+            <PixelText size={2} color="var(--px-gold)">设置</PixelText>
             <button className="settings-x" aria-label="关闭" onClick={() => setOpen(false)}>×</button>
           </div>
+
+          {state?.roomId && (
+            <div className="settings-row">
+              <span className="settings-label">
+                <PixelText size={2}>{state.roomName}</PixelText>
+                <PixelText size={2} color="var(--ink-dim)">{`房间号 ${state.roomId}`}</PixelText>
+              </span>
+              <button className="btn small" onClick={copyId}>复制</button>
+            </div>
+          )}
 
           <div className="settings-row">
             <span className="settings-label">

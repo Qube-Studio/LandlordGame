@@ -6,17 +6,28 @@ import { TABLE_TOP } from './cards';
 
 const _dir = new THREE.Vector3();
 
-// 指针(NDC {x,y}) → 桌面上方的悬浮目标点（世界系，写入 out 并返回）。
-// 视线朝上打不到桌面时退化为沿视线固定距离；结果夹回毡面范围。
-export function groundFromPointer(camera, ndc, out) {
+// 携带物悬浮高度（毡面上方）。压得较低:高度越低,牌与它正下方毡面点的视差越小,
+// 「牌在哪」和「指到哪」越一致（玩家反馈③:拖拽牌要贴住鼠标）。
+export const CARRY_HEIGHT = TABLE_TOP + 0.32;
+
+// 指针(NDC {x,y}) → 高度 height 平面上的目标点（世界系，写入 out 并返回）。
+// 关键手感（反馈③）:射线直接与【携带高度平面】求交——被抓的牌永远钉在指针正下方,
+// 而不是先打到桌面再抬高（那会让牌浮到指针上方,越低头偏得越远）。
+// 视线朝上打不到平面时退化为沿视线固定距离；结果夹回毡面范围。
+export function aimFromPointer(camera, ndc, height, out) {
   _dir.set(ndc.x, ndc.y, 0.5).unproject(camera).sub(camera.position).normalize();
-  let t = _dir.y < -0.02 ? (TABLE_TOP - camera.position.y) / _dir.y : 3.2;
+  let t = _dir.y < -0.02 ? (height - camera.position.y) / _dir.y : 3.2;
   t = Math.min(Math.max(t, 0.4), 12);
   out.copy(camera.position).addScaledVector(_dir, t);
   out.x = THREE.MathUtils.clamp(out.x, -2.9, 2.9);
   out.z = THREE.MathUtils.clamp(out.z, -1.95, 1.95);
-  out.y = TABLE_TOP;
+  out.y = height;
   return out;
+}
+
+// 指针 → 毡面点（落点判定用:圈的命中按「指针指到毡面哪里」算,与视觉所见一致）
+export function groundFromPointer(camera, ndc, out) {
+  return aimFromPointer(camera, ndc, TABLE_TOP, out);
 }
 
 // 弹簧-阻尼追踪：pos 每帧向 target 收敛，vel 供倾斜用。

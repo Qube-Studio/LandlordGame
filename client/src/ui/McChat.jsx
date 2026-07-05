@@ -70,6 +70,14 @@ export default function McChat() {
           <div className="mc-chat-line"><PixelText size={2} color="var(--ink-dim)">按 T 聊天</PixelText></div>
         )}
         {visible.map((m, i) => {
+          // 系统播报（破产等）：无发送者，整行金字
+          if (m.system) {
+            return (
+              <div key={`${m.ts}-${i}`} className={`mc-chat-line system ${!open ? 'fade' : ''}`}>
+                <PixelText size={2} color="var(--px-gold)">{m.text}</PixelText>
+              </div>
+            );
+          }
           const tag = m.channel === 'farmer' ? '〔密〕' : m.channel === 'spectator' ? '〔观战〕' : '';
           return (
             <div key={`${m.ts}-${i}`} className={`mc-chat-line ${m.channel === 'farmer' ? 'farmer' : ''} ${m.channel === 'spectator' ? 'spectator' : ''} ${!open ? 'fade' : ''}`}>

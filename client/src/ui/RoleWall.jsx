@@ -90,8 +90,8 @@ export default function RoleWall() {
       {!readonly && (
         <div className="drawer-foot">
           {me?.isHost
-            ? <button className="btn primary" onClick={() => send({ type: 'start_game' })}>开始游戏 <span className="keycap">⏎</span></button>
-            : <PixelText size={2} color="var(--ink-dim)">选好角色,等待房主开始…</PixelText>}
+            ? <button className="btn primary" onClick={() => send({ type: 'start_game' })}>开始游戏 <span className="keycap">空格</span></button>
+            : <PixelText size={2} color="var(--ink-dim)">选好角色,按空格准备,等待房主开始…</PixelText>}
         </div>
       )}
     </div>

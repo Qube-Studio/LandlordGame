@@ -69,6 +69,7 @@ join_room          {roomId}
 leave_room         {}
 take_role          {role: 'landlord'|'farmer'}
 start_game         {}                    // 仅房主，LOBBY 内
+lobby_ready        {ready: bool}         // LOBBY 内可反复切换的准备标记：纯协调信号（viewFor 播 players[].lobbyReady），不做开局门槛，房主自行掌握时机；需先选角色
 ready              {}                    // DISCUSSION 阶段点准备
 place_bet          {amount}              // BETTING
 confirm_reveal     {}                    // REVEAL 阶段确认

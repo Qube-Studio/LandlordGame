@@ -64,6 +64,16 @@ const betting3d = mk({
   me: { id: 'me', role: 'farmer', balance: 12, bet: null, bounds: { minStake: 1, min: 1, max: 11, forceAllIn: false } },
 });
 
+// 满手牌扇形（反馈①回归）：大余额分解出 11 张牌，核对真扇形排列/交错不穿模/悬停沿牌轴抽出。
+const fanHand = mk({
+  players: [
+    { id: 'me', name: '我', role: 'farmer', seat: 0, online: true, isHost: true, hasBet: false, bet: null, balance: 98 },
+    opp('l', '地主张', 'landlord', { bet: 6 }),
+    opp('f', '农民周', 'farmer'),
+  ],
+  me: { id: 'me', role: 'farmer', balance: 98, bet: null, bounds: { minStake: 1, min: 1, max: 97, forceAllIn: false } },
+});
+
 const reflip = mk({
   phase: 'REFLIP', coinResult: 'heads',
   players: [
@@ -327,7 +337,8 @@ const SCENES = [
   { key: 'lobby', label: '选角墙(竞技)', kind: 'game', state: lobby, note: '进大厅自动升起招募令墙;R/Esc 收起,点羊皮令应征;火漆印=已被占' },
   { key: 'roleWallQuick', label: '选角墙(快速)', kind: 'game', state: quickWall, note: '快速模式只有地主/农民两张招募令' },
   { key: 'ledger', label: '酒馆账本', kind: 'game', state: ledgerScene, panel: 'ledger', note: '桌沿抽屉 L 呼出;一行一轮(最新在上),点击摊开明细;他人余额保密' },
-  { key: 'betting3d', label: '3D手牌·拖拽下注', kind: 'game', state: betting3d, note: '手牌捏在相机前(鼠标移到屏幕上方=收起);拖到圆圈=暂存,点圈内牌收回,长按拆分;圈外右侧保留金;圈上白字浮提示' },
+  { key: 'betting3d', label: '3D手牌·拖拽下注', kind: 'game', state: betting3d, note: '手牌真扇形捏在相机前(抬头渐收/低头微举,甩视角带惯性摆);短按点击=直接飞入圆圈,拖到圈=暂存,点圈内牌收回,长按拆分;圈外右侧保留金' },
+  { key: 'fanHand', label: '3D手牌·满手扇形', kind: 'game', state: fanHand, note: '扇面平行层(绝无穿模);竖拉拽单张/横扫捋牌(只吸划过区段,捋起即跟手,¥合计随行);拖回怀里散回;圈内钱堆长按整堆拿起;短按点击=直接飞入圆圈' },
   { key: 'investorBet', label: '投资人投保圈', kind: 'game', state: investorBet, note: '3D 模式:圆圈左侧投保圈,拖牌进圈=投保、点保单牌收回(加 ?input=2d 可看旧 2D 槽)' },
   { key: 'insDrop', label: '投保掉落动画', kind: 'game', state: insDrop, note: '保单牌一张张掉出屏幕（循环演示）' },
   { key: 'reflip', label: '暴食者重掷/放弃', kind: 'game', state: reflip },
