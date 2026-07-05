@@ -40,7 +40,11 @@ export function pushFloat(e) {
   ], { duration: 450, easing: 'ease-out' });
 }
 
-export default function PromptFloat({ spot, nw = false, rot = 0, distanceFactor = 4.2, zIndexRange = [28, 0], children }) {
+// 立体化（验收修③）：Html 走 transform+sprite 模式——浮字真实存在于 3D 空间
+// （随相机距离/视角有透视缩放），sprite 让它始终尽力正对玩家。
+// transform 模式的缩放系数 = distanceFactor / 400（drei 内部），4.2/400 太小，
+// 默认值换算为等效观感的 1.7（按原 4.2 在典型 4~5 单位视距下的屏幕字号校准）。
+export default function PromptFloat({ spot, nw = false, rot = 0, distanceFactor = 2.1, zIndexRange = [28, 0], children }) {
   const g = useRef();
   const target = useMemo(
     () => new THREE.Vector3(...(nw ? promptAnchor(spot.x, spot.z) : promptAnchorHome(spot.x, spot.z))),
@@ -57,7 +61,7 @@ export default function PromptFloat({ spot, nw = false, rot = 0, distanceFactor 
   return (
     // 初始位藏到桌下：Html 会在首帧 useFrame 前先按初始位渲染一次，避免原点闪现
     <group ref={g} position={[0, -50, 0]}>
-      <Html center distanceFactor={distanceFactor} zIndexRange={zIndexRange}>
+      <Html transform sprite distanceFactor={distanceFactor} zIndexRange={zIndexRange}>
         {/* 受击接在整块板上（.poke 开 pointer-events）——行间缝隙也可戳、多行一体推；
             可交互行例外（.clickable 自己的点击反馈要干脆，不跟着晃） */}
         <div className="felt-float poke" onPointerDown={(e) => { if (!e.target.closest('.clickable')) pushFloat(e); }}>

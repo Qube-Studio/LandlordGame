@@ -470,10 +470,34 @@ img, svg, canvas { -webkit-user-drag: none; user-drag: none; }
   pointer-events: none;
 }
 .mc-chat-log {
-  display: flex; flex-direction: column; gap: 2px;
+  display: flex; flex-direction: column;
   max-height: 220px; overflow: hidden;
   padding: 4px;
-  mask-image: linear-gradient(180deg, transparent 0, #000 28px);
+  /* 顶部渐隐遮罩已删：收起态首条消息被压暗看不清（验收修） */
+}
+/* 内层做底部锚定：单个 flex 子项 margin-top:auto——内容短时被推到底，超高时归零正常滚动。
+   比 .mc-chat-line:first-child 稳：逐条淡出会把首行 display:none，首行 margin 就失效了。 */
+.mc-chat-log-inner {
+  display: flex; flex-direction: column; gap: 2px;
+  margin-top: auto;
+}
+/* 收起态日志：随文字列自适应宽度、可接收悬停（冻结计时+满显快照）；悬停中滚轮原地滚动**整段近历史**
+   但**滚动条隐藏**（不变实、无滚动条——与展开态视觉区隔）。贴底跟随由 JS 帧钟钉 scrollTop 处理。 */
+.mc-chat:not(.open) .mc-chat-log {
+  width: fit-content; max-width: 100%;
+  pointer-events: auto;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+.mc-chat:not(.open) .mc-chat-log::-webkit-scrollbar { display: none; }
+/* 展开态滚动条：朴素半透明灰长方形（像素风滑块被否——太丑），无圆角、透明轨道 */
+.mc-chat.open .mc-chat-log::-webkit-scrollbar { width: 8px; }
+.mc-chat.open .mc-chat-log::-webkit-scrollbar-track { background: transparent; }
+.mc-chat.open .mc-chat-log::-webkit-scrollbar-thumb { background: rgba(200, 200, 200, 0.35); border-radius: 0; }
+.mc-chat.open .mc-chat-log::-webkit-scrollbar-thumb:hover { background: rgba(200, 200, 200, 0.55); }
+/* Firefox 兜底（设 scrollbar-color 会让 Chromium 忽略上面的自绘，只能条件生效） */
+@supports not selector(::-webkit-scrollbar) {
+  .mc-chat.open .mc-chat-log { scrollbar-width: thin; scrollbar-color: rgba(200, 200, 200, 0.4) transparent; }
 }
 .mc-chat.open .mc-chat-log {
   background: rgba(8, 9, 13, 0.42);
@@ -483,36 +507,49 @@ img, svg, canvas { -webkit-user-drag: none; user-drag: none; }
 }
 .mc-chat-line {
   display: flex; align-items: flex-end; gap: 6px;
-  background: rgba(8, 9, 13, 0.42);
+  flex-wrap: wrap;                       /* 长消息折行 */
+  flex-shrink: 0;                        /* 日志到 max-height 时不许垂直压扁行（验收修③"压缩"） */
   padding: 2px 6px;
   width: fit-content; max-width: 100%;
+  overflow: hidden;                      /* 超长无断点 ASCII 连排兜底裁切 */
   animation: mc-line-in 0.18s ease-out;
+  /* 每行黑底已删（验收修②）：改文字投影保证亮背景下可读 */
+  filter: drop-shadow(0 1px 0 rgba(0, 0, 0, 0.9)) drop-shadow(0 0 4px rgba(0, 0, 0, 0.55));
 }
-.mc-chat:not(.open) .mc-chat-line.fade { animation: mc-line-out 0.6s ease-in forwards; }
+/* 逐条淡出已改为 JS 按剩余寿命直控 inline opacity（McChat livesRef），CSS 淡出动画退役。
+   入场 pop 保留；opacity 由内联样式接管，动画结束后内联值生效不冲突。 */
 @keyframes mc-line-in { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; } }
-@keyframes mc-line-out { to { opacity: 0; } }
-.mc-chat-line .mc-from { color: var(--px-gold); flex: 0 0 auto; }
-.mc-chat-line.farmer .mc-from { color: var(--px-grass); }
-.mc-chat-line .mc-body { color: #f3f4f7; word-break: break-all; }
+/* 聊天 2.0 行内着色（己方绿/敌方红/[阵营]橙/系统金）走 PixelText color prop——
+   其根元素带内联 currentColor，CSS 类着色压不过（旧 .mc-from 金色规则即因此失效） */
+.mc-chat-line .mc-from, .mc-chat-line .mc-tag { flex: 0 0 auto; }
+/* PixelText 是 inline-flex（逐字 span），word-break 对 flex 子项无效——
+   必须开 flex-wrap 才能折行；否则长消息溢出黑底，看起来"只有名字有背景"（验收修⑥） */
+.mc-chat-line .mc-body { flex-wrap: wrap; min-width: 0; }
+/* 输入条常显（聊天 2.0 二轮）：半透明黑框待机，点击/Enter/T 激活变实并聚焦；
+   前缀=当前频道名（全部/阵营/系统），Tab 循环——页签按钮行退役 */
 .mc-chat-input {
   display: flex; align-items: center; gap: 6px;
-  background: rgba(8, 9, 13, 0.85);
-  border: 2px solid #000;
+  background: rgba(8, 9, 13, 0.45);
+  border: 2px solid rgba(0, 0, 0, 0.75);
   box-shadow: inset 2px 2px 0 var(--px-bevel-d);
   padding: 5px 7px;
   pointer-events: auto;
+  opacity: 0.55;
+  cursor: text;
+  transition: opacity 0.15s ease, background-color 0.15s ease;
 }
-.mc-chat-input .mc-prefix { color: var(--ink-dim); flex: 0 0 auto; }
+.mc-chat.open .mc-chat-input {
+  opacity: 1;
+  background: rgba(8, 9, 13, 0.92);
+  border-color: #000;
+}
+.mc-chat-input .mc-prefix { display: inline-flex; gap: 4px; flex: 0 0 auto; }
 .mc-chat-input input {
   flex: 1; background: transparent; border: none; outline: none;
   color: #fff; font-family: var(--font-cjk); font-size: 13px;
 }
-.mc-chat-channel { display: flex; gap: 4px; }
-.mc-chan-btn {
-  background: rgba(8,9,13,0.7); border: 2px solid #000; color: var(--ink-dim);
-  padding: 2px 6px; font-family: var(--font-cjk); font-size: 11px;
-}
-.mc-chan-btn.active { color: #fff; border-color: var(--px-gold); }
+.mc-chat-input input:disabled { cursor: default; }
+.mc-chat-input input::placeholder { color: var(--ink-faint); }
 
 /* ============================================================
    暖光酒馆精修（置于末尾）：统一铜框金边内描边 + 资金/目标暖金辉光
@@ -524,7 +561,7 @@ img, svg, canvas { -webkit-user-drag: none; user-drag: none; }
     inset 0 0 0 1px rgba(232, 194, 90, 0.22),
     0 6px 0 rgba(0, 0, 0, 0.4);
 }
-.px-chip, .goal-hud, .hud-banner, .mc-chat-input {
+.px-chip, .goal-hud, .hud-banner {
   box-shadow:
     inset 2px 2px 0 var(--px-bevel-l),
     inset -2px -2px 0 var(--px-bevel-d),
@@ -575,7 +612,8 @@ img, svg, canvas { -webkit-user-drag: none; user-drag: none; }
   background-color: var(--c-wood-700);
   background-image: var(--rivets), var(--tex-wood);
 }
-.px-chip, .hud-banner, .mc-chat-input {
+/* 聊天输入条已移出木纹组：常显半透明黑框（聊天 2.0 二轮），见 .mc-chat-input */
+.px-chip, .hud-banner {
   background-color: var(--c-wood-700);
   background-image: var(--tex-wood);
   border-color: var(--c-wood-950);
@@ -1037,8 +1075,27 @@ body {
   user-select: none;
   filter: drop-shadow(0 1px 0 rgba(0, 0, 0, 0.9)) drop-shadow(0 0 5px rgba(0, 0, 0, 0.55));
 }
-.felt-float .clickable { pointer-events: auto; cursor: pointer; }
-.felt-float .clickable:hover { filter: brightness(1.2); }
+/* 浮字行：文字 + 键帽横排（阶段五⑤） */
+.prompt-line { display: flex; align-items: center; gap: 6px; }
+/* 像素键帽：底盘暂时屏蔽（验收 A/B：只留 ␣/字母字形看效果）；恢复时解开下面的 chrome 块。
+.keycap-px 底盘（浅黄键帽+厚度）：
+  background: rgba(232, 213, 174, 0.30);
+  border: 1px solid rgba(246, 236, 216, 0.40);
+  box-shadow: 0 3px 0 rgba(58, 42, 24, 0.80), inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  margin-bottom: 3px; padding: 2px 5px;  (.long: padding 2px 10px)
+*/
+.keycap-px {
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 0 1px;
+}
+/* 可交互浮字行三态（验收修④）：默认 / 悬停提亮 / 按下压暗下沉。
+   .pressed = 空格按住时的合成按下态（松开才触发动作，与鼠标 onClick 松开判定一致） */
+.felt-float .clickable { pointer-events: auto; cursor: pointer; transition: filter 0.08s ease, transform 0.08s ease; }
+.felt-float .clickable:hover { filter: brightness(1.25); }
+.felt-float .clickable:active,
+.felt-float .clickable.pressed { filter: brightness(0.78); transform: translateY(2px); }
+.felt-float .clickable:active .keycap-px,
+.felt-float .clickable.pressed .keycap-px { transform: translateY(1px); }
 /* 浮字受击（验收修订⑤）：整块板子顺着点击方向被推一把再弹回（动画由 PromptFloat#pushFloat
    用 WAAPI 按点击点现算，无固定 keyframes）。.poke = PromptFloat 整板接事件（行间缝隙也可戳、
    多行一体推；可交互行在 JS 侧例外）；.pushable = 独立单行浮字标记（如队友圈上的「已确认」）。

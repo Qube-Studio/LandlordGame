@@ -54,6 +54,7 @@ P.accent = P.brassHi;
 P.gold = P.brassHi;
 P.panelLine = P.wood900;
 P.wax = '#7a2020';   // 火漆印章/酱渍（3D 皮肤酱渍与 2D 招募令印章共用；注入 --c-wax）
+P.warn = P.ember;    // 警示橙（聊天 [阵营] 标签等）——与炭床警示脉冲同源
 
 // 角色布料(shirt/pants/sleeve)——MinecraftPlayer 与皮肤纹理共用
 export const ROLE_CLOTH = {

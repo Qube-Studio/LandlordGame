@@ -1003,8 +1003,14 @@ export class Room {
 
   chat(playerId, channel, text) {
     const player = this.players.get(playerId);
-    const message = (text ?? '').toString().trim().slice(0, 200);
+    // 清洗：控制字符（含换行——绕过客户端单行输入的 WS 直发）压成空格，再裁 200
+    const message = (text ?? '').toString().replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 200);
     if (!player || !message) return { error: '消息无效' };
+    // 简易滑动窗口限流：10s 内最多 8 条（拦恶意刷屏的 WS 直发；正常对喷够用）
+    const nowTs = Date.now();
+    player._chatTs = (player._chatTs ?? []).filter(t => nowTs - t < 10000);
+    if (player._chatTs.length >= 8) return { error: '发言太快了，稍等片刻' };
+    player._chatTs.push(nowTs);
     // 观战者（破产/降级）发言一律强制进观战频道：其有上帝视角，绝不能向活跃玩家泄露余额/暗注。
     if (player.bankrupt || player.spectator) channel = 'spectator';
     else if (channel === 'spectator') return { error: '只有观战者可以使用观战频道' };

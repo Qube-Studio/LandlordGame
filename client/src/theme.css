@@ -16,6 +16,7 @@
   --gold-dim: var(--c-brass-dim, #9a7e44);
   --danger: var(--c-danger, #e36262);    /* 破产/扣钱保留冷红做功能性警示 */
   --ok: var(--c-ok, #8fc77a);
+  --warn: var(--c-warn, #ff9a4a);        /* 警示橙：聊天 [阵营] 标签等 */
   --landlord: var(--c-brass-hi, #e8c25a);
   --farmer: var(--c-grass, #9ec47a);
   --shadow: 0 12px 40px rgba(0, 0, 0, 0.55);

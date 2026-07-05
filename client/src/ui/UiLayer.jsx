@@ -91,19 +91,44 @@ function useGameKeys() {
   const send = useGameStore(s => s.send);
   const playerId = useGameStore(s => s.playerId);
   const chatOpen = useGameStore(s => s.chatOpen);
-  const setChatOpen = useGameStore(s => s.setChatOpen);
   const panel = useGameStore(s => s.panel);
   const setPanel = useGameStore(s => s.setPanel);
   const togglePanel = useGameStore(s => s.togglePanel);
 
+  const setSpaceHeld = useGameStore(s => s.setSpaceHeld);
+  const spaceDownRef = useRef(false); // 空格物理按住中（真实按键态；store spaceHeld 只是延迟后的视觉按下态）
+  const pressTimerRef = useRef(0);
+
   useEffect(() => {
-    const onKey = (e) => {
+    const typingNow = () => {
       const el = document.activeElement;
-      const typing = el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
-      if (typing || chatOpen) return;          // 输入/聊天聚焦时，游戏快捷键让位
+      return el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
+    };
+    // 空格动作在 keyup 才判定（验收修④：像鼠标一样——按下只进入按下态，松开才"点击"）。
+    // 松开时执行的动作按松开那一刻的 state 判定（与旧按下即触发的语义一致，只是时点后移）。
+    const doSpaceAction = () => {
+      const me = state.me;
+      const phase = state.phase;
+      if (phase === 'BETTING') return;          // 下注确认由 HandLayer(3D)/MoneyHand(2D) 自己处理
+      const po = state.payout;
+      const canTake = phase === 'FINALIZE' && !!po
+        && po.eligible?.includes(playerId) && !po.taken?.includes(playerId);
+      if (phase === 'LOBBY') {
+        if (me?.isHost) send({ type: 'start_game' });
+        else if (!me?.spectator && me?.role) send({ type: 'lobby_ready', ready: !me?.lobbyReady });
+      }
+      else if (phase === 'DISCUSSION' && !me?.ready && !me?.spectator) send({ type: 'ready' });
+      else if (phase === 'REVEAL' && !me?.confirmed && !me?.spectator) send({ type: 'confirm_reveal' });
+      else if (phase === 'NEGOTIATE' && state.roundFarmerIds?.includes(playerId)) {
+        send({ type: 'negotiate_confirm', confirmed: !me?.negotiateConfirmed });
+      } else if (phase === 'FINALIZE' && canTake) send({ type: 'take_payout' });
+      else if (phase === 'ENDED' && me?.isHost) send({ type: 'restart_game' });
+    };
+    const onKey = (e) => {
+      if (typingNow() || chatOpen) return;      // 输入/聊天聚焦时，游戏快捷键让位
       if (e.repeat) return;
 
-      if (e.key === 't' || e.key === 'T') { e.preventDefault(); setChatOpen(true); return; }
+      // 聊天唤起已改 Enter/点击（McChat 自管，T 退役——聊天 2.0 三轮）
       // 桌沿抽屉（HUD 2.0）：R 选角墙 / L 账本 / Esc 收起
       if (e.key === 'r' || e.key === 'R') { e.preventDefault(); togglePanel('roles'); return; }
       if (e.key === 'l' || e.key === 'L') { e.preventDefault(); togglePanel('ledger'); return; }
@@ -114,26 +139,58 @@ function useGameKeys() {
         && po.eligible?.includes(playerId) && !po.taken?.includes(playerId);
       if ((e.key === 'f' || e.key === 'F') && canTake) { e.preventDefault(); send({ type: 'take_payout' }); return; }
       if (e.key !== ' ') return;                // 确认类动作统一空格（反馈⑩：回车退役）
-
-      const me = state.me;
-      const phase = state.phase;
-      if (phase === 'BETTING') return;          // 下注确认由 HandLayer(3D)/MoneyHand(2D) 自己处理
-      let acted = false;
-      if (phase === 'LOBBY') {
-        if (me?.isHost) { send({ type: 'start_game' }); acted = true; }
-        else if (!me?.spectator && me?.role) { send({ type: 'lobby_ready', ready: !me?.lobbyReady }); acted = true; }
-      }
-      else if (phase === 'DISCUSSION' && !me?.ready && !me?.spectator) { send({ type: 'ready' }); acted = true; }
-      else if (phase === 'REVEAL' && !me?.confirmed && !me?.spectator) { send({ type: 'confirm_reveal' }); acted = true; }
-      else if (phase === 'NEGOTIATE' && state.roundFarmerIds?.includes(playerId)) {
-        send({ type: 'negotiate_confirm', confirmed: !me?.negotiateConfirmed }); acted = true;
-      } else if (phase === 'FINALIZE' && canTake) { send({ type: 'take_payout' }); acted = true; }
-      else if (phase === 'ENDED' && me?.isHost) { send({ type: 'restart_game' }); acted = true; }
-      if (acted) e.preventDefault();
+      e.preventDefault();
+      if (state.phase === 'BETTING') return;    // BETTING 完全交给 HandLayer（按下态+确认），这里绝不碰
+      spaceDownRef.current = true;
+      // 快速点按不闪按下动画：按住 ≥100ms 才进入视觉按下态（动作照常在松开时触发）
+      clearTimeout(pressTimerRef.current);
+      pressTimerRef.current = setTimeout(() => { if (spaceDownRef.current) setSpaceHeld(true); }, 100);
+    };
+    const onKeyUp = (e) => {
+      if (e.key !== ' ') return;
+      if (state.phase === 'BETTING') return;    // 同上：不消费 HandLayer 的按键态（曾吞掉确认下注）
+      if (!spaceDownRef.current) return;        // 未经过按下（如聊天中按的）不触发
+      spaceDownRef.current = false;
+      clearTimeout(pressTimerRef.current);
+      setSpaceHeld(false);
+      if (typingNow() || chatOpen) return;
+      e.preventDefault();
+      doSpaceAction();
+    };
+    const onBlur = () => {                      // 窗口失焦时松开按下态，防卡死
+      spaceDownRef.current = false;
+      clearTimeout(pressTimerRef.current);
+      setSpaceHeld(false);
     };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [state, send, playerId, chatOpen, setChatOpen, panel, setPanel, togglePanel]);
+    window.addEventListener('keyup', onKeyUp);
+    window.addEventListener('blur', onBlur);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('keyup', onKeyUp);
+      window.removeEventListener('blur', onBlur);
+    };
+  }, [state, send, playerId, chatOpen, panel, setPanel, togglePanel, setSpaceHeld]);
+}
+
+// ---------- 等待类本地系统提示（阶段五④：被退役木板的替身，仅 3D 模式） ----------
+// 同一个 key='wait'：同时至多一条（协商等待天然顶掉上一回合的已下注提示）；
+// localSys 自带去重（同 key 同文案且为最新 → 不重发），effect 依赖全为原语不随广播重跑。
+function useWaitHints() {
+  const phase = useGameStore(s => s.state.phase);
+  const bet = useGameStore(s => s.state.me?.bet);
+  const role = useGameStore(s => s.state.me?.role);
+  const spectator = useGameStore(s => !!s.state.me?.spectator);
+  const flying = useGameStore(s => !!(s.betFlight && s.betFlight.round === s.state.round));
+  const localSys = useGameStore(s => s.localSys);
+  useEffect(() => {
+    if (!IS_3D_INPUT || spectator) return;
+    if (phase === 'BETTING' && bet != null && !flying) {
+      localSys('已下注，等待其他玩家...', { key: 'wait' });   // 飞牌落定才提示（与圈上浮字同步）
+    } else if (phase === 'NEGOTIATE' && isLandlordSide(role)) {
+      localSys('等待对方协商...', { key: 'wait' });
+    }
+  }, [phase, bet, role, spectator, flying, localSys]);
 }
 
 // ---------- 顶部信息条（HUD 精简⑥⑦：左侧房间牌/阶段牌退役——房间信息进设置面板，
@@ -558,10 +615,10 @@ function DiscussionPanel() {
 }
 function BettingPanel() {
   const state = useGameStore(s => s.state); const me = state.me;
+  // 3D 模式底部无面板（阶段五①）：下注在场景里做，已下注等待改走聊天系统提示（useWaitHints）
+  if (IS_3D_INPUT) return null;
   if (me?.spectator || !factionOf(me?.role)) return <div className="phase-panel"><p className="dim">观战中：等待玩家下注…</p></div>;
   if (me.bet != null) return <div className="phase-panel"><p className="ok">已下注，等待其他玩家…</p></div>;
-  // 3D 交互模式：下注全在场景里做（HandLayer 手牌拖拽 + 圆圈浮字），底部不出面板
-  if (IS_3D_INPUT) return null;
   return <MoneyHand key={`${state.round}-${me.balance}`} />;
 }
 // REVEAL：3D 模式确认提示在圈上（FeltPrompts），面板退役
@@ -621,9 +678,9 @@ function SettlePanel() {
 }
 function NegotiatePanel() {
   const state = useGameStore(s => s.state); const me = state.me;
-  if (isLandlordSide(me?.role) && !me?.spectator) return <div className="phase-panel"><p className="dim">农民正在协商分配，请稍候…</p></div>;
-  // 3D 交互模式：协商在桌面上做（拖钱牌/债务牌到队友圈，圆圈浮字确认），2D 协商板退场
+  // 3D 模式底部无面板（阶段五①）：协商在桌面上做；地主侧的等待改走聊天系统提示（useWaitHints）
   if (IS_3D_INPUT) return null;
+  if (isLandlordSide(me?.role) && !me?.spectator) return <div className="phase-panel"><p className="dim">农民正在协商分配，请稍候…</p></div>;
   return <div className="phase-panel"><NegotiationBoard /></div>;
 }
 function FinalizePanel() {
@@ -693,7 +750,8 @@ function EndedPanel() {
     </div>
   );
 }
-function CoinFlipPanel() { return <div className="phase-panel"><p className="dim coin-hint">掷硬币中…</p></div>; }
+// 掷硬币木板 3D 退役（阶段五①）：硬币本身就是画面主角，无需底部文字
+function CoinFlipPanel() { return IS_3D_INPUT ? null : <div className="phase-panel"><p className="dim coin-hint">掷硬币中…</p></div>; }
 function NullPanel() { return null; }
 const PHASE_PANELS = {
   LOBBY: LobbyPanel, DISCUSSION: DiscussionPanel, BETTING: BettingPanel, REVEAL: RevealPanel,
@@ -709,6 +767,7 @@ export default function UiLayer() {
   const panel = useGameStore(s => s.panel);
   const setPanel = useGameStore(s => s.setPanel);
   useGameKeys();
+  useWaitHints();
   const Panel = PHASE_PANELS[state.phase] ?? NullPanel;
 
   // 抽屉随阶段自动开合：进大厅升起招募令墙；阶段切换一律收起（别挡住新阶段的行动区）。

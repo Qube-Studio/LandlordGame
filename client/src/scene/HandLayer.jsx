@@ -19,7 +19,7 @@ import { decompose, splitNote, SPLITS } from '../game/notes';
 import { MoneyStack, ArcNote, cardMaterials, cardLocal, cardYaw, stackTopY, TABLE_TOP, CARD_W, CARD_T, CARD_D } from './cards';
 import PromptFloat from './PromptFloat';
 import { aimFromPointer, groundFromPointer, CarrySpring, CARRY_HEIGHT } from './carry';
-import { KEY_SPACE } from '../game/keys';
+import KeyCap from '../assets/pixelfont/KeyCap';
 import PixelText from '../assets/pixelfont/PixelText';
 import { P } from '../assets/palette';
 
@@ -281,6 +281,7 @@ export default function HandLayer({ look, rot, mySpot }) {
   const state = useGameStore(s => s.state);
   const send = useGameStore(s => s.send);
   const chatOpen = useGameStore(s => s.chatOpen);
+  const spaceHeld = useGameStore(s => s.spaceHeld); // 浮字确认行的合成按下态
   const placeTableStack = useGameStore(s => s.placeTableStack);
   const startBetFlight = useGameStore(s => s.startBetFlight);
   const { camera, size } = useThree();
@@ -637,15 +638,42 @@ export default function HandLayer({ look, rot, mySpot }) {
 
   // 空格确认（反馈⑩：回车退役；聊天/输入框聚焦时让位——与全局快捷键同规则）
   useEffect(() => {
-    const onKey = (e) => {
-      if (e.key !== ' ' || e.repeat || chatOpen) return;
+    // 空格两段式（验收修④）：按下只进按下态（≥100ms 才显示，快速点按不闪动画），
+    // 松开才确认（与鼠标松开判定一致）。BETTING 的空格完全归本层（useGameKeys 不碰）。
+    const typing = () => {
       const el = document.activeElement;
-      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) return;
+      return el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA');
+    };
+    const setHeld = useGameStore.getState().setSpaceHeld;
+    let down = false;
+    let pressTimer = 0;
+    const onKey = (e) => {
+      if (e.key !== ' ' || e.repeat || chatOpen || typing()) return;
+      e.preventDefault();
+      down = true;
+      clearTimeout(pressTimer);
+      pressTimer = setTimeout(() => { if (down) setHeld(true); }, 100);
+    };
+    const onKeyUp = (e) => {
+      if (e.key !== ' ' || !down) return;
+      down = false;
+      clearTimeout(pressTimer);
+      setHeld(false);
+      if (chatOpen || typing()) return;
       e.preventDefault();
       confirmRef.current?.();
     };
+    const onBlur = () => { down = false; clearTimeout(pressTimer); setHeld(false); };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener('keyup', onKeyUp);
+    window.addEventListener('blur', onBlur);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('keyup', onKeyUp);
+      window.removeEventListener('blur', onBlur);
+      clearTimeout(pressTimer);
+      setHeld(false); // 卸载（下注完/换阶段）时清掉按下态，防浮字卡在按下样式
+    };
   }, [chatOpen]);
 
   useEffect(() => () => { clearTimers(); document.body.style.cursor = ''; }, []);
@@ -660,11 +688,11 @@ export default function HandLayer({ look, rot, mySpot }) {
   const line2 = sent
     ? '已下注'
     : bounds.forceAllIn
-      ? `全押 ${KEY_SPACE}`
+      ? '全押'
       : canConfirm
-        ? `确认下注 ${KEY_SPACE}`
+        ? '确认下注'
         : (total < bounds.min ? '点或拖手牌下注' : '超出上限');
-  const line2Click = !sent && (bounds.forceAllIn || canConfirm);
+  const line2Click = !sent && (bounds.forceAllIn || canConfirm); // 可点行才带空格键帽
 
   return (
     <group>
@@ -738,7 +766,12 @@ export default function HandLayer({ look, rot, mySpot }) {
         <PixelText size={2} color="#fff">{line1}</PixelText>
         {line2 && (
           line2Click
-            ? <div className="clickable" onClick={() => confirmRef.current?.()}><PixelText size={2} color="var(--px-gold)">{line2}</PixelText></div>
+            ? (
+              <div className={`clickable prompt-line ${spaceHeld ? 'pressed' : ''}`} onClick={() => confirmRef.current?.()}>
+                <PixelText size={2} color="var(--px-gold)">{line2}</PixelText>
+                <KeyCap color="var(--px-gold)" />
+              </div>
+            )
             : <PixelText size={2} color="var(--ink-dim)">{line2}</PixelText>
         )}
       </PromptFloat>

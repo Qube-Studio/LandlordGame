@@ -10,6 +10,9 @@ import { useGameStore } from './store/gameStore';
 
 const phase = new URLSearchParams(location.search).get('phase') || 'REVEAL';
 
+// 截图/自动化探针：暴露真实 store 实例（HMR 时间戳会让外部 import 拿到另一份模块）
+window.__gameStore = useGameStore;
+
 const players = [
   { id: 'p1', name: '我', role: 'farmer', balance: 8, online: true, isHost: true, hasBet: true, bet: 3, confirmed: false, negotiateConfirmed: false, bounds: { minStake: 1, min: 1, max: 7, forceAllIn: false }, wage: { interval: 3, amount: 2, roundsToNext: 2 } },
   { id: 'p2', name: '地主张', role: 'landlord', balance: null, online: true, isHost: false, hasBet: true, bet: 5, confirmed: true },
@@ -59,11 +62,16 @@ useGameStore.setState({
   playerId: 'p1',
   connected: true,
   joining: false,
+  // 聊天 2.0 着色样本齐全：敌方公开(红)/己方公开(绿)/阵营频道(橙标签+绿)/系统(金)
   chat: [
     { channel: 'public', from: 'p2', name: '地主张', text: '来吧，敢不敢全押', ts: Date.now() },
+    { channel: 'public', from: 'p4', name: '农民王', text: '他在虚张声势', ts: Date.now() },
     { channel: 'farmer', from: 'p3', name: '农民李', text: '稳住，别慌', ts: Date.now() },
+    { channel: 'public', from: 'p3', name: '农民李', text: '这是一条特别长的消息用来核对聊天行折行效果黑底应当随内容长高而不是让文字溢出到背景之外去', ts: Date.now() },
+    { channel: 'public', from: null, name: '', text: '农民王（农民）已破产', ts: Date.now(), system: true },
   ],
-  chatOpen: false,
+  chatOpen: new URLSearchParams(location.search).get('chat') === 'open', // ?chat=open 截图展开态
+  chatTab: new URLSearchParams(location.search).get('tab') ?? 'all',     // ?tab=faction|system 截图页签过滤
 });
 
 if (phase === 'FLIGHT') {

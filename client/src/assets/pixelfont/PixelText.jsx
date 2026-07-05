@@ -34,6 +34,16 @@ function AsciiRun({ run, size, color }) {
   );
 }
 
+// wrap 模式的 ASCII 分块：按词（带尾随空格）切开，超长无空格串每 12 字硬切——
+// 每块一张小 SVG，配合容器 flex-wrap 即可折行（单张大 SVG 无法从中间断开）。
+function chunkAscii(run) {
+  const chunks = [];
+  for (const tok of run.match(/\S+\s*|\s+/g) ?? []) {
+    for (let i = 0; i < tok.length; i += 12) chunks.push(tok.slice(i, i + 12));
+  }
+  return chunks;
+}
+
 export default function PixelText({
   children,
   size = 3,
@@ -41,15 +51,21 @@ export default function PixelText({
   className = '',
   style,
   title,
+  wrap = false, // 允许折行：ASCII 段切块 + 容器 flex-wrap（聊天正文等长文本用）
   as: Tag = 'span',
 }) {
   const text = String(children ?? '');
   const h = GLYPH_H * size;
 
-  // 分段：连续 ASCII 合成一段；非 ASCII 单独成块
+  // 分段：连续 ASCII 合成一段（wrap 模式再切块）；非 ASCII 单独成块
   const parts = [];
   let buf = '';
-  const flush = () => { if (buf) { parts.push({ ascii: true, text: buf }); buf = ''; } };
+  const flush = () => {
+    if (!buf) return;
+    if (wrap) for (const c of chunkAscii(buf)) parts.push({ ascii: true, text: c });
+    else parts.push({ ascii: true, text: buf });
+    buf = '';
+  };
   for (const ch of text) {
     if (hasGlyph(ch)) buf += ch;
     else { flush(); parts.push({ ascii: false, text: ch }); }
@@ -64,6 +80,7 @@ export default function PixelText({
         display: 'inline-flex',
         alignItems: 'flex-end',
         gap: `${size}px`,
+        ...(wrap ? { flexWrap: 'wrap', rowGap: `${size * 2}px` } : {}), // 置于 gap 之后覆盖其 row-gap
         lineHeight: 0,
         color,
         ...style,

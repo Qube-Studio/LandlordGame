@@ -16,7 +16,7 @@ import { getCoinRest } from './coinSim';
 import { MoneyStack, ArcNote, cardLocal, cardYaw, stackTopY, promptAnchor, TABLE_TOP, CARD_W, CARD_T, CARD_D, cardMaterials } from './cards';
 import { aimFromPointer, groundFromPointer, CarrySpring, CARRY_HEIGHT } from './carry';
 import PromptFloat, { pushFloat } from './PromptFloat';
-import { KEY_SPACE } from '../game/keys';
+import KeyCap from '../assets/pixelfont/KeyCap';
 import PixelText from '../assets/pixelfont/PixelText';
 import { P } from '../assets/palette';
 
@@ -461,6 +461,7 @@ export default function PayoutLayer({ players, seats, spots, playerId, rot }) {
   const state = useGameStore(s => s.state);
   const myStack = useGameStore(s => s.myStack);
   const send = useGameStore(s => s.send);
+  const spaceHeld = useGameStore(s => s.spaceHeld); // 协商确认行的合成按下态（空格松开才触发）
   const { camera, size } = useThree(); // camera 另用于协商松手时按指针所指毡面点判定落圈（反馈③）
   // 导演是「可变外部模型」：每次变动调 bump 触发重渲，render = f(dir.model)。挂载期恒定单例。
   const [, bump] = useState(0);
@@ -731,8 +732,9 @@ export default function PayoutLayer({ players, seats, spots, playerId, rot }) {
       {negoIdle && mySpot && (
         <PromptFloat spot={mySpot} nw>
           <PixelText size={2} color="#fff">{iConfirmed ? '已确认 · 等待其他农民' : '拖钱牌/债务牌到队友圈'}</PixelText>
-          <div className="clickable" onClick={() => send({ type: 'negotiate_confirm', confirmed: !iConfirmed })}>
-            <PixelText size={2} color="var(--px-gold)">{iConfirmed ? `撤销确认 ${KEY_SPACE}` : `确认分配 ${KEY_SPACE}`}</PixelText>
+          <div className={`clickable prompt-line ${spaceHeld ? 'pressed' : ''}`} onClick={() => send({ type: 'negotiate_confirm', confirmed: !iConfirmed })}>
+            <PixelText size={2} color="var(--px-gold)">{iConfirmed ? '撤销确认' : '确认分配'}</PixelText>
+            <KeyCap color="var(--px-gold)" />
           </div>
           {alloc.deadline && <CountdownText deadline={alloc.deadline} />}
         </PromptFloat>
@@ -742,8 +744,9 @@ export default function PayoutLayer({ players, seats, spots, playerId, rot }) {
           位置同浮字规范：自己圈的「西北」压低（反馈⑤），distanceFactor 压小一档与金额标签视觉等大。 */}
       {canTake && mySpot && (
         <Html position={promptAnchor(mySpot.x, mySpot.z)} center distanceFactor={5} zIndexRange={[30, 0]}>
-          <div className="money-3d-amount take-float" onClick={() => send({ type: 'take_payout' })}>
-            <PixelText size={2} color={P.gold}>{'拿取 [F]'}</PixelText>
+          <div className="money-3d-amount take-float prompt-line" onClick={() => send({ type: 'take_payout' })}>
+            <PixelText size={2} color={P.gold}>拿取</PixelText>
+            <KeyCap k="F" color={P.gold} />
           </div>
         </Html>
       )}
