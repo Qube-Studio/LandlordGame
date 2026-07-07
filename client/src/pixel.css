@@ -1469,3 +1469,54 @@ body {
   .victory-spark { animation-duration: 0.6s; }
   .victory-flash { display: none; }
 }
+
+/* ============================================================
+   移动端触屏适配（html.touch 由 game/inputMode.js 探测打标；?touch=1 桌面可强制模拟）。
+   交互仍是 3D 直接操作（与桌面同一套），此处只做触屏专属修饰。
+   ============================================================ */
+
+/* 键盘提示全部隐藏（触屏没有键盘）：像素键帽 + 旧文字键帽 */
+.touch .keycap-px, .touch .keycap { display: none; }
+
+/* 桌面浮字（圈上提示/可点行）放大一档，手指好点 */
+.touch .felt-float { transform: scale(1.16); transform-origin: center bottom; }
+
+/* 顶栏无底符号按钮放大点按区 */
+.touch .hud-icon-btn { width: 36px; height: 36px; opacity: 0.7; }
+
+/* 聊天：频道前缀可点击循环切换（桌面也开放）；触屏输入字号 ≥16px 防 iOS 聚焦缩放 */
+.mc-prefix.clickable { cursor: pointer; pointer-events: auto; }
+.mc-prefix.clickable:hover { filter: brightness(1.3); }
+.touch .mc-chat-input input { font-size: 16px; }
+.touch .mc-prefix { padding: 4px 6px 4px 2px; }
+
+/* 招募令墙：单条横向滑动（不竖排、不换行），海报略窄 */
+.touch .role-wall-body {
+  flex-wrap: nowrap;
+  justify-content: flex-start;
+  align-items: stretch;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+}
+.touch .role-group { flex: none; }
+.touch .poster-row { flex-wrap: nowrap; }
+.touch .poster { flex: none; width: 148px; }
+.touch .poster-relic { height: 132px; }
+.touch .poster-bust { width: 104px; height: 130px; }
+
+/* 触屏角色详情卡：点海报弹出居中固定卡（属性常开 + 应征按钮），点卡外关闭 */
+.role-detail.sheet {
+  position: fixed; left: 50%; top: 45%;
+  transform: translate(-50%, -50%);
+  width: min(360px, 92vw);
+  max-height: 74vh;
+  overflow-y: auto;
+  z-index: 210;
+  background: rgba(10, 11, 15, 0.94);
+  box-shadow: inset 0 0 0 1px rgba(232, 194, 90, 0.20), 0 12px 30px rgba(0, 0, 0, 0.65);
+}
+.role-detail.sheet .role-take {
+  margin-top: 6px;
+  align-self: stretch;
+}

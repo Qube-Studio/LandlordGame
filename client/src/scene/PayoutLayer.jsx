@@ -15,6 +15,7 @@ import { IS_3D_INPUT } from '../game/inputMode';
 import { getCoinRest } from './coinSim';
 import { MoneyStack, ArcNote, cardLocal, cardYaw, stackTopY, promptAnchor, TABLE_TOP, CARD_W, CARD_T, CARD_D, cardMaterials } from './cards';
 import { aimFromPointer, groundFromPointer, CarrySpring, CARRY_HEIGHT } from './carry';
+import { grab } from './grab';
 import PromptFloat, { pushFloat } from './PromptFloat';
 import KeyCap from '../assets/pixelfont/KeyCap';
 import PixelText from '../assets/pixelfont/PixelText';
@@ -540,6 +541,9 @@ export default function PayoutLayer({ players, seats, spots, playerId, rot }) {
     && !!state.roundFarmerIds?.includes(playerId) && !state.me?.spectator;
   const [negoCarry, setNegoCarry] = useState(null);   // {note, kind}
   const negoCarryRef = useRef(null);
+  // 触屏：协商拖钱时相机 swipe 让位（帧级刷新；卸载兜底重置）
+  useFrame(() => { grab.active = !!negoCarryRef.current; });
+  useEffect(() => () => { grab.active = false; }, []);
   const negoDownRef = useRef(null);
   const pressActiveRef = useRef(false);   // 真实按键是否仍按住（window pointerdown/up，可靠，不受 r3f 射线延迟影响）
   const ndcRef = useRef({ x: 0, y: 0 });

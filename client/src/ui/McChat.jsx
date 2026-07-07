@@ -354,9 +354,18 @@ export default function McChat() {
         </div>
       </div>
 
-      {/* 输入条常显：半透明黑框，点击/Enter 激活变实；前缀=当前频道名，Tab 循环 */}
+      {/* 输入条常显：半透明黑框，点击/Enter 激活变实；前缀=当前频道名，Tab 或点击前缀循环切换 */}
       <form className="mc-chat-input" onSubmit={submit} onMouseDown={() => !open && setOpen(true)}>
-        <span className="mc-prefix">
+        <span
+          className="mc-prefix clickable"
+          title="切换频道 (Tab)"
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.preventDefault(); e.stopPropagation();  // 别把焦点吸进输入框/触发展开
+            const cur = Math.max(0, tabIds.indexOf(tab));
+            setChatTab(tabIds[(cur + 1) % tabIds.length]);
+          }}
+        >
           <PixelText size={2} color={tabColor}>{tabLabel}</PixelText>
           <PixelText size={2} color="var(--ink-dim)">{'>'}</PixelText>
         </span>

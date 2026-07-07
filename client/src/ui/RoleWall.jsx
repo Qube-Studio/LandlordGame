@@ -12,6 +12,82 @@ import {
   LANDLORD_SIDE_ROLES, FARMER_SIDE_ROLES,
 } from '../game/roles';
 import { parseRuns } from '../game/richtext';
+import { IS_TOUCH } from '../game/inputMode';
+
+// 可选性判断（与服务端 takeRole 同口径，仅置灰提示）：Poster 与触屏详情卡共用。
+function selectability(role, state, me, readonly) {
+  const mine = me?.role === role;
+  let blocked = false;
+  if (!readonly && !mine) {
+    if (factionOf(role) === 'landlord') {
+      blocked = state.players.some(p => factionOf(p.role) === 'landlord' && p.id !== me?.id);
+    } else {
+      const others = state.players.filter(p => factionOf(p.role) === 'farmer' && p.id !== me?.id).length;
+      blocked = others >= (state.config?.maxFarmers ?? 4);
+    }
+  }
+  return { mine, blocked, clickable: !readonly && !blocked && !mine && !me?.spectator };
+}
+
+// 角色手册正文（浮窗与触屏详情卡共用）：简介段落 + 高级信息表。
+function RoleDetailBody({ role, advanced }) {
+  const sheet = ROLE_SHEET[role];
+  return (
+    <>
+      <div className="role-detail-head">
+        <img className="role-detail-bust" src={bustUrl(role)} alt="" draggable={false} />
+        <PixelText size={3} color="var(--px-gold)">{ROLE_LABEL[role]}</PixelText>
+      </div>
+      <div className="role-intro">
+        {sheet.intro.map((p, i) => (
+          <p key={i} className="role-intro-p">
+            {parseRuns(p).map((r, j) => (
+              <span key={j} className={r.hi ? 'hi' : ''}>{r.t}</span>
+            ))}
+          </p>
+        ))}
+      </div>
+      {advanced && sheet.advanced?.length > 0 && (
+        <div className="role-adv">
+          {sheet.advanced.map(([k, v], i) => (
+            <div key={i} className="role-adv-row">
+              <span className="role-adv-k">{k}</span>
+              <span className="role-adv-v">{v}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
+// 触屏角色详情卡（移动端）：点招募令弹出居中固定卡——属性常开、内置应征按钮；点卡外关闭。
+function RoleSheet({ role, state, me, send, readonly, onClose }) {
+  useEffect(() => {
+    if (!role) return undefined;
+    const onDown = (e) => {
+      if (e.target instanceof Element && e.target.closest('.role-detail.sheet')) return;
+      onClose();
+    };
+    window.addEventListener('pointerdown', onDown, true);
+    return () => window.removeEventListener('pointerdown', onDown, true);
+  }, [role, onClose]);
+  if (!role || !ROLE_SHEET[role]?.intro) return null;
+  const { mine, clickable } = selectability(role, state, me, readonly);
+  return createPortal(
+    <div className="role-detail sheet">
+      <RoleDetailBody role={role} advanced />
+      {(clickable || mine) && (
+        <button
+          className="btn primary role-take"
+          disabled={mine}
+          onClick={() => { send({ type: 'take_role', role }); onClose(); }}
+        >{mine ? '已应征' : '应征'}</button>
+      )}
+    </div>,
+    document.body
+  );
+}
 
 // 跟随鼠标的角色手册浮窗（黑底金字，与四类 HUD 同语言）：鼠标即面板。
 // 悬停招募令时飘在光标旁；因贴着光标必须 pointer-events:none（否则挡住 hover），
@@ -33,60 +109,31 @@ function RoleTooltip({ role, pos, advOpen }) {
   };
   return createPortal(
     <div className="role-detail float" style={style}>
-      <div className="role-detail-head">
-        <img className="role-detail-bust" src={bustUrl(role)} alt="" draggable={false} />
-        <PixelText size={3} color="var(--px-gold)">{ROLE_LABEL[role]}</PixelText>
-      </div>
-      <div className="role-intro">
-        {sheet.intro.map((p, i) => (
-          <p key={i} className="role-intro-p">
-            {parseRuns(p).map((r, j) => (
-              <span key={j} className={r.hi ? 'hi' : ''}>{r.t}</span>
-            ))}
-          </p>
-        ))}
-      </div>
-      {sheet.advanced?.length > 0 && (
-        advOpen ? (
-          <div className="role-adv">
-            {sheet.advanced.map(([k, v], i) => (
-              <div key={i} className="role-adv-row">
-                <span className="role-adv-k">{k}</span>
-                <span className="role-adv-v">{v}</span>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="role-adv-hint">
-            <PixelText size={2} color="var(--ink-dim)">按住 Shift 查看高级信息</PixelText>
-          </div>
-        )
+      <RoleDetailBody role={role} advanced={advOpen} />
+      {!advOpen && sheet.advanced?.length > 0 && (
+        <div className="role-adv-hint">
+          <PixelText size={2} color="var(--ink-dim)">按住 Shift 查看高级信息</PixelText>
+        </div>
       )}
     </div>,
     document.body
   );
 }
 
-function Poster({ role, state, me, send, readonly, onHover }) {
+function Poster({ role, state, me, send, readonly, onHover, onOpenSheet }) {
   const takers = state.players.filter(p => p.role === role);
-  const mine = me?.role === role;
-  let blocked = false;
-  if (!readonly && !mine) {
-    if (factionOf(role) === 'landlord') {
-      blocked = state.players.some(p => factionOf(p.role) === 'landlord' && p.id !== me?.id);
-    } else {
-      const others = state.players.filter(p => factionOf(p.role) === 'farmer' && p.id !== me?.id).length;
-      blocked = others >= (state.config?.maxFarmers ?? 4);
-    }
-  }
-  const clickable = !readonly && !blocked && !mine && !me?.spectator;
+  const { mine, blocked, clickable } = selectability(role, state, me, readonly);
+  // 触屏：点海报=弹详情卡（应征在卡内按钮），不直接选角；桌面：点=选角，悬停=浮窗详情。
+  const onClick = IS_TOUCH
+    ? () => onOpenSheet?.(role)
+    : (clickable ? () => send({ type: 'take_role', role }) : undefined);
   return (
     <div
-      className={`poster ${mine ? 'mine' : ''} ${blocked ? 'blocked' : ''} ${clickable ? 'clickable' : ''}`}
-      onClick={clickable ? () => send({ type: 'take_role', role }) : undefined}
-      onMouseEnter={(e) => onHover?.(role, e)}
-      onMouseMove={(e) => onHover?.(role, e)}
-      onMouseLeave={() => onHover?.(null)}
+      className={`poster ${mine ? 'mine' : ''} ${blocked ? 'blocked' : ''} ${clickable || IS_TOUCH ? 'clickable' : ''}`}
+      onClick={onClick}
+      onMouseEnter={IS_TOUCH ? undefined : (e) => onHover?.(role, e)}
+      onMouseMove={IS_TOUCH ? undefined : (e) => onHover?.(role, e)}
+      onMouseLeave={IS_TOUCH ? undefined : () => onHover?.(null)}
     >
       {/* 半身像 = bustSnapshot 预渲染静态素材(饰品正交正视 + 皮肤正面,拼接 dataURL):
           <img> 即插即显无渲染空窗,身体与饰品都与桌边的人同源。 */}
@@ -115,8 +162,10 @@ export default function RoleWall() {
   const setPanel = useGameStore(s => s.setPanel);
   const me = state.me;
   const readonly = state.phase !== 'LOBBY';
-  // 跟随鼠标的角色浮窗：悬停招募令→浮窗贴光标；离开即隐。高级信息按住 Shift 展开。
+  // 跟随鼠标的角色浮窗（桌面）：悬停招募令→浮窗贴光标；离开即隐。高级信息按住 Shift 展开。
+  // 触屏（移动端）：点海报→居中详情卡 RoleSheet（属性常开+应征按钮）。
   const [hoverRole, setHoverRole] = useState(null);
+  const [sheetRole, setSheetRole] = useState(null);
   const [pos, setPos] = useState({ x: 0, y: 0 });
   const [advOpen, setAdvOpen] = useState(false);
   const onHover = (role, e) => {
@@ -135,7 +184,8 @@ export default function RoleWall() {
   // pointerdown 早于本 effect 挂载，不会自关。Dock 排除掉，让「角色」页签自己的 toggle 正常开合。
   useEffect(() => {
     const onDown = (e) => {
-      if (e.target instanceof Element && (e.target.closest('.role-wall') || e.target.closest('.dock'))) return;
+      // 触屏详情卡(portal 到 body)也算墙内——点它不收抽屉
+      if (e.target instanceof Element && (e.target.closest('.role-wall') || e.target.closest('.dock') || e.target.closest('.role-detail.sheet'))) return;
       setPanel(null);
     };
     window.addEventListener('pointerdown', onDown, true);
@@ -145,7 +195,7 @@ export default function RoleWall() {
   const farmers = state.players.filter(p => factionOf(p.role) === 'farmer').length;
   const landlords = state.players.filter(p => factionOf(p.role) === 'landlord').length;
   const maxF = state.config?.maxFarmers ?? 4;
-  const pass = { state, me, send, readonly, onHover };
+  const pass = { state, me, send, readonly, onHover, onOpenSheet: setSheetRole };
   return (
     <div className="drawer role-wall">
       <div className="drawer-title">
@@ -173,7 +223,9 @@ export default function RoleWall() {
         )}
       </div>
       {/* 招募令只负责选角（反馈①）：准备/开局都在圈上浮字（收起本墙后可见），或面板内按空格=收起并自动准备。 */}
-      <RoleTooltip role={hoverRole} pos={pos} advOpen={advOpen} />
+      {IS_TOUCH
+        ? <RoleSheet role={sheetRole} state={state} me={me} send={send} readonly={readonly} onClose={() => setSheetRole(null)} />
+        : <RoleTooltip role={hoverRole} pos={pos} advOpen={advOpen} />}
     </div>
   );
 }

@@ -11,7 +11,8 @@ import { useGameStore } from '../store/gameStore';
 import { useSettingsStore } from '../store/settingsStore';
 import { decompose } from '../game/notes';
 import { factionOf } from '../game/roles';
-import { IS_3D_INPUT } from '../game/inputMode';
+import { IS_3D_INPUT, IS_TOUCH } from '../game/inputMode';
+import { grab } from './grab';
 import MinecraftPlayer from './MinecraftPlayer';
 import Coin from './Coin';
 import PayoutLayer from './PayoutLayer';
@@ -999,6 +1000,37 @@ export default function Scene3D() {
         : adaptiveDpr();
 
   useEffect(() => {
+    // 触屏（移动端）：拖动=增量转视角——点按不跳视角、与手指落点无关（绝对映射会让
+    // 点屏幕左侧直接甩头）。增量系数 2.4，clamp 与桌面同界。
+    if (IS_TOUCH) {
+      // 拖动=增量转视角。只在触点落在 3D 画布(.r3f-scene)时启动——HUD(聊天/招募令)上的滑动
+      // 各自滚动、不转视角；拖卡牌/协商钱牌时(grab.active)让位、只跟锚点不转，松手无跳。
+      const drag = { on: false, x: 0, y: 0 };
+      const clamp1 = (v) => Math.max(-1, Math.min(1, v));
+      const down = (e) => {
+        if (!(e.target instanceof Element) || !e.target.closest('.r3f-scene')) { drag.on = false; return; }
+        drag.on = true; drag.x = e.clientX; drag.y = e.clientY;
+      };
+      const move = (e) => {
+        if (!drag.on) return;
+        if (grab.active) { drag.x = e.clientX; drag.y = e.clientY; return; }
+        look.current.x = clamp1(look.current.x + ((e.clientX - drag.x) / window.innerWidth) * 2.4);
+        look.current.y = clamp1(look.current.y + ((e.clientY - drag.y) / window.innerHeight) * 2.4);
+        drag.x = e.clientX; drag.y = e.clientY;
+      };
+      const up = () => { drag.on = false; };
+      window.addEventListener('pointerdown', down);
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', up);
+      window.addEventListener('pointercancel', up);
+      return () => {
+        window.removeEventListener('pointerdown', down);
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', up);
+        window.removeEventListener('pointercancel', up);
+      };
+    }
+    // 桌面：绝对鼠标位置 → 视角目标（原逻辑）
     const onMove = (e) => {
       look.current.x = (e.clientX / window.innerWidth) * 2 - 1;
       look.current.y = (e.clientY / window.innerHeight) * 2 - 1;

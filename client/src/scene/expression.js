@@ -19,7 +19,9 @@ export function expressionFor(player, state) {
       return player.ready ? 'ready' : 'idle';
     case 'BETTING':
     case 'REVEAL':
-      return player.hasBet ? 'bet' : 'idle';                               // 已下注：眯眼盘算
+    case 'COIN_FLIP':
+    case 'REFLIP':
+      return player.hasBet ? 'bet' : 'idle';                               // 已下注：$$ 钱眼,一直盯到硬币落定
     case 'SETTLE':
     case 'NEGOTIATE':
     case 'FINALIZE':
@@ -27,7 +29,7 @@ export function expressionFor(player, state) {
     case 'ENDED':
       return endedExpression(player, state);
     default:
-      return 'idle';                                                       // COIN_FLIP 等：保持悬念
+      return 'idle';
   }
 }
 

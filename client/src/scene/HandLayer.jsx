@@ -19,6 +19,7 @@ import { decompose, splitNote, SPLITS } from '../game/notes';
 import { MoneyStack, ArcNote, cardMaterials, cardLocal, cardYaw, stackTopY, TABLE_TOP, CARD_W, CARD_T, CARD_D } from './cards';
 import PromptFloat from './PromptFloat';
 import { aimFromPointer, groundFromPointer, CarrySpring, CARRY_HEIGHT } from './carry';
+import { grab } from './grab';
 import KeyCap from '../assets/pixelfont/KeyCap';
 import PixelText from '../assets/pixelfont/PixelText';
 import { P } from '../assets/palette';
@@ -346,6 +347,7 @@ export default function HandLayer({ look, rot, mySpot }) {
   //  · 旋转滞后：手牌组朝向对相机做 slerp 追赶（≈100ms），甩视角时整扇牌带惯性摆动；
   //  · 连续收放：抬头（look.y 越小）渐收进怀里，低头（look.y 越大）牌微微举近端详——无阈值突变。
   useFrame((_, dt) => {
+    grab.active = !!carryRef.current; // 触屏：握着牌时相机 swipe 让位（帧级刷新）
     const g = handGroup.current;
     if (!g) return;
     g.position.copy(camera.position);
@@ -521,6 +523,7 @@ export default function HandLayer({ look, rot, mySpot }) {
       window.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
       window.removeEventListener('pointercancel', onUp);
+      grab.active = false; // 卸载兜底（避免退出 BETTING 时残留冻结相机）
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [camera, worldSpot, pledgePos, insurable, premium, maxPledge]);
