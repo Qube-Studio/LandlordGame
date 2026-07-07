@@ -52,6 +52,7 @@ export const DEFAULT_CONFIG = {
     takeTimeoutMs: 45000,     // FINALIZE 拿取超时：到点未拿的自动入账（0 = 不超时，AFK 会卡场）
     takeAutoDelayMs: 2600,    // 进入拿取阶段后，代离线玩家自动拿取的延迟（让观众看完演出）
     reflipDecisionMs: 8000,   // 竞技暴食者重掷决策窗（§8.4）；超时无人重掷则进入结算（0 = 立即跳过）
+    endedToLobbyMs: 8000,     // 终局演出驻留时长：ENDED 到点自动回大厅重开流程（0 = 不自动回，等房主手动「再来一局」）
   },
 
   // --- 连接 ---

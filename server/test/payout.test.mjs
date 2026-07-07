@@ -44,6 +44,7 @@ function setupRoom({ mode = 'quick', farmers = 2, config = {}, roles = null }) {
   for (let i = 0; i < farmers; i++) fids.push(room.addPlayer(`农${i + 1}`, null).playerId);
   room.takeRole(L, roles?.landlord ?? 'landlord');
   fids.forEach((id, i) => room.takeRole(id, roles?.farmers?.[i] ?? 'farmer'));
+  [L, ...fids].forEach(id => room.setLobbyReady(id, true)); // 全员准备（开局门槛，反馈①）
   assert.equal(room.startGame(L).ok, true);
   return { room, L, fids };
 }

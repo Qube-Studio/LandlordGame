@@ -56,6 +56,13 @@ if (phase === 'FLIGHT') {
   base.me = { ...players[0], bet: null, hasBet: false };
   base.players = [base.me, ...players.slice(1)];
 }
+if (phase === 'ENDED') {
+  // 终局演出（§阶段七）：me 是农民 → winnerSide='farmers' 展示「胜利！」正面态（改 'landlord' 看败北态）
+  base.winnerSide = 'farmers';
+  base.endedReturnAt = Date.now() + 8000;
+  base.players = players.map(p => ({ ...p, balance: p.role === 'landlord' ? 0 : 12, bankrupt: p.role === 'landlord' }));
+  base.me = base.players[0];
+}
 
 useGameStore.setState({
   state: base,

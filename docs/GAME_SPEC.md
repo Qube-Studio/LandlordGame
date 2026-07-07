@@ -77,7 +77,7 @@ negotiate_transfer {toId, kind: 'take'|'debt', amount}   // NEGOTIATE，把自�
 negotiate_confirm  {confirmed: bool}     // NEGOTIATE 确认/撤销确认
 take_payout        {}                    // FINALIZE，从桌面拿取自己的钱堆（此刻余额才入账，见 §3.8）
 chat               {channel: 'public'|'farmer', text}
-restart_game       {}                    // 仅房主，ENDED 内
+restart_game       {}                    // 仅房主，ENDED 内（ENDED 还会在 endedToLobbyMs 后自动回大厅，见 §3.4）
 get_state          {}
 voice_join / voice_leave / voice_signal  // 语音预留：服务端统一回 {type:'error', code:'NOT_IMPLEMENTED'}
 ```
@@ -129,7 +129,7 @@ LOBBY ──房主开始──► DISCUSSION ──全员准备──► BETTING
   2. **NEGOTIATE 农民协商**：每个农民以钞票牌形式看到分给自己的钱或债务，可拖拽给队友（金额守恒，仅在农民之间转移）；**桌面钱堆实时镜像协商结果**（钱牌在圆圈间飞移）。任何变动会重置所有人的确认。全部活跃农民确认（或 `negotiateTimeoutMs` 超时按当前方案）后生效。若只有 1 个活跃农民、或本回合农民既无钱可分也无债可摊，则自动跳过。
   3. **FINALIZE 正式结算（收账 + 调整 + 拿取）**：确认后**钱不入账、留在桌上**——先播放收账（债务补偿从欠款者手中飞向地主堆）与**调整步**（技能/机制逐条改变钱堆：地主目标罚金、工资、饭账、资金池换算、税收…每条带浮动标签），然后每个有钱堆的玩家的堆上浮现「**拿取 (F)**」：按 F（或点击）钱堆才飞回手中、余额此刻入账。全员拿取完成后记录回合历史、判定破产。
   4. **农民讨论**：即下一回合的 DISCUSSION——结算后回到讨论阶段，农民复盘战术、全员再点准备，形成循环。
-- **ENDED**：地主破产 → 农民胜；全部农民破产 → 地主胜。展示结果，房主可"再来一局"（重置资金回到第 1 回合 DISCUSSION）。
+- **ENDED**：地主破产 → 农民胜；全部农民破产 → 地主胜。**终局演出**（§阶段七，客户端 `VictoryOverlay`，仅 3D 输入模式）：按阵营区分文案（胜方「胜利！」金/绿、败方「败北」冷灰、观战「X 胜利」）逐字机甲组装式砸入 → 组装完成爆金色粒子 → 驻留 → 与自动回大厅对齐收尾淡出（罩层不含高斯模糊，pointer-events:none 不挡转视角）。演出结束**服务端自动回大厅**：`timing.endedToLobbyMs`（默认 8000）到点跑回大厅重置（清角色/准备回 LOBBY，即回到大厅准备流）；`viewFor().endedReturnAt` 给客户端对齐收尾。房主也可提前手动「再来一局」（`restart_game`，会取消自动定时器）。2D 输入模式（`?input=2d`）仍用带按钮的 `EndedPanel`。
 
 ### 3.5 结算规则（默认；全部走 config，可替换）
 记地主下注 `L`，农民下注合计 `F`，桌面总额 `pot = L + F`，目标 `target = floor(L × landlordWinMultiplier)`（默认 1.5；取整保证整数钱）。

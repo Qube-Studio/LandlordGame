@@ -81,6 +81,7 @@
 | `timing.negotiateTimeoutMs` | `120000` | 协商超时按当前方案生效（`0` = 不超时）。 |
 | `timing.takeTimeoutMs` | `45000` | FINALIZE 拿取（§3.8）超时：到点未按 F 的玩家自动拿取（`0` = 不超时，AFK 会卡住全场，慎用）。 |
 | `timing.takeAutoDelayMs` | `2600` | 进入拿取阶段后，代**离线**玩家自动拿取的延迟——让在线观众看完收账/技能调整演出再看到该堆飞走。 |
+| `timing.endedToLobbyMs` | `8000` | 终局演出（§阶段七）驻留时长：ENDED 到点后服务端自动跑回大厅重开流程（清角色/准备回 LOBBY）。`0` = 不自动回，等房主手动「再来一局」。客户端 `endedReturnAt`（绝对时刻）据此对齐收尾淡出。 |
 
 > 硬币动画是**客户端**预烘焙的（`client/src/scene/coinSim.js`），单条时长常量 `DURATION = 2.4s`。
 > 若把 `coinAnimMs` 调到小于 2400，硬币会还没落定就切换阶段；要更快/更慢请同时改 `coinSim.js` 的 `DURATION`。

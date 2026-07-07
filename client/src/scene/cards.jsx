@@ -57,12 +57,15 @@ export const easeInOut = (t) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 
 // 自己圆圈的提示浮字锚点（反馈⑤）：压低、在圆圈的「西北」——朝桌心方向偏左（玩家视角左上），
 // 避开圈内钱堆。传圆圈中心的 x/z（世界系或场景旋转组局部系皆可，输出同系；公式只依赖
 // 「圆圈相对桌心的方位」，旋转不变）。HandLayer / PayoutLayer / FeltPrompts 共用。
-export const promptAnchor = (cx, cz, y = TABLE_TOP + 0.2) => {
+// dir=+1 视角左（西北，默认/原行为）；dir=-1 视角右（东北，大厅房主「开始游戏」副浮字用）。
+export const promptAnchor = (cx, cz, y = TABLE_TOP + 0.2, dir = 1) => {
   const L = Math.hypot(cx, cz) || 1;
   const ox = -cx / L, oz = -cz / L;   // 朝桌心
-  const lx = oz, lz = -ox;            // 面向桌心时的视角左
-  return [cx + ox * 0.42 + lx * 0.5, y, cz + oz * 0.42 + lz * 0.5];
+  const sx = dir * oz, sz = dir * -ox; // 面向桌心时的视角左(dir=+1)/右(dir=-1)
+  return [cx + ox * 0.42 + sx * 0.5, y, cz + oz * 0.42 + sz * 0.5];
 };
+// 「东北」锚点：朝桌心偏右——大厅房主已准备后，主浮字滑到西北让位，本锚点承载副浮字「开始游戏 [S]」。
+export const promptAnchorNE = (cx, cz, y = TABLE_TOP + 0.2) => promptAnchor(cx, cz, y, -1);
 
 // 「圈正上方」锚点（验收修订②）：LOBBY/DISCUSSION 等圈内不会有钱的阶段，浮字直接悬在
 // 自己圆圈中心——到了可能有钱进圈的阶段（BETTING 起）由 PromptFloat 阻尼滑向西北锚点让位。

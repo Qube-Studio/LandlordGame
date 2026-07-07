@@ -3,6 +3,7 @@ import Scene3D from '../scene/Scene3D';
 import UiLayer from '../ui/UiLayer';
 import McChat from '../ui/McChat';
 import InsuranceDropLayer from '../ui/InsuranceDropLayer';
+import VictoryOverlay from '../ui/VictoryOverlay';
 
 export default function GameScreen() {
   const state = useGameStore(s => s.state);
@@ -17,6 +18,7 @@ export default function GameScreen() {
       <UiLayer />
       <McChat />
       <InsuranceDropLayer />
+      <VictoryOverlay />
     </div>
   );
 }

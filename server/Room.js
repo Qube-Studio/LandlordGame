@@ -232,6 +232,7 @@ export class Room {
     const landlordSide = all.filter(p => factionOf(p.role) === 'landlord');
     const farmers = all.filter(p => factionOf(p.role) === 'farmer');
     if (all.some(p => !p.role)) return { error: '还有玩家未选择角色' };
+    if (all.some(p => !p.lobbyReady)) return { error: '还有玩家未准备' }; // 全员准备才能开局（反馈①：准备=开局门槛）
     if (landlordSide.length !== 1) return { error: '需要恰好 1 名地主阵营玩家（地主或资本家）' };
     if (farmers.length < this.config.minFarmers) return { error: `至少需要 ${this.config.minFarmers} 名农民` };
     if (farmers.length > this.config.maxFarmers) return { error: `农民最多 ${this.config.maxFarmers} 名` };
@@ -268,6 +269,12 @@ export class Room {
   restartGame(playerId) {
     if (this.phase !== 'ENDED') return { error: '游戏尚未结束' };
     if (playerId !== this.hostId) return { error: '只有房主可以重新开始' };
+    this._resetToLobby();
+    return { ok: true, backToLobby: true };
+  }
+
+  // 回大厅重置：房主手动「再来一局」与终局演出后自动回大厅（§阶段七）共用同一套清场逻辑。
+  _resetToLobby() {
     this._setPhase('LOBBY');
     this.round = 0;
     this.gameId = null;
@@ -281,6 +288,7 @@ export class Room {
     this._stepSeq = 0;
     this.winnerSide = null;
     this.endReason = null;
+    this.endedReturnAt = null;
     this.debtWaiver = 0;
     this.history = [];
     this._clearGraceTimers();
@@ -305,7 +313,6 @@ export class Room {
       p.passedReflip = false;
     }
     this._broadcastState();
-    return { ok: true, backToLobby: true };
   }
 
   // ---------- 本地测试辅助（仅 index.js 在 LLG_TEST 开启时调用，任务③） ----------
@@ -333,7 +340,8 @@ export class Room {
     const roster = this.mode === 'competitive'
       ? ['landlord', 'investor', 'glutton', 'farmer']
       : ['landlord', 'farmer', 'farmer', 'farmer'];
-    all.forEach((p, i) => { p.role = roster[i] ?? 'farmer'; });
+    // 全员配好角色并**自动准备**（反馈①：加了「全员准备」开局门槛后，测试仍一键可开——房主直接按 S）
+    all.forEach((p, i) => { p.role = roster[i] ?? 'farmer'; p.lobbyReady = true; });
     this.config.autoActForOffline = false; // 测试：不自动代离线，全部手动切换控制
     this._touch();
     this._broadcastState();
@@ -966,6 +974,8 @@ export class Room {
     this._setPhase('ENDED');
     this.winnerSide = winnerSide;
     this.endReason = reason;
+    const returnMs = this.config.timing.endedToLobbyMs;
+    this.endedReturnAt = returnMs > 0 ? Date.now() + returnMs : null; // 供客户端终局演出对齐收尾淡出（§阶段七）
     try {
       saveGameRecord({
         roomId: this.roomId,
@@ -983,6 +993,8 @@ export class Room {
       console.error('保存对局记录失败:', err);
     }
     this._broadcastState();
+    // 终局演出后自动回大厅（§阶段七）：到点跑回大厅重置。房主手动「再来一局」会经 _setPhase 清掉这个定时器，不会二次触发。
+    this._after(returnMs, () => { if (this.phase === 'ENDED') this._resetToLobby(); });
   }
 
   // ---------- 聊天（语音接口预留：见 index.js NOT_IMPLEMENTED 分支） ----------
@@ -1202,6 +1214,7 @@ export class Room {
       }),
       winnerSide: this.phase === 'ENDED' ? this.winnerSide : null,
       endReason: this.phase === 'ENDED' ? this.endReason : null,
+      endedReturnAt: this.phase === 'ENDED' ? this.endedReturnAt : null, // 终局演出自动回大厅的绝对时刻（客户端据此收尾淡出/倒计时；0=不自动则为 null）
     };
   }
 

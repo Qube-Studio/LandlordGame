@@ -2,6 +2,7 @@
 // LOBBY 可点击应征/改选；开局后变成只读「角色手册」。占用状态用火漆印章表达。
 // 可选性判断与服务端 takeRole 同口径（地主阵营互斥 / 农民受 maxFarmers 上限）——
 // 只用于置灰提示，最终裁决仍在服务端。
+import { useEffect } from 'react';
 import { useGameStore } from '../store/gameStore';
 import PixelText from '../assets/pixelfont/PixelText';
 import { bustUrl } from '../scene/bustSnapshot';
@@ -55,6 +56,16 @@ export default function RoleWall() {
   const setPanel = useGameStore(s => s.setPanel);
   const me = state.me;
   const readonly = state.phase !== 'LOBBY';
+  // 点击招募令与桌沿抽屉（Dock）以外任意处 = 收起（反馈①）。挂 window 捕获阶段；开墙那一下的
+  // pointerdown 早于本 effect 挂载，不会自关。Dock 排除掉，让「角色」页签自己的 toggle 正常开合。
+  useEffect(() => {
+    const onDown = (e) => {
+      if (e.target instanceof Element && (e.target.closest('.role-wall') || e.target.closest('.dock'))) return;
+      setPanel(null);
+    };
+    window.addEventListener('pointerdown', onDown, true);
+    return () => window.removeEventListener('pointerdown', onDown, true);
+  }, [setPanel]);
   const competitive = state.mode === 'competitive';
   const farmers = state.players.filter(p => factionOf(p.role) === 'farmer').length;
   const landlords = state.players.filter(p => factionOf(p.role) === 'landlord').length;
@@ -87,13 +98,7 @@ export default function RoleWall() {
           </div>
         )}
       </div>
-      {!readonly && (
-        <div className="drawer-foot">
-          {me?.isHost
-            ? <button className="btn primary" onClick={() => send({ type: 'start_game' })}>开始游戏 <span className="keycap">空格</span></button>
-            : <PixelText size={2} color="var(--ink-dim)">选好角色,按空格准备,等待房主开始…</PixelText>}
-        </div>
-      )}
+      {/* 招募令只负责选角（反馈①）：准备/开局都在圈上浮字（收起本墙后可见），或面板内按空格=收起并自动准备。 */}
     </div>
   );
 }

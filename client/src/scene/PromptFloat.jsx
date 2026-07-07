@@ -11,10 +11,10 @@ import { useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Html } from '@react-three/drei';
 import * as THREE from 'three';
-import { promptAnchor, promptAnchorHome } from './cards';
+import { promptAnchor, promptAnchorHome, promptAnchorNE } from './cards';
 
 const UP = new THREE.Vector3(0, 1, 0);
-const _pose = new THREE.Vector3(); // 模块级：同一时刻全局至多一个主浮字，跨挂载保留
+const _pose = new THREE.Vector3(); // 模块级：主浮字跨阶段/跨组件换装保留姿态（同一时刻全局至多一个）
 let _posed = false;
 
 const REDUCED = typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
@@ -44,18 +44,27 @@ export function pushFloat(e) {
 // （随相机距离/视角有透视缩放），sprite 让它始终尽力正对玩家。
 // transform 模式的缩放系数 = distanceFactor / 400（drei 内部），4.2/400 太小，
 // 默认值换算为等效观感的 1.7（按原 4.2 在典型 4~5 单位视距下的屏幕字号校准）。
-export default function PromptFloat({ spot, nw = false, rot = 0, distanceFactor = 2.1, zIndexRange = [28, 0], children }) {
+// anchor: 'home' 圈正上方 / 'nw' 西北 / 'ne' 东北。local=true 用本实例独立姿态（副浮字，不共用
+// 模块级 _pose——否则会和主浮字抢同一坐标）；intro 给副浮字一个浮现 pop（CSS）。
+export default function PromptFloat({ spot, nw = false, ne = false, local = false, intro = false, rot = 0, distanceFactor = 2.1, zIndexRange = [28, 0], children }) {
   const g = useRef();
+  const localPose = useRef(null); // 本实例姿态（local 时用）
   const target = useMemo(
-    () => new THREE.Vector3(...(nw ? promptAnchor(spot.x, spot.z) : promptAnchorHome(spot.x, spot.z))),
-    [spot.x, spot.z, nw],
+    () => new THREE.Vector3(...(ne ? promptAnchorNE(spot.x, spot.z) : nw ? promptAnchor(spot.x, spot.z) : promptAnchorHome(spot.x, spot.z))),
+    [spot.x, spot.z, nw, ne],
   );
   useFrame((_, dt) => {
-    if (_posed) _pose.lerp(target, 1 - Math.exp(-7 * (dt || 0.016)));
-    else { _pose.copy(target); _posed = true; }
+    const k = 1 - Math.exp(-7 * (dt || 0.016));
+    let pose;
+    if (local) {
+      if (!localPose.current) localPose.current = target.clone(); // 首帧即落位（副浮字就地浮现，不从别处滑来）
+      else localPose.current.lerp(target, k);
+      pose = localPose.current;
+    } else if (_posed) { _pose.lerp(target, k); pose = _pose; }
+    else { _pose.copy(target); _posed = true; pose = _pose; }
     const gg = g.current;
     if (!gg) return;
-    gg.position.copy(_pose);
+    gg.position.copy(pose);
     if (rot) gg.position.applyAxisAngle(UP, rot);
   });
   return (
@@ -64,7 +73,7 @@ export default function PromptFloat({ spot, nw = false, rot = 0, distanceFactor 
       <Html transform sprite distanceFactor={distanceFactor} zIndexRange={zIndexRange}>
         {/* 受击接在整块板上（.poke 开 pointer-events）——行间缝隙也可戳、多行一体推；
             可交互行例外（.clickable 自己的点击反馈要干脆，不跟着晃） */}
-        <div className="felt-float poke" onPointerDown={(e) => { if (!e.target.closest('.clickable')) pushFloat(e); }}>
+        <div className={`felt-float poke${intro ? ' felt-float-in' : ''}`} onPointerDown={(e) => { if (!e.target.closest('.clickable, .quiet')) pushFloat(e); }}>
           {children}
         </div>
       </Html>

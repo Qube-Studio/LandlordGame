@@ -56,13 +56,14 @@ export const useGameStore = create((set, get) => ({
   setSpaceHeld(v) { set(s => (s.spaceHeld === v ? {} : { spaceHeld: v })); },
 
   // 本地系统消息（聊天 2.0 底座）：仅本端可见，不进服务端、不随重连回放。
-  // 同 key 的旧消息被新消息顶掉；若旧消息已是最新一条（同文案）则不重发——只令聊天区
-  // 高亮脉冲一次；flash=true 时同时强制切到系统页签（如大厅「未选择角色」）。
-  localSys(text, { key, flash = false } = {}) {
+  // 同 key 的旧消息被新消息顶掉。flash=true：金框脉冲 + 强制切系统页签。
+  // refresh=true：即使同 key 同文案已是最新，也重发（换新 ts）——重置收起态显示计时、重新淡出
+  //   （反复触发要每次刷新显示时长时用，如反复点「未选择角色」）；默认 false 时同文案不重发。
+  localSys(text, { key, flash = false, refresh = false } = {}) {
     set(s => {
       const patch = flash ? { chatFlash: s.chatFlash + 1, chatTab: 'system' } : {};
       const last = s.chat[s.chat.length - 1];
-      if (key && last?.localKey === key && last.text === text) return patch;
+      if (!refresh && key && last?.localKey === key && last.text === text) return patch;
       const chat = key ? s.chat.filter(m => m.localKey !== key) : s.chat.slice();
       chat.push({ channel: 'public', from: null, name: '', text, ts: Date.now(), system: true, local: true, localKey: key ?? null });
       return { ...patch, chat: chat.slice(-300) };

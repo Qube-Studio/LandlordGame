@@ -94,6 +94,7 @@ function useGameKeys() {
   const panel = useGameStore(s => s.panel);
   const setPanel = useGameStore(s => s.setPanel);
   const togglePanel = useGameStore(s => s.togglePanel);
+  const localSys = useGameStore(s => s.localSys);
 
   const setSpaceHeld = useGameStore(s => s.setSpaceHeld);
   const spaceDownRef = useRef(false); // 空格物理按住中（真实按键态；store spaceHeld 只是延迟后的视觉按下态）
@@ -113,9 +114,11 @@ function useGameKeys() {
       const po = state.payout;
       const canTake = phase === 'FINALIZE' && !!po
         && po.eligible?.includes(playerId) && !po.taken?.includes(playerId);
-      if (phase === 'LOBBY') {
-        if (me?.isHost) send({ type: 'start_game' });
-        else if (!me?.spectator && me?.role) send({ type: 'lobby_ready', ready: !me?.lobbyReady });
+      if (phase === 'LOBBY') {                   // 阶段六：全员（含房主）空格=切换准备；未选角只提示不发
+        if (me?.spectator) return;
+        if (!me?.role) { localSys('未选择角色', { key: 'norole', refresh: true }); return; } // 反馈⑦：refresh 重置计时、无金框
+        if (panel === 'roles') { setPanel(null); send({ type: 'lobby_ready', ready: true }); } // 反馈⑥：面板展开时空格=收起并自动准备
+        else send({ type: 'lobby_ready', ready: !me?.lobbyReady });
       }
       else if (phase === 'DISCUSSION' && !me?.ready && !me?.spectator) send({ type: 'ready' });
       else if (phase === 'REVEAL' && !me?.confirmed && !me?.spectator) send({ type: 'confirm_reveal' });
@@ -132,6 +135,10 @@ function useGameKeys() {
       // 桌沿抽屉（HUD 2.0）：R 选角墙 / L 账本 / Esc 收起
       if (e.key === 'r' || e.key === 'R') { e.preventDefault(); togglePanel('roles'); return; }
       if (e.key === 'l' || e.key === 'L') { e.preventDefault(); togglePanel('ledger'); return; }
+      // 开局 (S)：阶段六——仅大厅、房主、已准备时生效（空格改为切换准备，S 才开局，防误触）
+      if ((e.key === 's' || e.key === 'S') && state.phase === 'LOBBY' && state.me?.isHost && state.me?.lobbyReady) {
+        e.preventDefault(); send({ type: 'start_game' }); return;
+      }
       if (e.key === 'Escape') { if (panel) { e.preventDefault(); setPanel(null); } return; }
       // 拿取 (F)：FINALIZE 从桌面收取自己的钱堆（§3.8），空格同效
       const po = state.payout;
@@ -170,7 +177,7 @@ function useGameKeys() {
       window.removeEventListener('keyup', onKeyUp);
       window.removeEventListener('blur', onBlur);
     };
-  }, [state, send, playerId, chatOpen, panel, setPanel, togglePanel, setSpaceHeld]);
+  }, [state, send, playerId, chatOpen, panel, setPanel, togglePanel, setSpaceHeld, localSys]);
 }
 
 // ---------- 等待类本地系统提示（阶段五④：被退役木板的替身，仅 3D 模式） ----------
@@ -585,8 +592,14 @@ function GluttonHud() {
 function LobbyPanel() {
   const state = useGameStore(s => s.state); const send = useGameStore(s => s.send);
   const togglePanel = useGameStore(s => s.togglePanel);
+  const localSys = useGameStore(s => s.localSys);
   const me = state.me;
   if (IS_3D_INPUT) return null;
+  const ready = !!me?.lobbyReady;
+  const onReady = () => {
+    if (!me?.role) { localSys('未选择角色', { key: 'norole', refresh: true }); return; }
+    send({ type: 'lobby_ready', ready: !ready });
+  };
   return (
     <div className="phase-panel">
       <div className="role-pick">
@@ -594,9 +607,11 @@ function LobbyPanel() {
           {me?.role ? `我的角色：${ROLE_LABEL[me.role]}（改选 R）` : '选择角色 (R)'}
         </button>
       </div>
-      {me?.isHost
-        ? <button className="btn primary wide" onClick={() => send({ type: 'start_game' })}>开始游戏 <span className="keycap">空格</span></button>
-        : <p className="dim">等待房主开始…</p>}
+      {/* 阶段六：全员（含房主）先准备；房主已准备后才出现「开始游戏 S」 */}
+      <button className={`btn wide ${ready ? '' : 'primary'}`} onClick={onReady}>
+        {ready ? '取消准备' : '准备'} <span className="keycap">空格</span>
+      </button>
+      {me?.isHost && ready && <button className="btn primary wide" onClick={() => send({ type: 'start_game' })}>开始游戏 <span className="keycap">S</span></button>}
     </div>
   );
 }
@@ -727,6 +742,10 @@ function FinalizePanel() {
   );
 }
 function EndedPanel() {
+  if (IS_3D_INPUT) return null; // 3D：终局交给 GameScreen#VictoryOverlay 演出（§阶段七），账本走 L，离开走顶栏，自动回大厅
+  return <EndedPanel2D />;
+}
+function EndedPanel2D() {
   const state = useGameStore(s => s.state); const send = useGameStore(s => s.send); const leaveRoom = useGameStore(s => s.leaveRoom);
   const togglePanel = useGameStore(s => s.togglePanel);
   const me = state.me;
@@ -770,17 +789,23 @@ export default function UiLayer() {
   useWaitHints();
   const Panel = PHASE_PANELS[state.phase] ?? NullPanel;
 
-  // 抽屉随阶段自动开合：进大厅升起招募令墙；阶段切换一律收起（别挡住新阶段的行动区）。
-  // 首挂只处理 LOBBY（不覆盖画廊/重连注入的面板状态）。
+  // 抽屉随阶段收起：阶段切换一律收起面板（别挡住新阶段行动区）；**进大厅/首挂不再自动升起招募令**
+  // （反馈③：进房间不默认打开选角面板）。首挂不覆盖画廊/重连注入的面板状态。
   const phase = state.phase;
   const prevPhase = useRef(null);
   useEffect(() => {
     if (prevPhase.current === phase) return;
     const first = prevPhase.current === null;
     prevPhase.current = phase;
-    if (first) { if (phase === 'LOBBY') setPanel('roles'); return; }
-    setPanel(phase === 'LOBBY' ? 'roles' : null);
+    if (!first) setPanel(null);
   }, [phase, setPanel]);
+
+  // 开局演出让位（反馈⑤ + 二轮③）：左上任务 HUD + 右下资金蜡烛，大厅隐藏；**仅开局那一刻（第 1 轮讨论）**
+  // 延迟 3s 缓慢划入，避让开局瞬间「圈/左上/右下」同时变的抢视野；**若 3s 内全员已准备进了下注阶段，则中断
+  // 计时、此刻直接显示**（不再枯等）。纯 CSS 派生（round===1&&DISCUSSION→延迟划入类；此后一律直显类），无 state。
+  // 用 round===1 而非笼统 DISCUSSION：否则每轮讨论都会把 HUD 藏 3s 再划入。
+  const hudDelaying = phase === 'DISCUSSION' && state.round === 1;
+  const hudCls = (side) => (phase === 'LOBBY' ? 'hud-veiled' : hudDelaying ? `hud-reveal-${side}` : 'hud-shown');
 
   return (
     <div className="hud">
@@ -791,7 +816,7 @@ export default function UiLayer() {
       <PlayerRail />
       {/* 机制 HUD（HUD 精简⑮）：左上角 3A 任务追踪风纵列——首行阶段名，下接各机制卡；
           去底板、细金线分隔、文字投影（样式见 pixel.css 末尾 quest 段）；右下角只留自己的资金蜡烛 */}
-      <div className="hud-left-stack quest">
+      <div className={`hud-left-stack quest ${hudCls('l')}`}>
         <div className="quest-phase">
           {/* key=phase：换阶段重挂载，重播淡入 */}
           <PixelText key={state.phase} size={3} color="var(--px-gold)" className="quest-fade">
@@ -803,7 +828,7 @@ export default function UiLayer() {
         <WageHud />
         <GluttonHud />
       </div>
-      <div className="corner-stack">
+      <div className={`corner-stack ${hudCls('r')}`}>
         <BalanceHud />
       </div>
       <div className="hud-bottom" data-hand-anchor>

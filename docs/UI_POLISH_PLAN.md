@@ -196,15 +196,40 @@ opacity 由剩余寿命直控（CSS 淡出动画退役）。另修**成熟度缺
   十一轮追加（可见行屏幕位置逐条比对）：展开滚顶→Esc 后 `scrollTop` 保持 0、视野=最早片段且从该片段起淡；
   贴底关闭瞬间可见行最大位移 0px（一格≈26px）；淡出中悬停前后最大位移 0px 且上方揭示出更多历史。
 
-### 阶段六 · 大厅准备流改版（反馈⑦）
+### 阶段六 · 大厅准备流改版（反馈⑦）✅ 已落实（待验收）
 
 - 所有人（含房主）圈内浮字：`准备！[␣]` ⇄ `已准备 [␣]`（再按取消）；副行「选择/改选角色 [R]」保留。
-- 未选角按准备：不发 lobby_ready，`localSys('未选择角色', {key, flash})`——重复触发不刷屏，只
-  脉冲聊天区并切到系统页签。
-- 房主已准备后：「已准备」浮字阻尼滑到圈**西北**，**东北**浮现第二块浮字 `开始游戏 [S]`，S 开局
-  （仅房主已准备时生效）。PromptFloat 需支持第二实例（独立姿态，不共用模块级单例）+ 东北锚点。
-- 键位变化：LOBBY 下房主空格从「直接开局」改为「切换准备」，开局改 S——防误触，也与全员一致。
-- 服务端无改动（lobby_ready 已可反复切换、房主可用；开局门槛维持「协调信号」——开放问题 1）。
+  未选角时把「选择角色 [R]」点亮为主、「准备！」压暗（引导先选角）。
+- 未选角按准备：不发 lobby_ready，`localSys('未选择角色', {key:'norole', flash:true})`——重复触发不刷屏，
+  只脉冲聊天区并切到系统页签。
+- 房主已准备后：「已准备」浮字阻尼滑到圈**西北**，**东北**浮现第二块浮字 `开始游戏 [S]`（pop 浮现），S 开局
+  （仅房主已准备时生效）。PromptFloat 加 `ne`/`local`/`intro` 支持第二实例（独立姿态 `localPose` 不共用模块
+  级 `_pose`）+ 东北锚点 `promptAnchorNE`（`promptAnchor` 加 `dir` 参数，dir=-1 视角右）。
+- 键位：LOBBY 空格全员=切换准备（房主旧「空格直接开局」退役）；新增 `S`=开局（仅 LOBBY·房主·已准备）。
+- **招募令（RoleWall）脚注同步**：选角墙 LOBBY 自动升起、罩住桌面浮字，故其 `drawer-foot` 也镜像同一套
+  流程（未选角→提示先应征；已选未准备→`准备！[空格]`；已准备→房主`开始游戏[S]`+`取消准备[空格]`/非房主
+  「已准备·等待房主」）。键位全局生效，脚注只是可见控件；收起本墙后走圈上浮字。2D `LobbyPanel` 同步。
+- 服务端无改动（`setLobbyReady` 已可反复切换、`startGame` 房主可用不查 ready；开局门槛维持「协调信号」）。
+- **待用户拍板**：改选角色不会自动取消已准备（服务端 takeRole 不重置 lobbyReady）。
+
+**阶段六 · 二轮修订（7 条，已落实）**：①**招募令只负责选角**——脚注的准备/开局按钮全删；加「点招募令+Dock
+以外任意处收起面板」（window 捕获 pointerdown，排除 `.role-wall`/`.dock`）。②大厅里**别的已准备玩家**在其各自
+圈上显示绿字「已准备（身份）」（FeltPrompts 收 `players`/`spots`/`playerId`，其他 ready 者各挂一个 `local` 姿态浮字）。
+③**进房不再自动升起招募令**（UiLayer 相位 effect 去掉 LOBBY 自动 `setPanel('roles')`，只保留切阶段收起）。
+④已准备主浮字/他人浮字都附身份：「已准备（资本家）」。⑤**开局 HUD 让位**：左上任务列 + 右下资金蜡烛大厅隐藏
+（`hud-veiled`），离开大厅后**等 3s 缓慢划入**——纯 CSS 派生（`phase!==LOBBY?hud-reveal-l/r`，动画 `0.6s ease-out
+3s both`，类只在大厅↔非大厅切换时变故只触发一次），无 state/timer（避 `react-hooks/set-state-in-effect`）。
+⑥**面板展开时空格=收起并自动准备**（doSpaceAction：`panel==='roles'` 时 `setPanel(null)+lobby_ready:true`）。
+⑦未选角系统消息去金框（localSys 新增 `refresh`：反复点每次重发换 ts 重置显示计时，且不带 flash 金框）；未选角
+的「准备！」行设 `quiet`——默认光标、无悬停/按下/受击态（`.felt-float .quiet{cursor:default}` + PromptFloat 的
+pushFloat 排除 `.quiet`），但 onClick 仍触发提示。2D `LobbyPanel` 同步 refresh。
+
+**阶段六 · 三轮修订（3 条，已落实）**：①**开局门槛**——`startGame` 加「全员 `lobbyReady`」校验（否则「还有玩家
+未准备」），改了开放问题 1 的旧结论；`devFill` 给全员自动 `lobbyReady=true`，本地测试仍一键可开（房主直接 S）。
+②「已准备（身份）」不再跟空格键帽（`k: ready ? undefined : 'space'`——刚才「准备！」已提示过；点击/空格仍可取消）。
+③**开局 HUD 划入只在第 1 轮讨论延迟**（`phase==='DISCUSSION' && round===1` 才挂 `hud-reveal-l/r`，否则非大厅一律
+`hud-shown` 直显）——避免每轮讨论都把 HUD 藏 3s；且**3s 内全员已准备进下注就中断计时直显**（BETTING→`hud-shown`）。
+新增 `.hud-shown{opacity:1}` 静态类。`server/test/payout.test.mjs#setupRoom` 同步补「全员 setLobbyReady」。
 
 ### 阶段七 · 终局演出 + 自动回大厅（反馈⑥）
 
@@ -216,9 +241,17 @@ opacity 由剩余寿命直控（CSS 淡出动画退役）。另修**成熟度缺
 - 演出结束**服务端自动回大厅**：新 `timing.endedToLobbyMs`（默认 8000），到点自动执行再来一局
   流程（清角色回 LOBBY，EndedPanel 3D 退役；spec 先行更新）。回大厅后即阶段六的 `准备！[␣]` 流程。
 
+**落地（2026-07-06，除高斯模糊外全部完成，在 dev 工作区待验收）**：
+- 服务端 `timing.endedToLobbyMs=8000` + `_endGame` 到点 `_resetToLobby`（`restartGame` 抽出共用；`_setPhase` 清定时器 → 房主手动再来一局天然取消自动回）；`viewFor().endedReturnAt` 绝对时刻供客户端对齐收尾淡出。校验 3/3（自动回/手动取消/`=0` 停留），服务端三套测试 33/7/7 复绿。
+- 客户端 `ui/VictoryOverlay.jsx`（挂 `GameScreen`，仅 3D）：阵营文案（胜利！金-绿 / 败北 冷灰 / 观战「X 胜利」）逐字 `victory-slam` 砸入（过冲 + 落位 stage 抖）→ 组装完成 `Sparks`（32 颗金色像素粒子 + 扩散光环，恒金色不随阵营）→ `endedReturnAt` 对齐 `leaving` 淡出。`EndedPanel` 3D `return null`、2D 保留按钮版（`EndedPanel2D`）。账本走 L、离开走顶栏、房主空格可提前重开。
+- 坑：3D 输入模式下 headless SwiftShader 会饿死主线程 → `setTimeout` 驱动的爆点抓帧不可靠（CSS 组装动画走合成器时钟不受影响，故文字能定），用「冻结帧」独立 HTML 核对爆点构图；火花绝对定位须 `left/top:50% + translate(-50% + var(--dx))` 从中心起爆（`place-items:center` 对绝对定位子元素无效）。
+
+**高斯模糊罩底**：可行性评估=绿灯（`filter: blur()` 罩 `.r3f-scene`，相机 look 挂 window 天然不被罩层挡）；按用户要求**不并入正式游戏**，单独在分支 `demo/ended-blur` 做演示页核对效果。
+
 ## 开放问题（验收时请拍板）
 
-1. 大厅"准备/取消准备"只是**协调信号**（房主仍可随时开局），还是要**门槛**（全员准备才能开）？当前按前者实现。
+1. ~~大厅"准备/取消准备"只是协调信号还是门槛？~~ **已定：门槛**（反馈①，2026-07-05）——`startGame` 加
+   `全员 lobbyReady` 校验，否则报「还有玩家未准备」。本地测试 `devFill` 给全员自动 `lobbyReady=true`，测试仍一键可开。
 2. REVEAL 确认、REFLIP（暴食者重掷）是否也迁到桌面浮字？当前计划：REVEAL 迁、REFLIP 暂留底部（它有两个互斥按钮）。
 3. 顶栏最终形态：仅留右上「设置 + 退出」，左上完全交给任务风 HUD——阶段名是否还需要显示？**阶段三已按「并入任务风 HUD 首行」落地**，验收时若不要可去掉首行。
 4. 阶段七自动回大厅会清空上一局 history——账本 L 在大厅查不到上局明细。需要「上局回顾」入口吗？（当前按清空实现）

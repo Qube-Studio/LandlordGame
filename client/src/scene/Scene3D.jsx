@@ -945,7 +945,7 @@ function SceneContents({ look, freeCam = false }) {
         {/* 圈上提示层（反馈⑪⑫）：大厅选角/准备/开始、讨论期准备下注、下注后金额驻留、揭牌确认——
             底部木板面板退役；BETTING 只在已下注后有内容（下注操作中浮字由 HandLayer 负责） */}
         {IS_3D_INPUT && ['LOBBY', 'DISCUSSION', 'BETTING', 'REVEAL'].includes(state.phase) && (
-          <FeltPrompts mySpot={mySpot} />
+          <FeltPrompts mySpot={mySpot} players={players} spots={spots} playerId={playerId} />
         )}
 
         {/* 下注飞行中的牌（手牌屏幕位→世界→组内坐标，弧线落进自己的圆圈） */}
