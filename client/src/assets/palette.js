@@ -37,9 +37,12 @@ export const P = {
   // 赌桌
   feltTable: '#6b3428', // 桌毡暗酒红
   feltLine:  '#caa04e', // 毡面金描线(α0.5 使用)
-  // 人物
+  // 人物（机器人改肤 2026-07-08：方形机器头+荧幕脸+黑皮手套；skin/hair 保留给旧 faceTexture 兜底）
   skin: '#e8b878',
   hair: '#4a3420',
+  botShell:  '#d6cfbe', // 机壳暖调浅白(偏羊皮纸,酒馆暖光下不煞白)
+  botScreen: '#191c1a', // 荧幕深色偏黑(微暖,不死黑)
+  botGlove:  '#26262b', // 黑色皮手套
   // 文字/功能色
   ink:    '#f6ecd8',
   inkDim: '#b8a585',

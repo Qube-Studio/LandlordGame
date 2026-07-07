@@ -6,7 +6,7 @@ import { Html } from '@react-three/drei';
 import * as THREE from 'three';
 import PixelText from '../assets/pixelfont/PixelText';
 import { PROP_COLORS } from '../assets/palette';
-import { skinTex, tex } from '../assets/texlib';
+import { skinTex, tex, screenFace } from '../assets/texlib';
 import { buildHeadProp } from './headProps';
 
 // 全身像素皮肤(ART_BIBLE §1.5):每个 box 的六面各一张 16² 烘焙皮肤(织纹/AO/描边/角色个性),
@@ -15,6 +15,33 @@ import { buildHeadProp } from './headProps';
 const MAT_CACHE = new Map();
 // box 面序:[+x右, -x左, +y顶, -y底, +z前, -z后]
 const FACE_ORDER = ['right', 'left', 'top', 'bottom', 'front', 'back'];
+
+// 机器人荧幕抖动(CRT 感):正脸材质注册进 FLICKER,useFrame 统一驱动——
+// 不规则节拍在 A/B 帧(颜文字下移 1px+扫描线错行)间闪;换的是 texture.image(32² 重传,零重编译)。
+// 材质模块级共享 → 全场机器人同步微闪,读作环境效果。
+const FLICKER = [];
+let flickerStep = -1;
+function flickerTick(t) {
+  const step = Math.floor(t * 9);
+  if (step === flickerStep) return;
+  flickerStep = step;
+  const useB = step % 6 === 0 || step % 17 === 5; // 不规则闪帧
+  for (const f of FLICKER) {
+    const img = useB ? f.b.face : f.a.face;
+    if (f.tex.image === img) continue;
+    f.tex.image = img; f.tex.needsUpdate = true;
+    f.glow.image = useB ? f.b.glow : f.a.glow; f.glow.needsUpdate = true;
+  }
+}
+
+const nearest = (image) => {
+  const t = new THREE.CanvasTexture(image);
+  t.magFilter = THREE.NearestFilter;
+  t.minFilter = THREE.NearestFilter;
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+};
+
 function partMats(role, part, bankrupt, expression = 'idle') {
   const key = `${role}|${part}|${bankrupt ? 1 : 0}|${part === 'head' ? expression : ''}`;
   if (MAT_CACHE.has(key)) return MAT_CACHE.get(key);
@@ -22,6 +49,19 @@ function partMats(role, part, bankrupt, expression = 'idle') {
     map: skinTex({ role, part, face, expression, bankrupt }),
     roughness: 1, flatShading: true,
   }));
+  if (part === 'head') {
+    // 正脸:32² 荧幕(screenFace)+emissiveMap(纯字符黑底)→字符暗处真发光;A/B 双帧注册抖动
+    const a = screenFace({ expression, bankrupt, frame: 0 });
+    const b = screenFace({ expression, bankrupt, frame: 1 });
+    const texA = nearest(a.face);
+    const glowA = nearest(a.glow);
+    arr[4] = new THREE.MeshStandardMaterial({
+      map: texA, emissiveMap: glowA,
+      emissive: new THREE.Color('#e6e2d4'), emissiveIntensity: bankrupt ? 0.15 : 0.5,
+      roughness: 1, flatShading: true,
+    });
+    FLICKER.push({ tex: texA, glow: glowA, a, b });
+  }
   MAT_CACHE.set(key, arr);
   return arr;
 }
@@ -53,6 +93,7 @@ export default function MinecraftPlayer({ player, expression, seed = 0, look = n
   const baseY = seated ? -0.16 : 0; // 坐姿:臀部落到凳面(凳高≈0.5,髋部 0.7→0.54)
 
   useFrame((st) => {
+    flickerTick(st.clock.elapsedTime); // 荧幕抖动(多玩家幂等,步进去重)
     const t = st.clock.elapsedTime + seed;
     if (!bankrupt) {
       if (root.current) {

@@ -116,20 +116,20 @@ await test('农民胜：脚本聚拢/分堆、协商镜像与地主冻结视图�
 // ---------------------------------------------------------------------------
 await test('地主胜·盈余：地主/盈余农民有堆可拿，无份农民自动完成', async () => {
   const { room, L, fids: [A, B] } = setupRoom({ farmers: 2 });
-  await playToSettle(room, L, [A, B], { [L]: 4, [A]: 2, [B]: 1 }, 'heads');
-  // target=6，pot=7：地主拿 6，盈余 1 归下注高的 A
+  await playToSettle(room, L, [A, B], { [L]: 4, [A]: 3, [B]: 1 }, 'heads');
+  // target=round(4×1.5)=6，pot=8，盈余 2：地主抽成 round(2×0.5)=1（拿 7），盈余池 1 归下注高的 A
   await until(() => room.phase === 'NEGOTIATE', '进入协商');
   room.negotiateConfirm(A, true);
   room.negotiateConfirm(B, true);
   assert.equal(room.phase, 'FINALIZE');
-  assert.equal(room.payout.piles[L], 6);
+  assert.equal(room.payout.piles[L], 7);
   assert.equal(room.payout.piles[A], 1);
   assert.deepEqual([...room.payout.eligible].sort(), [L, A].sort());
   room.takePayout(L);
   room.takePayout(A);
   await until(() => room.phase === 'DISCUSSION', '进入下一回合');
-  assert.equal(room.players.get(L).balance, 15 + 6);
-  assert.equal(room.players.get(A).balance, 6 + 1);
+  assert.equal(room.players.get(L).balance, 15 + 7);
+  assert.equal(room.players.get(A).balance, 5 + 1);
   assert.equal(room.players.get(B).balance, 7);
   room.destroy();
 });
@@ -139,7 +139,7 @@ await test('地主胜·缺口：协商压债给一人、FINALIZE 收账入地主
   // 单挑：农民 4、地主 4（1.2×4 取整）。乘数固定 2 便于制造缺口。
   const { room, L, fids: [A] } = setupRoom({
     farmers: 1,
-    config: { initialBalance: { farmer: 4 }, landlordWinMultiplier: 2 },
+    config: { initialBalance: { farmer: 4 }, landlordAttrs: { landlord: { greed: 2, squeeze: 2 } } },
   });
   assert.equal(room.players.get(L).balance, 4);
   // L 押 3（target 6）、A 押 1 → pot 4 < 6，base 2 → 债 = 4；A 手上只剩 3 → 实付 3，uncovered 1
@@ -200,20 +200,20 @@ await test('竞技资本家：本金留堆归还、盈亏差额走池、税收/�
     roles: { landlord: 'capitalist', farmers: ['glutton'] },
   });
   const cap = room.players.get(C);
-  assert.equal(cap.balance, 4);  // 个人 = 1 农民 × 4
-  assert.equal(cap.pool, 10);
+  assert.equal(cap.balance, 5);  // 个人 = 1 农民 × 5
+  assert.equal(cap.pool, 15);
   await playToSettle(room, C, [G], { [C]: 2, [G]: 1 }, 'tails');
   await until(() => room.phase === 'FINALIZE', '单农民跳协商');
-  // pot 3 全归暴食者；资本家堆 0 → 池垫付本金 2；池 10−2−税2=6；暴食者饭账 1 从堆里扣
+  // pot 3 全归暴食者；资本家堆 0 → 池垫付本金 2；池 15−2−税2=11；暴食者饭账 1 从堆里扣
   assert.deepEqual(stepSources(room), ['capitalistPool', 'capitalistTax', 'mealAllowance']);
   assert.equal(room.payout.piles[C], 2);      // 本金留堆
   assert.equal(room.payout.piles[G], 3 - 1);  // take 3 − 饭账 1
-  assert.equal(cap.pool, 6);
+  assert.equal(cap.pool, 11);
   room.takePayout(C);
   room.takePayout(G);
   await until(() => room.phase === 'DISCUSSION', '下一回合');
-  assert.equal(cap.balance, 4);                          // 个人资金恒定
-  assert.equal(room.players.get(G).balance, 5 + 3 - 1);  // 押1后5 + take3 − 饭账1
+  assert.equal(cap.balance, 5);                          // 个人资金恒定
+  assert.equal(room.players.get(G).balance, 7 + 3 - 1);  // 押1后7 + take3 − 饭账1
   room.destroy();
 });
 
@@ -223,16 +223,40 @@ await test('竞技资本家：盈余入池步（heads 全覆盖）', async () =>
     mode: 'competitive', farmers: 1,
     roles: { landlord: 'capitalist', farmers: ['farmer'] },
   });
-  await playToSettle(room, C, [F], { [C]: 3, [F]: 1 }, 'heads');
+  await playToSettle(room, C, [F], { [C]: 2, [F]: 1 }, 'heads');
   await until(() => room.phase === 'FINALIZE', '单农民跳协商');
-  // target floor(4.5)=4 = pot → landlordTake 4；堆 4 − 本金 3 = 盈余 1 入池；税 max(2, ⌊11×0.1⌋)=2
+  // target round(2×1.5)=3 = pot → landlordTake 3；堆 3 − 本金 2 = 盈余 1 入池；税 max(2, round(开局池15×0.1))=2
   const pool = room.payout.script.find(s => s.source === 'capitalistPool');
   assert.deepEqual(pool.flows, [{ from: { kind: 'pile', id: C }, to: { kind: 'pool', id: C }, amount: 1 }]);
-  assert.equal(room.payout.piles[C], 3);
-  assert.equal(room.players.get(C).pool, 10 + 1 - 2);
+  assert.equal(room.payout.piles[C], 2);
+  assert.equal(room.players.get(C).pool, 15 + 1 - 2);
   room.takePayout(C);
   await until(() => room.phase === 'DISCUSSION', '下一回合');
-  assert.equal(room.players.get(C).balance, 4);
+  assert.equal(room.players.get(C).balance, 5);  // 个人资金恒定 = 1 农民 × 5
+  room.destroy();
+});
+
+// ---------------------------------------------------------------------------
+await test('相对目标：检查点未达标→扣 round(余额×10%)、平分农民、按罚后余额重定基', async () => {
+  // 强制间隔=1 → 第 1 回合即检查点。L 初始 9、目标 round(9×1.1)=10；农民胜让 L 输光下注→远低于目标。
+  const { room, L, fids: [A] } = setupRoom({
+    farmers: 1,
+    config: { landlordGoal: { interval: { min: 1, max: 1, mean: 1, sd: 0.001 } } },
+  });
+  assert.equal(room.goalTarget, 10);     // round(9 × 1.1)
+  assert.equal(room.goalNextRound, 1);   // 间隔 clamp 到 1
+  await playToSettle(room, L, [A], { [L]: 4, [A]: 2 }, 'tails'); // 农民胜：L 9−4=5
+  await until(() => room.phase === 'FINALIZE', '单农民跳协商');
+  room.takePayout(A);
+  await until(() => room.phase === 'DISCUSSION', '下一回合');
+  assert.equal(room.players.get(L).balance, 3);   // 9 − 下注 4 − 罚 max(2,round(5×0.1)=1)=2
+  assert.equal(room.players.get(A).balance, 14);  // 8 − 2 + pot 6 + 罚金 2
+  const h = room.history[room.history.length - 1];
+  assert.equal(h.landlordGoalValue, 10);
+  assert.equal(h.landlordGoalMet, false);
+  assert.equal(h.landlordPenalty, 2);
+  assert.equal(room.goalTarget, 3);      // 重定基：round(罚后 3 × 1.1)=round(3.3)=3
+  assert.equal(room.goalNextRound, 2);   // 回合 1 + 间隔 1
   room.destroy();
 });
 

@@ -13,6 +13,7 @@ import MoneyHand from './MoneyHand';
 import NegotiationBoard from './NegotiationBoard';
 import PhaseCoachmark from './PhaseCoachmark';
 import SettingsPanel from './SettingsPanel';
+import RulesPanel from './RulesPanel';
 import Dock from './Dock';
 import RoleWall from './RoleWall';
 import LedgerBook from './LedgerBook';
@@ -202,6 +203,24 @@ function useWaitHints() {
 
 // ---------- 顶部信息条（HUD 精简⑥⑦：左侧房间牌/阶段牌退役——房间信息进设置面板，
 // 阶段名并入左上任务风 HUD 首行，回合号改由回合开始的居中横幅播报）----------
+// 3D 输入模式（PC）：按钮无底化——半透明像素符号 i（规则）/齿轮（设置）/门（退出）；
+// 2D 模式（?input=2d，备移动端）保留旧样式按钮不动。
+// 像素退出符号（门框 + 外指箭头；风格与齿轮/i 一致，assets/svg 的平滑线条版不动）
+function PxExit({ size = 15 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 14 14" fill="currentColor" shapeRendering="crispEdges" aria-hidden="true">
+      <rect x="1" y="1" width="7" height="1" />
+      <rect x="1" y="12" width="7" height="1" />
+      <rect x="1" y="1" width="1" height="12" />
+      <rect x="7" y="2" width="1" height="3" />
+      <rect x="7" y="9" width="1" height="3" />
+      <rect x="4" y="6" width="6" height="2" />
+      <rect x="10" y="4" width="1" height="6" />
+      <rect x="11" y="5" width="1" height="4" />
+      <rect x="12" y="6" width="1" height="2" />
+    </svg>
+  );
+}
 function TopBar() {
   const state = useGameStore(s => s.state);
   const leaveRoom = useGameStore(s => s.leaveRoom);
@@ -214,8 +233,11 @@ function TopBar() {
   return (
     <div className="hud-top">
       <div className="hud-top-right">
-        <SettingsPanel />
-        <button className="btn small danger-btn" onClick={exit}><Icon name="exit" size={15} /> 退出</button>
+        {IS_3D_INPUT && <RulesPanel />}
+        <SettingsPanel bare={IS_3D_INPUT} />
+        {IS_3D_INPUT
+          ? <button className="hud-icon-btn danger" onClick={exit} title="退出" aria-label="退出"><PxExit size={16} /></button>
+          : <button className="btn small danger-btn" onClick={exit}><Icon name="exit" size={15} /> 退出</button>}
       </div>
     </div>
   );
@@ -496,7 +518,7 @@ function GoalHud() {
   const met = cur != null && cur >= g.goal;
   const lg = state.config?.landlordGoal;
   const penalty = (cur != null && lg)
-    ? Math.max(lg.minPenalty ?? 0, Math.floor(Math.max(0, cur) * (lg.penaltyRate ?? 0)))
+    ? Math.max(lg.minPenalty ?? 0, Math.round(Math.max(0, cur) * (lg.penaltyRate ?? 0)))
     : null;
   const due = g.roundsLeft <= 0;
   const glow = due ? `due ${cur == null ? '' : met ? 'met' : 'miss'}` : '';
@@ -542,7 +564,7 @@ function CapitalistHud() {
 }
 
 // ---------- 基础农民工资 HUD（本人可见） ----------
-// 与目标卡同语法：内条=距发薪的进度填充，外环=还剩回合；发放回合外环耗尽→绿光闪。
+// 单条：距发薪的进度填充（外环与内条重复表达同一信息，环已删）；发放回合绿光闪。
 function WageHud() {
   const state = useGameStore(s => s.state);
   const w = state.me?.wage;
@@ -552,8 +574,7 @@ function WageHud() {
   return (
     <div className="goal-hud hud-card quest-card">
       <QuestLine bump={bump} pairs={[['工资：', `+${w.amount}`, 'var(--ok)']]} />
-      <div className={`quest-wrap ${due ? 'due met' : ''}`}>
-        {!due && <QuestSegs total={w.interval ?? 1} filled={w.roundsToNext} className="quest-ring" />}
+      <div className={`quest-wrap noring ${due ? 'due met' : ''}`}>
         <QuestTrack ratio={w.interval > 0 ? 1 - w.roundsToNext / w.interval : 1} />
       </div>
     </div>

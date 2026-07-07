@@ -1,16 +1,11 @@
 // 快速模式核心规则（纯函数，无 IO，可单测/仿真）。见 docs/GAME_SPEC.md §3。
 // 所有数值参数来自 config，禁止在此硬编码。
 
-import { getMinStake } from '../config.js';
+import { getMinStake, getLandlordAttrs, roundBy } from '../config.js';
 import { apportion } from './apportion.js';
 
 export function flipCoin(rng = Math.random) {
   return rng() < 0.5 ? 'heads' : 'tails';
-}
-
-// 比例计算的取整方式（config.rounding，预留 'ceil'）。
-function roundBy(value, config) {
-  return config.rounding === 'ceil' ? Math.ceil(value) : Math.floor(value);
 }
 
 /**
@@ -103,7 +98,8 @@ export function allocateDebt(total, farmers, config) {
  *   events: Array<object>,           // 供 UI 解说的结算事件
  * }}
  */
-export function settleRound({ coinResult, bets, balances, landlordId, farmerIds, config, debtWaiver = 0 }) {
+export function settleRound({ coinResult, bets, balances, landlordId, landlordRole = 'landlord', farmerIds, config, debtWaiver = 0 }) {
+  const attr = getLandlordAttrs(landlordRole, config); // 地主侧角色三属性：greed 贪婪 / squeeze 盘剥 / rake 抽成
   const landlordBet = bets[landlordId] ?? 0;
   const farmerBetTotal = farmerIds.reduce((s, id) => s + (bets[id] ?? 0), 0);
   const pot = landlordBet + farmerBetTotal;
@@ -117,11 +113,11 @@ export function settleRound({ coinResult, bets, balances, landlordId, farmerIds,
   let shortfall = 0; // 乘后、扣减债后的最终债额（地主胜桌面不足时），供 FINALIZE 复用
 
   if (coinResult === 'heads') {
-    target = roundBy(landlordBet * config.landlordWinMultiplier, config); // 取整保证钱为整数（倍数可为 1.5 等）
+    target = roundBy(landlordBet * attr.greed, config); // 贪婪：赢了拿几倍（取整保证整数钱，倍数可为 1.5 等）
     if (pot >= target) {
       // 地主拿走目标额；盈余地主再拿一份，剩余农民平分
       const surplus = pot - target;
-      const landlordExtra = roundBy(surplus * config.surplusLandlordShare, config);
+      const landlordExtra = roundBy(surplus * attr.rake, config); // 抽成：从溢出里多拿的比例
       landlordTake = target + landlordExtra;
       const farmerPool = surplus - landlordExtra;
       if (farmerPool > 0) {
@@ -138,7 +134,7 @@ export function settleRound({ coinResult, bets, balances, landlordId, farmerIds,
       // 竞技投资人担保（§8.3）：减债作用于乘后债额，被免除的部分地主收不到。
       landlordTake = pot;
       const baseShortfall = target - pot;
-      const rawShortfall = roundBy(baseShortfall * config.landlordWinMultiplier, config); // 缺口×乘数
+      const rawShortfall = roundBy(baseShortfall * attr.squeeze, config); // 盘剥：缺口×放大倍率（逼债狠度）
       const waived = Math.min(rawShortfall, Math.max(0, debtWaiver));
       shortfall = rawShortfall - waived;
       const allocation = allocateDebt(

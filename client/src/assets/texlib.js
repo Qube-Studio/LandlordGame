@@ -523,51 +523,123 @@ function px16(ctx) {
   return (x, y, w, h, color) => { ctx.fillStyle = color; ctx.fillRect(x, y, w, h); };
 }
 
-// 表情(原 textures.js#faceTexture 的分支逻辑并入 head/front)
-function drawExpression(px, expression) {
-  const dark = '#21262e';
-  const eyeY = 6;
-  if (expression === 'bankrupt') {
-    px(3, 5, 1, 1, dark); px(5, 7, 1, 1, dark); px(3, 7, 1, 1, dark); px(5, 5, 1, 1, dark); px(4, 6, 1, 1, dark);
-    px(10, 5, 1, 1, dark); px(12, 7, 1, 1, dark); px(10, 7, 1, 1, dark); px(12, 5, 1, 1, dark); px(11, 6, 1, 1, dark);
-  } else if (expression === 'win') {
-    px(3, 6, 1, 1, dark); px(4, 5, 1, 1, dark); px(5, 6, 1, 1, dark);
-    px(10, 6, 1, 1, dark); px(11, 5, 1, 1, dark); px(12, 6, 1, 1, dark);
-  } else if (expression === 'bet') {
-    px(3, eyeY, 3, 1, dark); px(10, eyeY, 3, 1, dark);
-  } else {
-    px(3, eyeY, 2, 2, '#ffffff'); px(4, eyeY, 1, 2, dark);
-    px(11, eyeY, 2, 2, '#ffffff'); px(11, eyeY, 1, 2, dark);
-  }
-  if (expression === 'lose') { px(3, 5, 3, 1, P.hair); px(10, 5, 3, 1, P.hair); }
-  if (!['bankrupt', 'lose'].includes(expression)) { px(2, 9, 2, 1, '#e09478'); px(12, 9, 2, 1, '#e09478'); }
-  const mouth = '#7a4a36';
-  if (expression === 'win') px(6, 11, 4, 2, mouth);
-  else if (expression === 'lose') { px(6, 12, 4, 1, mouth); px(5, 13, 1, 1, mouth); px(10, 13, 1, 1, mouth); } // 嘴角下垂=丧气脸
+// ============================================================
+// 机器人荧幕正脸(2026-07-08 三稿)：独立 32² 画布系统 screenFace。
+// 表情 = 荧幕上用「字符」拼出的整条颜文字(含括号)，统一暖白、不拟人：
+//   idle/ready → ( o_o )   win → ( ^▽^ )   bet → ( =‿= )
+//   lose → ( T⌒T )泪眼     bankrupt → ( x_x )      (丧气/破产整脸暗淡)
+// 荧幕效果：字符烘焙光晕(shadowBlur) + 隔行扫描线；frame=1 为抖动帧(整条颜文字下移
+// 1px+扫描线错位)——正脸材质在 MinecraftPlayer 里于两帧间不规则闪(CRT 抖动)。
+// 同时产出 glow 画布(纯字符,黑底)作 emissiveMap:字符在暗处真发光。
+// ============================================================
+const FACE_CACHE = new Map();
 
-  else if (expression === 'ready') px(6, 11, 4, 1, mouth);
-  else if (expression === 'bet') { px(6, 11, 4, 1, mouth); px(9, 10, 1, 1, mouth); } // 赌徒坏笑
-  else if (expression === 'bankrupt') px(6, 12, 4, 2, '#4b4f57');
-  else px(6, 11, 4, 1, mouth);
+// 32 格荧幕表情(荧幕区 x4..27,y4..27;五稿定稿)。off=抖动帧整体下移。
+// 画法铁律:**只有眼睛、没有嘴**(用户拍板"所有嘴巴都不要");统一暖白(哭脸也白,
+// 破产的灰由整脸灰化烘焙处理);笔画 ≥2px 防光晕糊;眼睛大而醒目。
+function drawKaomoji(px, expression, off) {
+  const c = P.chalkInk;                 // 暖白字符(与黑板粉笔同源,不煞白);全表情统一
+  const o = off;
+  if (expression === 'bankrupt') {
+    // ✕ ✕:7×7 大叉眼(灰由破产整脸灰化处理)
+    for (let i = 0; i < 7; i++) {
+      px(7 + i, 10 + i + o, 1, 1, c); px(13 - i, 10 + i + o, 1, 1, c);   // 左 ✕
+      px(18 + i, 10 + i + o, 1, 1, c); px(24 - i, 10 + i + o, 1, 1, c);  // 右 ✕
+    }
+  } else if (expression === 'win') {
+    // ^ ^:7 宽双层加粗尖角眼(开心眯眼)
+    px(7, 15 + o, 1, 2, c); px(8, 14 + o, 1, 2, c); px(9, 13 + o, 1, 2, c); px(10, 12 + o, 1, 2, c);
+    px(11, 13 + o, 1, 2, c); px(12, 14 + o, 1, 2, c); px(13, 15 + o, 1, 2, c);
+    px(18, 15 + o, 1, 2, c); px(19, 14 + o, 1, 2, c); px(20, 13 + o, 1, 2, c); px(21, 12 + o, 1, 2, c);
+    px(22, 13 + o, 1, 2, c); px(23, 14 + o, 1, 2, c); px(24, 15 + o, 1, 2, c);
+  } else if (expression === 'bet') {
+    // $ $:赌徒钱眼
+    for (const ex of [8, 19]) {
+      px(ex, 10 + o, 5, 1, c);        // S 上横
+      px(ex, 11 + o, 1, 2, c);        // 左壁
+      px(ex, 13 + o, 5, 1, c);        // 中横
+      px(ex + 4, 14 + o, 1, 2, c);    // 右壁
+      px(ex, 16 + o, 5, 1, c);        // 下横
+      px(ex + 2, 8 + o, 1, 2, c); px(ex + 2, 17 + o, 1, 2, c); // 上下竖笔
+    }
+  } else if (expression === 'lose') {
+    // T T:粗 T 泪眼,泪痕垂长(白色,与其它表情同)
+    px(7, 9 + o, 7, 2, c); px(9, 11 + o, 2, 8, c);
+    px(18, 9 + o, 7, 2, c); px(21, 11 + o, 2, 8, c);
+  } else {
+    // ▮ ▮(idle/ready 同脸):竖直长条眼,冷静机器凝视
+    px(9, 9 + o, 3, 10, c);
+    px(20, 9 + o, 3, 10, c);
+  }
 }
 
-// 头部各面:发/耳/颈影
+// 机器人荧幕正脸:{face(完整正面 32²), glow(纯字符黑底,作 emissiveMap)}
+export function screenFace({ expression = 'idle', bankrupt = false, frame = 0 }) {
+  const expr = bankrupt ? 'bankrupt' : expression;
+  const key = `${expr}|${frame}`;
+  if (FACE_CACHE.has(key)) return FACE_CACHE.get(key);
+  const off = frame ? 1 : 0;
+
+  // 完整正面:机壳 + 荧幕 + 字符(带光晕) + 扫描线
+  const [c, ctx] = makeCanvas(32, 32);
+  let seed = 7;
+  for (let i = 0; i < key.length; i++) seed = (seed * 33 + key.charCodeAt(i)) | 0;
+  noiseFill(ctx, 32, 32, P.botShell, 0.03, mulberry32(seed), 4);
+  const px = px16(ctx);
+  px(4, 4, 24, 24, P.botScreen);                        // 荧幕
+  px(4, 4, 24, 1, shade(P.botScreen, 90));              // 屏顶一线反光
+  ctx.save();                                           // 字符光晕(烘焙 bloom)
+  ctx.shadowColor = 'rgba(230, 226, 212, 0.5)';
+  ctx.shadowBlur = 1.6;
+  drawKaomoji(px, expr, off);
+  ctx.restore();
+  ctx.fillStyle = 'rgba(0,0,0,0.10)';                   // 隔行扫描线(抖动帧错一行)
+  for (let y = 5 + (frame ? 1 : 0); y < 28; y += 2) ctx.fillRect(4, y, 24, 1);
+  px(13, 30, 6, 1, shade(P.botShell, -26));             // 下巴格栅
+  edgeLine(ctx, 32, 32);
+  if (bankrupt) {                                       // 破产灰化(与 skinCanvas 同公式)
+    const img = ctx.getImageData(0, 0, 32, 32);
+    const d = img.data;
+    for (let i = 0; i < d.length; i += 4) {
+      const l = d[i] * 0.3 + d[i + 1] * 0.59 + d[i + 2] * 0.11;
+      d[i] = l * 0.52; d[i + 1] = l * 0.52; d[i + 2] = l * 0.56;
+    }
+    ctx.putImageData(img, 0, 0);
+  }
+
+  // 纯字符层(黑底):emissiveMap——暗处字符真发光
+  const [g, gctx] = makeCanvas(32, 32);
+  gctx.fillStyle = '#000';
+  gctx.fillRect(0, 0, 32, 32);
+  gctx.save();
+  gctx.shadowColor = 'rgba(230, 226, 212, 0.45)';
+  gctx.shadowBlur = 1.6;
+  drawKaomoji(px16(gctx), expr, off);
+  gctx.restore();
+
+  const out = { face: c, glow: g };
+  FACE_CACHE.set(key, out);
+  return out;
+}
+
+// 头部其余五面(机器人改肤):暖白机壳 + 面板缝/螺栓(正面由 screenFace 独立产出)
 function drawHeadFace(ctx, px, face, expression, rnd) {
-  noiseFill(ctx, 16, 16, P.skin, 0.03, rnd, 2);
-  if (face === 'top') { px(0, 0, 16, 16, P.hair); px(3, 3, 4, 3, shade(P.hair, 12)); }
-  else if (face === 'bottom') px(0, 0, 16, 16, shade(P.skin, -14));
-  else if (face === 'front') {
-    px(0, 0, 16, 4, P.hair);
-    px(0, 0, 2, 9, P.hair); px(14, 0, 2, 9, P.hair);
-    drawExpression(px, expression);
+  noiseFill(ctx, 16, 16, P.botShell, 0.03, rnd, 2);
+  const seam = shade(P.botShell, -26);  // 面板缝
+  const bolt = shade(P.botShell, -42);  // 螺栓/铆钉
+  if (face === 'top') {
+    for (let x = 3; x <= 11; x += 4) px(x, 6, 2, 4, seam); // 散热槽
+  } else if (face === 'bottom') {
+    px(0, 0, 16, 16, shade(P.botShell, -14));
+    px(4, 6, 8, 4, shade(P.botShell, -26)); // 颈口
   } else if (face === 'back') {
-    px(0, 0, 16, 10, P.hair);
-    for (let x = 0; x < 16; x += 3) px(x, 10, 2, 1 + (x % 2), P.hair); // 发脚参差
+    px(0, 8, 16, 1, seam);                          // 横向面板缝
+    px(2, 2, 2, 2, bolt); px(12, 2, 2, 2, bolt); px(2, 11, 2, 2, bolt); px(12, 11, 2, 2, bolt);
+    px(6, 3, 4, 3, seam); px(7, 4, 2, 1, shade(P.botShell, -52)); // 检修口
   } else {
-    // 左/右侧:发带 + 耳朵
-    px(0, 0, 16, 5, P.hair);
-    px(0, 0, 3, 9, P.hair); px(13, 0, 3, 9, P.hair);
-    px(7, 7, 3, 4, shade(P.skin, -8)); px(8, 8, 1, 2, shade(P.skin, -18)); // 耳
+    // 左/右侧:面板缝 + 侧耳圆盘(原耳位)
+    px(0, 8, 16, 1, seam);
+    px(6, 6, 4, 4, shade(P.botShell, -18)); px(7, 7, 2, 2, bolt);
   }
 }
 
@@ -605,6 +677,12 @@ function drawBodyFront(px, role, cloth) {
 export function skinCanvas({ role = 'none', part, face, expression = 'idle', bankrupt = false }) {
   const key = `${role}|${part}|${face}|${part === 'head' ? expression : ''}|${bankrupt ? 1 : 0}`;
   if (SKIN_CACHE.has(key)) return SKIN_CACHE.get(key);
+  // 机器人正脸：32² 荧幕系统单独产出(光晕/扫描线/抖动帧见 screenFace)
+  if (part === 'head' && face === 'front') {
+    const sf = screenFace({ expression, bankrupt }).face;
+    SKIN_CACHE.set(key, sf);
+    return sf;
+  }
   const [c, ctx] = makeCanvas(16, 16);
   let seed = 5;
   for (let i = 0; i < key.length; i++) seed = (seed * 33 + key.charCodeAt(i)) | 0;
@@ -628,8 +706,9 @@ export function skinCanvas({ role = 'none', part, face, expression = 'idle', ban
       px(4, 4, 8, 1, shade(P.parchment, -8)); px(7, 5, 2, 3, shade(P.parchment, -8));
     }
     if (part === 'arm') {
-      if (face !== 'top') px(0, 13, 16, 3, P.skin);   // 手
-      if (face === 'bottom') px(0, 0, 16, 16, P.skin);
+      // 手→黑色皮手套(机器人改肤)：腕口一线亮缝 + 手套本体；掌心(底面)微亮
+      if (face !== 'top') { px(0, 12, 16, 1, shade(P.botGlove, 55)); px(0, 13, 16, 3, P.botGlove); }
+      if (face === 'bottom') { px(0, 0, 16, 16, P.botGlove); px(5, 5, 6, 6, shade(P.botGlove, 25)); }
       if (role === 'glutton' && face !== 'bottom') { px(0, 9, 16, 1, '#f0ede4'); px(0, 11, 16, 1, '#f0ede4'); } // 条纹卷袖
       if (role === 'investor' && face !== 'bottom') { px(0, 8, 16, 4, shade(cloth.sleeve, -25)); px(0, 8, 16, 1, shade(cloth.sleeve, -40)); } // 袖套
     }

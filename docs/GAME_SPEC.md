@@ -132,12 +132,25 @@ LOBBY ──房主开始──► DISCUSSION ──全员准备──► BETTING
 - **ENDED**：地主破产 → 农民胜；全部农民破产 → 地主胜。**终局演出**（§阶段七，客户端 `VictoryOverlay`，仅 3D 输入模式）：按阵营区分文案（胜方「胜利！」金/绿、败方「败北」冷灰、观战「X 胜利」）逐字机甲组装式砸入 → 组装完成爆金色粒子 → 驻留 → 与自动回大厅对齐收尾淡出（罩层不含高斯模糊，pointer-events:none 不挡转视角）。演出结束**服务端自动回大厅**：`timing.endedToLobbyMs`（默认 8000）到点跑回大厅重置（清角色/准备回 LOBBY，即回到大厅准备流）；`viewFor().endedReturnAt` 给客户端对齐收尾。房主也可提前手动「再来一局」（`restart_game`，会取消自动定时器）。2D 输入模式（`?input=2d`）仍用带按钮的 `EndedPanel`。
 
 ### 3.5 结算规则（默认；全部走 config，可替换）
-记地主下注 `L`，农民下注合计 `F`，桌面总额 `pot = L + F`，目标 `target = floor(L × landlordWinMultiplier)`（默认 1.5；取整保证整数钱）。
+
+**地主阵营角色属性（三杠杆，`config.landlordAttrs[role]`，经 `getLandlordAttrs(role, config)` 解析）**——每个地主侧角色（地主/资本家/未来角色）各一套，差异化其「赢法」：
+
+| 属性 | 键 | 作用 | 触发 | 默认 |
+|---|---|---|---|---|
+| **贪婪** | `greed` | 地主胜的目标倍率 `target = round(L × greed)`（赢了拿几倍；`<1` 会赢了反亏） | 地主胜，总是先划目标线 | 1.5 |
+| **盘剥** | `squeeze` | 对方填不满目标时，缺口债务的放大倍率（越大逼债越狠） | 地主胜且 `pot < target` | 1.5 |
+| **抽成** | `rake` | 对方溢出时，地主从溢出里多拿的比例 `[0,1]` | 地主胜且 `pot ≥ target` | 0.5 |
+
+结构：贪婪定目标线，再看对方够不够——**不够走盘剥、有余走抽成**（二者互斥）。
+
+> **竞技档差异化**（`competitive.landlordAttrs`）：地主 `greed 2 / squeeze 1.5 / rake 0.8`（厚资本、赢面凶）；资本家 `greed 1.5 / squeeze 3 / rake 0.4`（赢面温和但逼债极狠，配资金池）。快速档基础地主沿用上表默认 `1.5 / 1.5 / 0.5`。
+
+记地主下注 `L`，农民下注合计 `F`，桌面总额 `pot = L + F`，目标 `target = round(L × greed)`。**所有带小数的比例计算（三倍率 / 目标 / 罚款 / 税）统一走四舍五入 `config.rounding: 'round'`**；不做零头账（被舍去的小数不累积）。
 
 **正面（地主胜）：**
-- `pot ≥ target`：地主拿走 `target`；多出的 `R = pot − target` 地主再拿 `floor(R × 0.5)`（`surplusLandlordShare`，取整方式 `rounding: 'floor'`，**预留改 ceil 或进入协商分配**），剩余归农民平分（最大余数法取整）。
-- `pot < target`：地主先拿走整个 `pot`；缺口**按乘数放大后**由农民**用手里余额共同补足**。
-  - 基础缺口 `base = target − pot`；**实际债 `shortfall = floor(base × landlordWinMultiplier)`**（即缺口再乘一次乘数——农民桌面押得越少、补窟窿越狠，惩罚消极下注；地主最终可拿到超过 `target`）。
+- `pot ≥ target`：地主拿走 `target`；多出的 `R = pot − target` 地主再拿 `round(R × rake)`（**抽成**，取整方式 `rounding: 'round'`），剩余归农民平分（最大余数法取整）。
+- `pot < target`：地主先拿走整个 `pot`；缺口**按盘剥倍率放大后**由农民**用手里余额共同补足**。
+  - 基础缺口 `base = target − pot`；**实际债 `shortfall = round(base × squeeze)`**（缺口再乘一次**盘剥**——农民桌面押得越少、补窟窿越狠，惩罚消极下注；地主最终可拿到超过 `target`）。
   - 债务分摊默认 **`inverseBet`（谁出的多谁补的少）**：以 `wᵢ = 1 / betᵢ` 为权重做**最大余数法**整数分摊（科学分摊、只出整数、误差最小）。可配置为 `equal`（均摊）/ `proportionalBet`（出得多摊得多）。
   - 每人实际支付 `min(份额, 余额)`；付不起的人付光破产，残余缺口在未封顶的农民间按同法递归重摊；全员都付不起则地主只拿到实际收到的部分。
   - 竞技投资人减债 `debtWaiver` **作用于乘后债额**：`waived = min(shortfall, debtWaiver)`，再按 `inverseBet` 分摊 `shortfall − waived`。
@@ -154,14 +167,15 @@ LOBBY ──房主开始──► DISCUSSION ──全员准备──► BETTING
 ### 3.6 整数与误差原则
 所有入账金额必为整数。凡是按比例分配，统一用 `logic/apportion.js` 的**最大余数法**：先地板取整，再把剩余单位按小数余量从大到小逐个分配（并列时按 `surplusTieBreak`）。保证"份额之和恰好等于被分配总额"，误差不超过每人 1。
 
-### 3.7 地主资金目标（`config.landlordGoal`，纯函数见 `logic/landlordGoal.js`）
-为地主设置一系列**检查点**：每过若干回合地主必须使资金达到一个目标，否则在**该回合 FINALIZE（押注后资金分配完成时）**受罚。检查点由 `config.landlordGoal.schedule` **显式列出**。
+### 3.7 地主资金目标（相对制，`config.landlordGoal`，纯函数见 `logic/landlordGoal.js`）
+为地主设置一连串**动态检查点**：每过**随机 interval 回合**一个检查点，地主须使资金较上一检查点**增长一定比例**，否则在**该回合 FINALIZE（押注后资金分配完成时）**受罚。目标随余额浮动（相对制），不再是固定的绝对数列。**目标/间隔是有状态的，由 `Room` 逐检查点推进；`logic/landlordGoal.js` 只提供无状态计算件**（目标额 `relativeGoal`、惩罚额 `goalPenalty`、间隔抽取 `drawGoalInterval`）。
 
-- **检查点序列**（记地主初始资金 `B`）：`schedule` 每项 `{interval, multiplier}` 表示「再过 `interval` 回合，目标 = `floor(B × multiplier)`」；累计回合 `R_k = Σ interval_j`。超出列表后按**最后一项**重复（维持最高目标）。
-  - 默认：`2/0.6 → 2/1.0 → 3/1.5 → 3/1.8 → 5/2.0`，即检查点回合 `2, 4, 7, 10, 15`，目标 `floor(B·0.6) … floor(B·2.0)`，之后每 5 回合维持 `2.0` 倍。
-- **惩罚**：检查点回合 FINALIZE 时若地主余额 < 该目标，扣除 `max(minPenalty, floor(余额·penaltyRate))`（默认 `max(2, floor(余额·0.2))`）。**惩罚资金按最大余数法平分给本回合农民**（在破产判定前入账，可能救活濒临破产的农民），可直接使地主破产 → 农民胜。
-- **展示（合理显示在每个人的 UI）**：`viewFor` 下发 `landlordGoal = { goal, dueRound, roundsLeft, initial, landlordId, landlordBalance }`——目标值与到期回合对所有人可见（给农民施压、给地主紧迫感）；`landlordBalance`（进度）仅地主本人/观战者可见（隐私边界）。FINALIZE 面板播报达标/受罚。
-- 默认参数与调法见 `docs/TUNING.md`。
+- **目标**：检查点目标 = `round(基准余额 × goalMultiplier)`（默认 `1.1`，即较上一检查点/开局涨 10%）。**基准 = 上一检查点（或开局）时的地主余额**。
+- **检查点间隔**：`interval` 每次**正态随机**（`{min, max, mean, sd}`，四舍五入后 clamp 到 `[min,max]`，默认 `2..5`）。由**按局种子的 PRNG**（`Room.goalSeed` → mulberry32）抽取，保证可复现。
+- **惩罚**：检查点回合 FINALIZE 时若地主余额 < 目标，扣除 `max(minPenalty, round(余额 × penaltyRate))`（默认 `max(2, round(余额 × 0.1))`）。**惩罚资金按最大余数法平分给本回合农民**（在破产判定前入账，可能救活濒临破产的农民），可直接使地主破产 → 农民胜。**达标无奖励。**
+- **重定基**：每个检查点结算（含罚款）后，按**（罚后）当前余额**重新定下一个目标 `round(当前 × goalMultiplier)` 与下一个随机检查点回合。
+- **展示（合理显示在每个人的 UI）**：`viewFor` 下发 `landlordGoal = { goal, dueRound, roundsLeft, interval, baseline, initial, landlordId, landlordBalance }`——目标值与到期回合对所有人可见（给农民施压、给地主紧迫感）；`landlordBalance`（进度）仅地主本人/观战者可见（隐私边界）。FINALIZE 面板播报达标/受罚。
+- **资本家**无此考核（`goalNextRound=0`）；快速档地主与竞技地主同吃该相对制。默认参数与调法见 `docs/TUNING.md`。
 
 ### 3.8 桌面显式结算（编导脚本 + 拿取；`logic/payout.js`）
 钱是桌上的实体：结算不再是「数字瞬间入账 + 面板播报」，而是钱堆在桌面上的连续演出。**金额算法（§3.5–3.7、§8）一个数都不变，只重新定义"何时写 balance"**。
@@ -284,11 +298,12 @@ data/              运行时数据（gitignore）
 |----|------|------|
 | initialBalance.farmer | 8 | 农民初始资金 |
 | landlordFundMultiplier | 1.2 | 地主初始资金 = 农民总资金 × 该倍数（向下取整） |
-| landlordGoal.* | 见下 | 地主资金目标（§3.7）：enabled/schedule（默认 `2/0.6,2/1.0,3/1.5,3/1.8,5/2.0`）/penaltyRate 0.2/minPenalty 2；惩罚平分给农民 |
+| landlordGoal.* | 见下 | 地主资金目标（相对制，§3.7）：enabled/goalMultiplier 1.1/penaltyRate 0.1/minPenalty 2/interval `{min2,max5,mean3.5,sd0.9}`；目标=round(基准×1.1)、间隔正态随机、惩罚平分给农民 |
 | minStake.farmer / .landlordPerFarmer | 1 / 1 | 最小出资额 |
-| landlordWinMultiplier | 1.5 | 地主胜目标倍数 = floor(下注 × 该倍数) |
-| surplusLandlordShare | 0.5 | 盈余中地主再拿的比例 |
-| rounding | 'floor' | 'floor'/'ceil'，预留协商分配 |
+| landlordAttrs[role].greed | 1.5 | **贪婪**：地主胜目标倍率 = round(下注 × greed) |
+| landlordAttrs[role].squeeze | 1.5 | **盘剥**：对方填不满目标时缺口债务的放大倍率 |
+| landlordAttrs[role].rake | 0.5 | **抽成**：对方溢出时地主从溢出里多拿的比例 [0,1] |
+| rounding | 'round' | 'round' 四舍五入 / 'floor' / 'ceil'——一切带小数的比例计算（结算三倍率、目标、罚款、税）统一口径 |
 | debtAllocation | 'inverseBet' | 'inverseBet'/'equal'/'proportionalBet' |
 | farmerSplit | 'equal' | 农民分钱方式 |
 | surplusTieBreak | 'highestBet' | 余数单位归属 |
@@ -338,13 +353,13 @@ data/              运行时数据（gitignore）
 
 | 阵营 | 角色 id | 初始资金 | 主动技能 | 被动 |
 |------|--------|---------|---------|------|
-| 农民 | `farmer` 基础农民 | 9 | — | 工资（§8.2） |
-| 农民 | `investor` 投资人 | 8 | 掷币前担保 n（§8.3） | — |
-| 农民 | `glutton` 暴食者 | 6 | 农民输时重掷（§8.4） | 饭账（农民胜时扣，§8.4） |
-| 地主 | `landlord` 地主 | ⌊农民总资金 × 1.5⌋ | — | 资金目标考核（§8.5） |
-| 地主 | `capitalist` 资本家 | 个人 农民数×4 + 资金池 农民数×10 | 押注从个人资金出、本金必归还（§8.6） | 每回合资金池税（§8.6） |
+| 农民 | `farmer` 基础农民 | 15 | — | 工资（§8.2） |
+| 农民 | `investor` 投资人 | 12 | 掷币前担保 n（§8.3） | — |
+| 农民 | `glutton` 暴食者 | 8 | 农民输时重掷（§8.4） | 饭账（农民胜时扣，§8.4） |
+| 地主 | `landlord` 地主 | ⌊农民总资金 × 2⌋ | — | 资金目标考核（§8.5） |
+| 地主 | `capitalist` 资本家 | 个人 农民数×5 + 资金池 农民数×15 | 押注从个人资金出、本金必归还（§8.6） | 每回合资金池税（§8.6） |
 
-- **初始资金按花名册**：竞技模式下 `getInitialBalance` 需「按角色名册」计算——先求各农民按其角色初始资金之和 `farmerTotal`，地主 = ⌊`landlordFundMultiplier` × farmerTotal⌋，资本家个人 = 活跃农民数 × `personalPerFarmer`(4)、资金池 = 活跃农民数 × `poolPerFarmer`(10)。换公式只改此函数（保持 §0.2 扩展点）。
+- **初始资金按花名册**：竞技模式下 `getInitialBalance` 需「按角色名册」计算——先求各农民按其角色初始资金之和 `farmerTotal`，地主 = ⌊`landlordFundMultiplier` × farmerTotal⌋，资本家个人 = 活跃农民数 × `personalPerFarmer`(5)、资金池 = 活跃农民数 × `poolPerFarmer`(15)。换公式只改此函数（保持 §0.2 扩展点）。
 - 角色身份（哪一种）与现有 landlord/farmer 一样**公开**（座位、头顶名牌显示），用于施压与配合；**技能进度**的隐私见 §8.7。
 
 ### 8.2 工资（基础农民被动）
@@ -379,18 +394,18 @@ data/              运行时数据（gitignore）
 
 规则同 §3.5，仅数值改用竞技档（均为待校准）：
 
-- 初始 = ⌊农民总资金 × `competitive.landlordFundMultiplier`(1.5)⌋。
-- 资金目标 `landlordGoal.schedule`（竞技档）：检查点回合 3→0.6、4→1.0、5→1.4、6→1.7、7→2.0，其后维持 2.0；未达标扣 `max(minPenalty, ⌊余额×0.2⌋)`，惩罚平分给农民（沿用 §3.7 的 `logic/landlordGoal.js`）。
+- 初始 = ⌊农民总资金 × `competitive.landlordFundMultiplier`(2)⌋（初始资金仍向下取整）。
+- 资金目标沿用顶层**相对制**（§3.7）：目标=round(基准×1.1)、随机 2–5 回合一个检查点、未达标扣 `max(2, round(余额×0.1))` 平分给农民。竞技档不再单独 schedule 覆盖。
 
 ### 8.6 资本家（竞技）
 
 风险结构与地主完全不同：**个人资金只是押注用的钱包、本金永远拿回**，真正的血条是**资金池**。
 
-- **个人资金（押注钱包）= 活跃农民数 × `capitalist.personalPerFarmer`(4)**。押注像地主一样把 L 放上桌，但**无论输赢，本金 L 在 FINALIZE 原封不动归还**（即现有「桌面→手牌」回收动画）——故个人资金恒定不变、**不决定破产**。
+- **个人资金（押注钱包）= 活跃农民数 × `capitalist.personalPerFarmer`(5)**。押注像地主一样把 L 放上桌，但**无论输赢，本金 L 在 FINALIZE 原封不动归还**（即现有「桌面→手牌」回收动画）——故个人资金恒定不变、**不决定破产**。
 - **最小出资额 = `capitalist.minStake`(1)**（固定，不随农民数）。**押注边界 `L ∈ [1, 个人资金]`，可全押**（押满个人资金；因本金必归还，无需留保留金，也没有强制全押的特殊情形）。
-- **资金池 = 真实钱包/血条**：初始 = 活跃农民数 × `capitalist.poolPerFarmer`(10)，承接全部**净盈亏**——FINALIZE 时 `pool += (本回合按地主口径算出的净变动)`，即 `pool += (实际收取额 − L)`（资本家胜为正、农民胜为 `−L`）。本金 L 归个人资金、盈亏归资金池，二者不重复计。
-- **押注与结算结构**与地主相同（L vs F，`target = ⌊L × landlordWinMultiplier⌋`，正面 = 资本家胜）。
-- **税收**：FINALIZE 时资金池 −`max(capitalist.taxMin, ⌊开局池量 × capitalist.taxRate⌋)`——税额**随局恒定**（按开局池量计、不随池子涨跌；默认开局池 10n → 税 `max(2, ⌊10n×10%⌋) = n`，n=农民数），单次至多扣到池空，池 ≤ 0 不再扣。核心决策：押多大才能让池的净赢盖过固定税、又不被大额回摆拖垮。（2026-07-05 调参：原「⌊当前池×10%⌋」改为恒定税，HUD 上税占比条更可读、亏损时不再越亏越轻。）
+- **资金池 = 真实钱包/血条**：初始 = 活跃农民数 × `capitalist.poolPerFarmer`(15)，承接全部**净盈亏**——FINALIZE 时 `pool += (本回合按地主口径算出的净变动)`，即 `pool += (实际收取额 − L)`（资本家胜为正、农民胜为 `−L`）。本金 L 归个人资金、盈亏归资金池，二者不重复计。
+- **押注与结算结构**与地主相同（L vs F，`target = ⌊L × greed⌋`，正面 = 资本家胜）；资本家有自己一套 `landlordAttrs.capitalist`（贪婪/盘剥/抽成），可与地主差异化。
+- **税收**：FINALIZE 时资金池 −`max(capitalist.taxMin, round(开局池量 × capitalist.taxRate))`——税额**随局恒定**（按开局池量计、不随池子涨跌；默认开局池 15n → 税 `max(2, round(15n×10%)) = max(2, round(1.5n))`，n=农民数：n=1→2、n=2→3、n=3→5、n=4→6），单次至多扣到池空，池 ≤ 0 不再扣。核心决策：押多大才能让池的净赢盖过固定税、又不被大额回摆拖垮。（2026-07-05 调参：原「⌊当前池×10%⌋」改为恒定税，HUD 上税占比条更可读、亏损时不再越亏越轻。）
 - **无资金目标考核**。**破产**：FINALIZE 后资金池 ≤ 0。**FINALIZE 顺序**：本金 L 归还个人资金 → 净盈亏入资金池 → 扣税 → 破产判定。
 
 ### 8.7 阶段 / 协议 / 视图增量
@@ -406,18 +421,13 @@ data/              运行时数据（gitignore）
 
 ```js
 competitive: {
-  initialBalance: { farmer: 9, investor: 8, glutton: 6 },
-  landlordFundMultiplier: 1.5,
-  capitalist: { personalPerFarmer: 4, poolPerFarmer: 10, minStake: 1, taxRate: 0.10, taxMin: 2 },
+  initialBalance: { farmer: 15, investor: 12, glutton: 8 },
+  landlordFundMultiplier: 2,
+  capitalist: { personalPerFarmer: 5, poolPerFarmer: 15, minStake: 1, taxRate: 0.10, taxMin: 2 },
   wage:    { baseInterval: 5, minInterval: 2, perFarmerIntervalReduce: 1, baseAmount: 1, perFarmerAmountBonus: 1 },
   investor:{ maxPledge: 3, waiveMultiplier: 2 },
   glutton: { allowancePerRound: 1, maxReflips: 3 },
-  landlordGoal: {
-    schedule: [ { interval: 3, multiplier: 0.6 }, { interval: 1, multiplier: 1.0 },
-                { interval: 1, multiplier: 1.4 }, { interval: 1, multiplier: 1.7 },
-                { interval: 1, multiplier: 2.0 } ],
-    penaltyRate: 0.2, minPenalty: 2,
-  },
+  // landlordGoal 沿用顶层相对制（不再单独 schedule 覆盖）
 }
 ```
 
@@ -425,7 +435,7 @@ competitive: {
 
 ### 8.9 待校准（实测，见 `docs/TUNING.md`）
 
-工资 interval/amount 缩放、投资人 `waiveMultiplier`、暴食者 `allowancePerRound`/`maxReflips`、地主竞技 `schedule`、资本家 `poolPerFarmer`/`taxRate` —— 全部待数值测试。原设计稿的 4 个平衡问题逐条对应这些参数：① 资本家 vs 地主的选择平衡；② 暴食者多农民局强度；③ 工资流 vs 地主考核增速的互相牵制；④ 地主目标具体数值。
+工资 interval/amount 缩放、投资人 `waiveMultiplier`、暴食者 `allowancePerRound`/`maxReflips`、地主目标 `goalMultiplier`/`interval`、资本家 `poolPerFarmer`/`taxRate` —— 全部待数值测试。原设计稿的 4 个平衡问题逐条对应这些参数：① 资本家 vs 地主的选择平衡；② 暴食者多农民局强度；③ 工资流 vs 地主考核增速的互相牵制；④ 地主目标具体数值。
 
 ### 8.10 验收增量
 

@@ -220,6 +220,48 @@ img, svg, canvas { -webkit-user-drag: none; user-drag: none; }
   padding: 5px 9px;
 }
 
+/* 顶栏无底符号按钮（3D 输入模式/PC）：单个符号、半透明，悬停提亮 */
+.hud-icon-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; padding: 0;
+  background: none; border: none;
+  color: var(--ink);
+  opacity: 0.55;
+  cursor: pointer;
+  filter: drop-shadow(1px 1px 0 rgba(0, 0, 0, 0.8));
+  transition: opacity var(--t-fast) linear;
+}
+.hud-icon-btn:hover { opacity: 1; }
+.hud-icon-btn:active { transform: translateY(1px); }
+.hud-icon-btn.danger:hover { color: var(--danger); }
+
+/* 规则面板：i 按钮下拉（与设置面板同范式），长文可滚动 */
+.rules-root { position: relative; display: inline-flex; }
+.rules-panel.goal-hud.hud-card {
+  position: absolute; top: calc(100% + 8px); right: 0;
+  width: min(420px, 82vw);
+  align-items: stretch;
+  z-index: 60;
+  animation: ui-rise var(--t-ui) var(--e-enter) both;
+}
+.rules-body {
+  max-height: min(58vh, 480px);
+  overflow-y: auto;
+  padding: 8px 12px 10px;
+  display: flex; flex-direction: column; gap: 7px;
+}
+.rules-p {
+  margin: 0;
+  font-family: var(--font-cjk); font-size: 13px; line-height: 1.66;
+  color: #ece7d6;
+}
+.rules-p .hi { color: var(--px-gold); }
+.rules-p.li { padding-left: 14px; position: relative; }
+.rules-p .rules-dash { position: absolute; left: 2px; color: var(--ink-dim); }
+@media (prefers-reduced-motion: reduce) {
+  .rules-panel.goal-hud.hud-card { animation: none; }
+}
+
 /* ---- 右侧玩家在线纵列 ---- */
 .player-rail {
   position: absolute; top: 64px; right: 10px;
@@ -835,15 +877,7 @@ body {
   box-shadow: inset 0 1px 0 rgba(255, 235, 190, 0.5);
 }
 .drawer-title-right { display: flex; align-items: center; gap: 10px; }
-.drawer-x {
-  width: 20px; height: 20px; padding: 0; line-height: 1;
-  border: 2px solid var(--c-wood-950);
-  background: var(--c-wood-700);
-  color: var(--ink);
-  font-family: var(--font-cjk); font-size: 12px;
-  cursor: pointer;
-}
-.drawer-x:hover { filter: brightness(1.3); }
+/* 抽屉关闭钮已删：点抽屉/Dock 以外任意处收起（RoleWall/LedgerBook 各自挂捕获监听） */
 .drawer-body { overflow-y: auto; padding: 12px 14px; }
 .drawer-foot {
   flex: none;
@@ -924,6 +958,55 @@ body {
 .poster-seals .poster-seal:nth-child(3n) { transform: rotate(-2deg); }
 .poster-seal.mine { box-shadow: inset 0 0 0 2px var(--px-gold), 0 2px 0 rgba(0, 0, 0, 0.3); }
 .poster-note { margin-top: 6px; text-align: center; }
+/* 招募令悬停也高一点(即使不可点也给反馈,提示可查看详情) */
+.poster:hover { transform: translateY(-4px); filter: brightness(1.04); }
+
+/* ---- 角色手册详情(跟随鼠标的浮窗):黑底半透明+金字,与四类 HUD 同语言 ---- */
+.role-detail {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 12px 16px;
+  background: rgba(10, 11, 15, 0.82);
+  border: 2px solid #000;
+  box-shadow: inset 0 0 0 1px rgba(232, 194, 90, 0.20);
+}
+/* 贴光标的浮窗:定宽 + 强投影浮起感(定位/pointer-events 由内联 style 给) */
+.role-detail.float {
+  width: 300px;
+  background: rgba(10, 11, 15, 0.94);
+  box-shadow: inset 0 0 0 1px rgba(232, 194, 90, 0.20), 0 10px 26px rgba(0, 0, 0, 0.6);
+}
+.role-detail-head {
+  display: flex; align-items: center; gap: 12px;
+  padding-bottom: 7px;
+  border-bottom: 1px solid rgba(232, 194, 90, 0.22);
+}
+.role-detail-bust {
+  width: 34px; height: 42px; flex: none;
+  image-rendering: pixelated;
+  object-fit: cover; object-position: top center;
+}
+.role-intro { display: flex; flex-direction: column; gap: 5px; }
+.role-intro-p {
+  margin: 0;
+  font-family: var(--font-cjk); font-size: 13px; line-height: 1.62;
+  color: #ece7d6;
+}
+.role-intro-p .hi { color: var(--px-gold); }
+.role-adv-hint {
+  margin-top: 2px; padding-top: 6px;
+  border-top: 1px solid rgba(232, 194, 90, 0.14);
+}
+.role-adv {
+  margin-top: 2px; padding: 7px 6px 2px;
+  border-top: 1px solid rgba(232, 194, 90, 0.18);
+  display: flex; flex-direction: column; gap: 4px;
+}
+.role-adv-row { display: flex; align-items: baseline; gap: 12px; }
+.role-adv-k {
+  flex: none; min-width: 132px;
+  font-family: var(--font-cjk); font-size: 12px; color: var(--ink-dim);
+}
+.role-adv-v { font-family: var(--font-cjk); font-size: 12px; color: #ece7d6; }
 
 /* ---- 酒馆账本：一行一轮（羊皮条），摊开处为暗色明细 ---- */
 .ledger-body { display: flex; flex-direction: column; gap: 7px; }
@@ -1166,6 +1249,14 @@ body {
 .quest-line { display: flex; align-items: baseline; gap: 12px; }
 .quest-pair { display: inline-flex; align-items: baseline; gap: 2px; }
 
+/* 进度条统一两端渐隐（与 quest-pool 同款）；条宽拉伸到与卡内文字行同宽 */
+:root { --bar-fade: linear-gradient(90deg, rgba(0, 0, 0, 0), #000 14%, #000 86%, rgba(0, 0, 0, 0)); }
+.goal-hud.quest-card .quest-wrap,
+.goal-hud.quest-card .quest-pool,
+.goal-hud.quest-card .quest-reflip,
+.goal-hud.quest-card .quest-segs,
+.goal-hud.quest-card > .quest-track { width: auto; align-self: stretch; }
+
 /* 无缝细进度条（黑槽 + 金填充，宽度阻尼过渡）；.unknown = 进度不可知（暗斜纹满宽） */
 .quest-track {
   position: relative; display: block;
@@ -1173,6 +1264,8 @@ body {
   background: rgba(0, 0, 0, 0.62);
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.9);
   overflow: hidden;
+  -webkit-mask: var(--bar-fade);
+  mask: var(--bar-fade);
 }
 .quest-fill {
   position: relative; display: block; height: 100%;
@@ -1193,7 +1286,11 @@ body {
 }
 
 /* 薄有缝计数条：total 等宽格、亮 filled 格（独立=重掷；.quest-ring=外包环） */
-.quest-segs { display: flex; gap: 2px; width: 144px; height: 3px; }
+.quest-segs {
+  display: flex; gap: 2px; width: 144px; height: 3px;
+  -webkit-mask: var(--bar-fade);
+  mask: var(--bar-fade);
+}
 .quest-seg { flex: 1; background: rgba(255, 255, 255, 0.13); }
 .quest-seg.on { background: var(--px-gold); box-shadow: 0 0 3px rgba(232, 194, 90, 0.4); }
 
@@ -1204,8 +1301,8 @@ body {
   margin-top: -1px;
   background: rgba(255, 255, 255, 0.1);
   overflow: hidden;
-  -webkit-mask: linear-gradient(90deg, rgba(0, 0, 0, 0), #000 14%, #000 86%, rgba(0, 0, 0, 0));
-  mask: linear-gradient(90deg, rgba(0, 0, 0, 0), #000 14%, #000 86%, rgba(0, 0, 0, 0));
+  -webkit-mask: var(--bar-fade);
+  mask: var(--bar-fade);
 }
 .quest-reflip .qr-fill {
   display: block; height: 100%;
@@ -1214,10 +1311,24 @@ body {
 }
 
 /* 外包环：外层整块是有缝计数条，内条内嵌居中——四周露出 3px 有缝薄环（回合倒数）。
-   结算/发放回合环耗尽（不渲染）：内条轮廓闪光——达标绿 / 未达红 / 不可知金 */
-.quest-wrap { position: relative; display: block; width: 144px; height: 11px; }
-.quest-wrap .quest-ring { position: absolute; inset: 0; width: 100%; height: 100%; }
-.quest-wrap .quest-track { position: absolute; inset: 3px; width: auto; height: auto; }
+   结算/发放回合环耗尽（不渲染）：内条轮廓闪光——达标绿 / 未达红 / 不可知金。
+   渐隐蒙版打在 wrap 上（环+条一体淡出），内层自身蒙版取消防止二次叠加。
+   .noring = 无外环变体（工资卡：环与内条重复表达同一信息，环已删） */
+.quest-wrap {
+  position: relative; display: block; width: 144px; height: 11px;
+  -webkit-mask: var(--bar-fade);
+  mask: var(--bar-fade);
+}
+.quest-wrap .quest-ring { position: absolute; inset: 0; width: 100%; height: 100%; -webkit-mask: none; mask: none; }
+.quest-wrap .quest-track { position: absolute; inset: 3px; width: auto; height: auto; -webkit-mask: none; mask: none; }
+.quest-wrap.noring { height: 5px; }
+.quest-wrap.noring .quest-track { inset: 0; }
+/* 工资条满格（发薪回合）：平滑脉冲发光（覆盖通用 steps(2) 闪烁） */
+.quest-wrap.noring.due .quest-track { animation: wage-pulse 1.2s ease-in-out infinite; }
+@keyframes wage-pulse {
+  0%, 100% { filter: none; }
+  50% { filter: brightness(1.7) drop-shadow(0 0 7px rgba(126, 200, 106, 0.85)); }
+}
 .quest-wrap.due .quest-track { animation: quest-due 0.9s steps(2) infinite; }
 .quest-wrap.due.met .quest-track { --quest-glow: rgba(126, 200, 106, 0.75); }
 .quest-wrap.due.miss .quest-track { --quest-glow: rgba(227, 98, 98, 0.8); }
@@ -1232,8 +1343,8 @@ body {
   width: 144px; height: 4px;
   background: linear-gradient(180deg, #f6dd7a, var(--px-gold));
   overflow: hidden;
-  -webkit-mask: linear-gradient(90deg, rgba(0, 0, 0, 0), #000 14%, #000 86%, rgba(0, 0, 0, 0));
-  mask: linear-gradient(90deg, rgba(0, 0, 0, 0), #000 14%, #000 86%, rgba(0, 0, 0, 0));
+  -webkit-mask: var(--bar-fade);
+  mask: var(--bar-fade);
 }
 .qp-left, .qp-right {
   position: absolute; top: 0; height: 100%;
@@ -1258,7 +1369,7 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .quest-fill, .quest-cost, .qp-left, .qp-right, .quest-reflip .qr-fill { transition: none; }
   .quest-bump, .quest-fade { animation: none; }
-  .quest-wrap.due .quest-track { animation: none; }
+  .quest-wrap.due .quest-track, .quest-wrap.noring.due .quest-track { animation: none; }
 }
 
 /* ---- 回合横幅（⑦）：回合开始屏幕中上方浮现「第 N 回合」，~2s 后淡出 ---- */

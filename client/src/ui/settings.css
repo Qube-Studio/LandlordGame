@@ -20,19 +20,7 @@
   animation: ui-rise var(--t-ui) var(--e-enter) both;
 }
 
-/* 标题条右侧的小关闭钮 */
-.settings-panel .hud-card-title { position: relative; }
-.settings-x {
-  position: absolute; top: 50%; right: 4px; transform: translateY(-50%);
-  width: 18px; height: 18px; padding: 0; line-height: 1;
-  border: 2px solid var(--c-wood-950);
-  background: var(--c-wood-700);
-  color: var(--c-ink);
-  font-family: var(--font-cjk); font-size: 12px;
-  cursor: pointer;
-}
-.settings-x:hover { filter: brightness(1.3); }
-.settings-x:active { transform: translateY(calc(-50% + 1px)); }
+/* 关闭钮已删：面板点外部任意处收起（window pointerdown 捕获，见 SettingsPanel/RulesPanel） */
 
 /* 设置行：左标签（含小注脚）/ 右控件 */
 .settings-row {

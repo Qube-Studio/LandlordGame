@@ -10,32 +10,29 @@ export const DEFAULT_CONFIG = {
   // --- 最小出资额 ---
   minStake: { farmer: 1, landlordPerFarmer: 1 },
 
-  // --- 结算 ---
-  landlordWinMultiplier: 1.5, // 地主胜的目标 = floor(下注 × 该倍数)；同时决定缺口补偿额
-  surplusLandlordShare: 0.5,  // pot 超出目标的部分，地主再拿的比例
-  rounding: 'floor',          // 'floor' | 'ceil' —— 比例计算的取整方式
+  // --- 结算：地主阵营角色属性（三杠杆，见 GAME_SPEC §3.5；经 getLandlordAttrs(role) 解析） ---
+  //   greed 贪婪   ×倍率(≥1)：地主胜的目标 = floor(下注 × greed)（赢了拿几倍；<1 会赢了反亏）
+  //   squeeze 盘剥 ×倍率(≥1)：对方填不满目标时，缺口债务放大 = floor(缺口 × squeeze)（越大逼债越狠）
+  //   rake 抽成    比例[0,1]：对方溢出时，地主从溢出里多拿 = floor(溢出 × rake)
+  landlordAttrs: {
+    landlord: { greed: 1.5, squeeze: 1.5, rake: 0.5 }, // 快速模式基础地主（保持原平衡）
+  },
+  rounding: 'round',          // 'round' 四舍五入 | 'floor' | 'ceil' —— 一切带小数的比例计算的取整方式
   debtAllocation: 'inverseBet',   // 'inverseBet' | 'equal' | 'proportionalBet'
   farmerSplit: 'equal',           // 农民胜时分 pot 的方式（当前仅 'equal'）
   surplusTieBreak: 'highestBet',  // 最大余数法并列时余数单位归属：'highestBet' | 'lowestBet'
   bankruptcyThreshold: 0,         // balance ≤ 此值即破产
 
-  // --- 地主资金目标（见 logic/landlordGoal.js 与 docs/TUNING.md） ---
-  // 每过若干回合地主必须达到一个资金目标，否则在该回合 FINALIZE（押注后资金分配完成时）
-  // 扣除 max(minPenalty, floor(余额 × penaltyRate)) 作为惩罚（资金沉没，可触发破产）。
-  // 检查点由 schedule 显式给出：每项 {interval, multiplier} = 「再过 interval 回合，
-  // 目标 = floor(地主初始资金 × multiplier)」。累计回合 2→4→7→10→15…，最后一项之后按其
-  // interval/multiplier 重复（维持最高目标）。
+  // --- 地主资金目标（相对制，见 logic/landlordGoal.js 与 docs/TUNING.md） ---
+  // 每过随机 interval 回合（正态 clamp 到 [min,max]）一个检查点：该回合 FINALIZE 时若地主余额
+  // < 目标（=round(上一检查点余额 × goalMultiplier)），扣 max(minPenalty, round(当前余额 × penaltyRate))，
+  // 惩罚平分给本回合农民（可致地主破产）。达标无奖励。检查点后按（罚后）当前余额重定下一个目标。
   landlordGoal: {
     enabled: true,
-    schedule: [
-      { interval: 2, multiplier: 0.6 },
-      { interval: 2, multiplier: 1.0 },
-      { interval: 3, multiplier: 1.5 },
-      { interval: 3, multiplier: 1.8 },
-      { interval: 5, multiplier: 2.0 },
-    ],
-    penaltyRate: 0.2,         // 未达标时扣除的资金比例（向下取整）
+    goalMultiplier: 1.1,      // 目标 = round(基准余额 × 1.1)——要求较上一检查点涨 10%
+    penaltyRate: 0.1,         // 未达标扣 round(当前余额 × 0.1)
     minPenalty: 2,            // 未达标时至少扣除的资金
+    interval: { min: 2, max: 5, mean: 3.5, sd: 0.9 }, // 检查点间隔：正态随机、四舍五入后 clamp 到 [min,max]
   },
 
   // --- 人数 ---
@@ -68,22 +65,21 @@ export const DEFAULT_CONFIG = {
   // 仅 mode==='competitive' 生效；roomConfig() 会把这里的 landlordFundMultiplier / landlordGoal
   // 覆盖到顶层（让既有 landlordGoal.js、settleRound 直接用竞技数值），其余角色专属参数按需直接读取。
   competitive: {
-    landlordFundMultiplier: 1.5,                        // 地主初始 = ⌊农民总资金 × 1.5⌋
-    initialBalance: { farmer: 9, investor: 8, glutton: 6 }, // 农民阵营按角色的初始资金
+    landlordFundMultiplier: 2,                          // 地主初始 = ⌊农民总资金 × 2⌋
+    initialBalance: { farmer: 15, investor: 12, glutton: 8 }, // 农民阵营按角色的初始资金
     // 资本家：个人资金=押注钱包（本金必归还、不决定破产）；资金池=血条（承接盈亏、被税、耗尽即破产）。
-    capitalist: { personalPerFarmer: 4, poolPerFarmer: 10, minStake: 1, taxRate: 0.10, taxMin: 2 },
+    capitalist: { personalPerFarmer: 5, poolPerFarmer: 15, minStake: 1, taxRate: 0.10, taxMin: 2 },
+    // 地主阵营角色属性（覆盖顶层 landlordAttrs；两角色差异化，见 GAME_SPEC §3.5）。
+    //   地主：厚资本、赢面凶（贪婪高、抽成狠）；资本家：赢面温和但逼债极狠（盘剥 3），配合资金池打法。
+    landlordAttrs: {
+      landlord:   { greed: 2,   squeeze: 1.5, rake: 0.8 },
+      capitalist: { greed: 1.5, squeeze: 3,   rake: 0.4 },
+    },
     // 基础农民工资（m=活跃农民总数）：interval=max(minInterval, baseInterval−(m−1)·reduce)，amount=base+(m−1)·bonus。
     wage:    { baseInterval: 5, minInterval: 2, perFarmerIntervalReduce: 1, baseAmount: 1, perFarmerAmountBonus: 1 },
     investor:{ maxPledge: 3, waiveMultiplier: 2 },      // 担保保费先扣 n；农民输则缺口减 waiveMultiplier×Σn
     glutton: { allowancePerRound: 1, maxReflips: 3 },   // 每回合 +1 饭账（成本，仅农民胜时从余额扣除并清零，可扣破产）；每局最多 3 次重掷
-    landlordGoal: {                                      // 竞技档目标 schedule（覆盖顶层）：回合 3→0.6 … 7→2.0
-      schedule: [
-        { interval: 3, multiplier: 0.6 }, { interval: 1, multiplier: 1.0 },
-        { interval: 1, multiplier: 1.4 }, { interval: 1, multiplier: 1.7 },
-        { interval: 1, multiplier: 2.0 },
-      ],
-      penaltyRate: 0.2, minPenalty: 2,
-    },
+    // 地主资金目标沿用顶层相对制（不再单独 schedule 覆盖）——地主/资本家均吃 landlordGoal 相对目标。
   },
 };
 
@@ -108,7 +104,8 @@ export function getInitialBalance(role, farmerCount, config, opts = {}) {
     if (role === 'investor') return c.initialBalance.investor;
     if (role === 'glutton') return c.initialBalance.glutton;
     if (role === 'capitalist') return Math.max(1, (farmerCount || 1) * c.capitalist.personalPerFarmer);
-    if (role === 'landlord') return Math.max(1, Math.floor((opts.farmerTotal ?? 0) * config.landlordFundMultiplier));
+    // 竞技地主初始经统一 roundBy（默认倍数 2 为整数、当前零影响；将来倍率若设小数会自动四舍五入）。
+    if (role === 'landlord') return Math.max(1, roundBy((opts.farmerTotal ?? 0) * config.landlordFundMultiplier, config));
   }
   const farmer = config.initialBalance.farmer;
   if (role !== 'landlord') return farmer;
@@ -129,6 +126,23 @@ export function getMinStake(role, farmerCount, config, opts = {}) {
   }
   if (factionOf(role) === 'landlord') return Math.max(1, farmerCount * config.minStake.landlordPerFarmer);
   return config.minStake.farmer;
+}
+
+// 一切带小数的比例计算的取整（config.rounding：'round' 四舍五入 | 'floor' | 'ceil'）。
+// 结算三倍率、目标/罚款、资本家税 全部经此，保证取整口径统一、可一处切换。
+export function roundBy(value, config) {
+  const mode = config?.rounding ?? 'round';
+  if (mode === 'ceil') return Math.ceil(value);
+  if (mode === 'floor') return Math.floor(value);
+  return Math.round(value);
+}
+
+// 地主阵营角色属性（结算三杠杆 greed/squeeze/rake，见 GAME_SPEC §3.5）。
+// 缺省回落：角色专属 → landlord 那套 → 硬保底（1.5/1.5/0.5，保持原平衡）。
+export function getLandlordAttrs(role, config) {
+  const table = config.landlordAttrs ?? {};
+  const a = table[role] ?? table.landlord ?? {};
+  return { greed: a.greed ?? 1.5, squeeze: a.squeeze ?? 1.5, rake: a.rake ?? 0.5 };
 }
 
 // 深合并 overrides，返回新配置对象（不改 DEFAULT_CONFIG）。
@@ -156,6 +170,7 @@ export function roomConfig(modeId, overrides = {}) {
     const c = config.competitive ?? {};
     if (c.landlordFundMultiplier != null) config.landlordFundMultiplier = c.landlordFundMultiplier;
     if (c.landlordGoal) config.landlordGoal = { ...config.landlordGoal, ...c.landlordGoal };
+    if (c.landlordAttrs) config.landlordAttrs = { ...config.landlordAttrs, ...c.landlordAttrs };
   }
   return config;
 }

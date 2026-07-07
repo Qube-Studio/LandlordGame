@@ -7,11 +7,22 @@ import crypto from 'crypto';
 import { roomConfig, getInitialBalance, getInitialPool, getMinStake, factionOf } from './config.js';
 import { getMode } from './modes/index.js';
 import { flipCoin, betBounds, validateBet, settleRound, applyAllocation } from './logic/rules.js';
-import { upcomingGoal, goalForRound, goalPenalty } from './logic/landlordGoal.js';
+import { relativeGoal, goalPenalty, drawGoalInterval } from './logic/landlordGoal.js';
 import { computeWage, wageDueThisRound, investorWaiver, computeTax } from './logic/competitive.js';
 import { createLedger, buildSettleScript, flowsFromParts } from './logic/payout.js';
 import { apportion } from './logic/apportion.js';
 import { saveGameRecord } from './storage.js';
+
+// 确定性 PRNG（mulberry32）：地主目标检查点间隔用它抽取，按局种子可复现（重连/回放一致）。
+function mulberry32(seed) {
+  let s = seed >>> 0;
+  return function () {
+    s = (s + 0x6D2B79F5) | 0;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
 
 // REFLIP = 竞技暴食者重掷决策窗（§8.4），夹在 COIN_FLIP 与 SETTLE 之间，仅农民输且有暴食者时出现。
 export const PHASES = ['LOBBY', 'DISCUSSION', 'BETTING', 'REVEAL', 'COIN_FLIP', 'REFLIP', 'SETTLE', 'NEGOTIATE', 'FINALIZE', 'ENDED'];
@@ -54,7 +65,14 @@ export class Room {
     this.negotiateDeadline = null;
     this.payout = null;            // 桌面显式结算（§3.8）：{script, piles, taken, eligible, after, …}
     this._stepSeq = 0;             // 编导脚本步骤自增 id（每回合重置）
-    this.landlordInitial = 0;      // 地主开局资金（地主资金目标的基准）
+    this.landlordInitial = 0;      // 地主开局资金（首个相对目标的基准）
+    // 地主资金目标（相对制，逐检查点推进）：目标/间隔有状态，随余额动态重定基。
+    this.goalTarget = 0;           // 当前须在下个检查点达到的目标额
+    this.goalBaseline = 0;         // 本目标所依据的基准余额（上一检查点/开局的余额）
+    this.goalPrevRound = 0;        // 上一检查点回合（0=开局）
+    this.goalNextRound = 0;        // 下一检查点回合（0=无考核，如资本家）
+    this.goalSeed = 0;             // 间隔 PRNG 种子（可复现）
+    this._goalRng = null;          // 间隔 PRNG（由种子生成）
     this.roundFarmerIds = [];
     this.roundStartBalances = {};
     this.history = [];
@@ -258,8 +276,18 @@ export class Room {
       p.reflipsLeft = p.role === 'glutton' ? (g?.maxReflips ?? 0) : 0;
       p.usedReflipThisRound = false;
     }
-    // 地主资金目标基准：仅地主（非资本家）才有考核。
+    // 地主资金目标基准：仅地主（非资本家）才有考核。相对制：开局定第一个目标与随机检查点。
     this.landlordInitial = this._landlord()?.role === 'landlord' ? (this._landlord()?.balance ?? 0) : 0;
+    if (this.config.landlordGoal?.enabled && this.landlordInitial > 0) {
+      this.goalSeed = crypto.randomBytes(4).readUInt32LE(0);
+      this._goalRng = mulberry32(this.goalSeed);
+      this.goalBaseline = this.landlordInitial;
+      this.goalTarget = relativeGoal(this.landlordInitial, this.config);
+      this.goalPrevRound = 0;
+      this.goalNextRound = drawGoalInterval(this._goalRng, this.config);
+    } else {
+      this.goalTarget = 0; this.goalBaseline = 0; this.goalPrevRound = 0; this.goalNextRound = 0; this._goalRng = null;
+    }
     this.round = 1;
     this._enterDiscussion();
     return { ok: true };
@@ -586,6 +614,7 @@ export class Room {
       bets: this.bets,
       balances,
       landlordId: this._landlord()?.id,
+      landlordRole: this._landlord()?.role,   // 地主侧角色决定 greed/squeeze/rake（§3.5）
       farmerIds: this.roundFarmerIds,
       config: this.config,
       debtWaiver: this._competitive ? (this.debtWaiver ?? 0) : 0,
@@ -721,38 +750,43 @@ export class Room {
     let landlordPenalty = 0;
     let landlordGoalValue = null;
     let landlordGoalMet = null;
-    if (this.config.landlordGoal?.enabled && landlordId && this.players.get(landlordId)?.role === 'landlord') {
-      landlordGoalValue = goalForRound(this.round, this.landlordInitial, this.config);
-      if (landlordGoalValue != null) {
-        const after = result.after[landlordId] ?? 0;
-        landlordGoalMet = after >= landlordGoalValue;
-        if (!landlordGoalMet) {
-          landlordPenalty = goalPenalty(after, this.config);
-          result.after[landlordId] = after - landlordPenalty;
-          result.deltas[landlordId] = (result.deltas[landlordId] ?? 0) - landlordPenalty;
-          const parts = ledger.debit(landlordId, landlordPenalty);
-          const recipients = [];
-          // 惩罚资金平分给本回合农民（最大余数法；破产判定前入账，可能救活濒临破产者）。
-          if (landlordPenalty > 0 && this.roundFarmerIds.length > 0) {
-            const shares = apportion(
-              landlordPenalty,
-              this.roundFarmerIds.map(id => ({ id, weight: 1, tie: this.bets[id] ?? 0 })),
-            );
-            for (const id of this.roundFarmerIds) {
-              const s = shares[id] ?? 0;
-              if (s <= 0) continue;
-              result.after[id] = (result.after[id] ?? 0) + s;
-              result.deltas[id] = (result.deltas[id] ?? 0) + s;
-              ledger.credit(id, s);
-              recipients.push({ to: { kind: 'pile', id }, amount: s });
-            }
+    if (this.config.landlordGoal?.enabled && landlordId && this.players.get(landlordId)?.role === 'landlord'
+        && this.goalNextRound > 0 && this.round === this.goalNextRound) {
+      const after = result.after[landlordId] ?? 0;
+      landlordGoalValue = this.goalTarget;
+      landlordGoalMet = after >= landlordGoalValue;
+      if (!landlordGoalMet) {
+        landlordPenalty = goalPenalty(after, this.config);
+        result.after[landlordId] = after - landlordPenalty;
+        result.deltas[landlordId] = (result.deltas[landlordId] ?? 0) - landlordPenalty;
+        const parts = ledger.debit(landlordId, landlordPenalty);
+        const recipients = [];
+        // 惩罚资金平分给本回合农民（最大余数法；破产判定前入账，可能救活濒临破产者）。
+        if (landlordPenalty > 0 && this.roundFarmerIds.length > 0) {
+          const shares = apportion(
+            landlordPenalty,
+            this.roundFarmerIds.map(id => ({ id, weight: 1, tie: this.bets[id] ?? 0 })),
+          );
+          for (const id of this.roundFarmerIds) {
+            const s = shares[id] ?? 0;
+            if (s <= 0) continue;
+            result.after[id] = (result.after[id] ?? 0) + s;
+            result.deltas[id] = (result.deltas[id] ?? 0) + s;
+            ledger.credit(id, s);
+            recipients.push({ to: { kind: 'pile', id }, amount: s });
           }
-          steps.push({
-            id: nextId(), t: 'adjust', source: 'goalPenalty', label: '地主未达标罚金',
-            flows: flowsFromParts(landlordId, parts, recipients),
-          });
         }
+        steps.push({
+          id: nextId(), t: 'adjust', source: 'goalPenalty', label: '地主未达标罚金',
+          flows: flowsFromParts(landlordId, parts, recipients),
+        });
       }
+      // 重定基：按（罚后）当前余额定下一个相对目标与随机检查点。
+      const base = result.after[landlordId] ?? 0;
+      this.goalBaseline = base;
+      this.goalTarget = relativeGoal(base, this.config);
+      this.goalPrevRound = this.round;
+      this.goalNextRound = this.round + drawGoalInterval(this._goalRng ?? Math.random, this.config);
     }
 
     // === ③ 竞技模式入账（§8）：资本家资金池换算、基础农民工资、暴食者伙食费。均在破产判定前。===
@@ -1112,13 +1146,16 @@ export class Room {
       } : {}),
     }));
 
-    // 地主资金目标（任务 6）：目标值与到期回合对所有人可见；地主当前余额仅地主/观战者/终局可见。
+    // 地主资金目标（相对制）：目标值与到期回合对所有人可见；地主当前余额仅地主/观战者/终局可见。
     const landlord = this._landlord();
-    const goalInfo = (this.config.landlordGoal?.enabled && this.landlordInitial > 0 && landlord && IN_GAME_PHASES.includes(this.phase))
-      ? upcomingGoal(this.round, this.landlordInitial, this.config)
-      : null;
-    const landlordGoal = goalInfo ? {
-      ...goalInfo,
+    const goalActive = this.config.landlordGoal?.enabled && this.goalNextRound > 0
+      && landlord && landlord.role === 'landlord' && IN_GAME_PHASES.includes(this.phase);
+    const landlordGoal = goalActive ? {
+      goal: this.goalTarget,
+      dueRound: this.goalNextRound,
+      roundsLeft: Math.max(0, this.goalNextRound - this.round),
+      interval: Math.max(1, this.goalNextRound - this.goalPrevRound),
+      baseline: this.goalBaseline,
       initial: this.landlordInitial,
       landlordId: landlord.id,
       landlordBalance: (viewer?.role === 'landlord' || spectator) ? landlord.balance : null,

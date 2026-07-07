@@ -102,7 +102,8 @@ mulberry32 种子 PRNG,全部 NearestFilter、按参数 key 缓存、永不逐�
 ## 1.5 角色皮肤系统(每面独立 16² canvas 路线,否决 UV 图集)
 
 `texlib.skinFace(role, part∈head/body/arm/leg, face∈front/back/left/right/top/bottom, bankrupt)`,16×16,按四元组缓存;**材质数组按 `role|bankrupt|expression` 在模块级缓存全场共享**,mesh 数不变(~10/人)。
-- **通用**: fabric 基材织纹 ±5%;顶面 +8% / 底面 −10% AO;**每面最外圈像素压暗 25%**(烘焙描边,零几何);头部四侧+背+顶补头发 `#4a3420`(现状侧后脑是裸肤色);手臂末 2 行肤色=手;腿底 1 行 wood900=鞋。
+- **通用**: fabric 基材织纹 ±5%;顶面 +8% / 底面 −10% AO;**每面最外圈像素压暗 25%**(烘焙描边,零几何);腿底 1 行 wood900=鞋。
+- **机器人改肤(2026-07-08 定稿,替代人肤/头发)**: 头=方形机器头——机壳 `P.botShell`(暖调浅白,偏羊皮纸,酒馆暖光下不煞白)+面板缝/螺栓(shade 派生),**正面=独立 32² 荧幕系统 `texlib#screenFace`**(其余五面仍 16²)：24×24 荧幕 `P.botScreen`+屏顶 1px 反光;**表情=荧幕字符脸(五稿定稿:只有眼睛、没有嘴——用户拍板"所有嘴巴都不要";统一暖白 `P.chalkInk` 含哭脸,破产的灰交给整脸灰化烘焙;笔画 ≥2px 防光晕糊,眼睛大而醒目)**——idle/ready=`▮▮` 竖直长条眼(3×10)、win=7 宽双层粗 `^^`、bet=**`$$` 钱眼**、lose=粗 `TT` 长泪痕、bankrupt=`✕✕` 7×7 大叉;**荧幕效果**：字符烘焙光晕(shadowBlur 2)+隔行扫描线(α0.10)+`glow` 纯字符黑底画布作 emissiveMap(emissive `#e6e2d4` ×0.5,破产 ×0.15,暗处字符真发光)+**CRT 抖动**(A/B 双帧:B=颜文字下移 1px+扫描线错行;MinecraftPlayer 模块级 FLICKER 注册表,useFrame 9Hz 步进、不规则节拍换 texture.image,零重编译,全场同步微闪);顶面散热槽/背面检修口+四角螺栓/侧面原耳位圆盘螺栓。手=**黑色皮手套** `P.botGlove`(臂末 3 行+腕口 1px 亮缝,掌心微亮);旧 `P.skin/P.hair` 保留给遗留 faceTexture 兜底。头戴道具(皇冠/礼帽/草帽等)照戴在机器头上。
 - **角色个性**: 地主=金袍绣回纹+深色腰带;资本家=紫底 1px 细条纹+白 V 领+胸前 2px 金怀表链;农民=2×3 异色补丁+草绳腰+裤脚泥点;投资人=青马甲+领带+袖套+胸袋钢笔;暴食者=围裙酱渍飞溅+条纹袖口。
 - **破产**: 在 canvas 内烘灰(保留织纹层次)+衣服裂纹,替代现在的材质级 gray()。
 - **道具**: 皇冠 `emissive=#f0d060 ×0.35`;资本家怀表金块 emissive 同值;草帽贴 fabric 草编纹;投资人左手算盘(1 plane 烘珠纹);暴食者右手鸡腿(2 box `#c9a36a`/`#8a5a30`)。表情系统(faceTexture 分支逻辑)并入 skinFace 的 head/front。

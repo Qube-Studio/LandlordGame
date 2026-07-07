@@ -25,7 +25,7 @@ const MoneyNote = getArt('moneyNote');
 const base = {
   phase: 'BETTING', round: 2, roomName: '预览', roomId: 'PREV', mode: 'competitive',
   players: [], me: null, hostId: 'me',
-  config: { timing: { coinAnimMs: 6000 }, landlordGoal: { minPenalty: 2, penaltyRate: 0.2 }, competitive: { investor: { maxPledge: 3 } } },
+  config: { timing: { coinAnimMs: 6000 }, landlordGoal: { minPenalty: 2, penaltyRate: 0.1, goalMultiplier: 1.1 }, competitive: { investor: { maxPledge: 3 } } },
   history: [], coinResult: null, winnerSide: null, settlement: null, allocation: null,
   roundFarmerIds: ['g', 'i', 'f'], landlordGoal: null, capitalist: null,
 };

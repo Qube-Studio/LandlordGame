@@ -2,7 +2,7 @@
 // 数据 = 服务端 viewFor 下发的 history（已按隐私过滤：他人 balancesAfter 仅观战/终局可见，
 // 资金池字段仅资本家本人可见）——客户端只排版，不做任何规则计算。
 // 交互：一行一轮（最新在上），点击摊开该轮明细；打开抽屉时默认摊开最新一轮。
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useGameStore } from '../store/gameStore';
 import PixelText from '../assets/pixelfont/PixelText';
 import CandleMark from '../assets/pixelfont/CandleMark';
@@ -98,6 +98,15 @@ export default function LedgerBook() {
   const setPanel = useGameStore(s => s.setPanel);
   const history = state.history ?? [];
   const myRole = state.me?.role;
+  // 关闭钮已删：点抽屉与 Dock 以外任意处收起（捕获阶段，同 RoleWall 范式）。
+  useEffect(() => {
+    const onDown = (e) => {
+      if (e.target instanceof Element && (e.target.closest('.ledger') || e.target.closest('.dock'))) return;
+      setPanel(null);
+    };
+    window.addEventListener('pointerdown', onDown, true);
+    return () => window.removeEventListener('pointerdown', onDown, true);
+  }, [setPanel]);
   // 打开抽屉时默认摊开最新一轮（抽屉关闭即卸载，重开会重新对准最新）。
   const [openRound, setOpenRound] = useState(history.length ? history[history.length - 1].round : null);
   const rows = [...history].reverse(); // 最新在上（轮数有限，无需缓存）
@@ -110,7 +119,6 @@ export default function LedgerBook() {
           {!showBalances && history.length > 0 && (
             <span className="drawer-hint"><PixelText size={2} color="var(--c-wood-900)">他人余额保密</PixelText></span>
           )}
-          <button className="drawer-x" onClick={() => setPanel(null)} title="收起 (L / Esc)">✕</button>
         </div>
       </div>
       <div className="drawer-body ledger-body">
