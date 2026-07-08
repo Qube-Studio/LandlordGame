@@ -3,11 +3,11 @@
 // 地主资金目标序列（放缓/封顶）与惩罚、初始资金动态、下注边界。
 
 import assert from 'node:assert/strict';
-import { mergeConfig, roomConfig, getInitialBalance, getInitialPool, getMinStake, factionOf } from '../config.js';
+import { mergeConfig, roomConfig, getInitialBalance, getInitialPool, getMinStake, factionOf, capitalistWallet } from '../config.js';
 import { apportion } from '../logic/apportion.js';
 import { betBounds, settleRound, applyAllocation, allocateDebt } from '../logic/rules.js';
 import { relativeGoal, goalPenalty, drawGoalInterval } from '../logic/landlordGoal.js';
-import { computeWage, wageDueThisRound, investorWaiver, computeTax } from '../logic/competitive.js';
+import { computeWage, wageDueThisRound, investorWaiver, computeTax, taxInterval, taxDueThisRound } from '../logic/competitive.js';
 import { createLedger, buildSettleScript, flowsFromParts } from '../logic/payout.js';
 
 let passed = 0;
@@ -264,10 +264,18 @@ test('竞技地主初始 = ⌊2 × 农民总资金⌋（按花名册）', () => 
   // 名册 farmer+investor+glutton = 15+12+8 = 35 → 地主 ⌊2×35⌋ = 70
   assert.equal(getInitialBalance('landlord', 3, comp, { mode: 'competitive', farmerTotal: 35 }), 70);
 });
-test('资本家：个人资金 = 农民数×5，资金池 = 农民数×15', () => {
-  assert.equal(getInitialBalance('capitalist', 3, comp, { mode: 'competitive' }), 15);
-  assert.equal(getInitialPool('capitalist', 3, comp), 45);
+test('资本家：开局钱包 = 6n+round(池×0.1)，资金池 = 农民数×20', () => {
+  // 3 农民：池 = 3×20 = 60；钱包 = 6×3 + round(60×0.1) = 18+6 = 24（动态钱包吃开局池）
+  assert.equal(getInitialBalance('capitalist', 3, comp, { mode: 'competitive' }), 24);
+  assert.equal(getInitialPool('capitalist', 3, comp), 60);
   assert.equal(getInitialPool('landlord', 3, comp), null);
+});
+test('资本家动态钱包 = 6n + round(当前池×0.1)（四舍五入、下限基6n、随池涨跌）', () => {
+  assert.equal(capitalistWallet(20, 1, comp), 8);   // 6 + round(2.0) = 8（开局池）
+  assert.equal(capitalistWallet(40, 2, comp), 16);  // 12 + round(4.0) = 16
+  assert.equal(capitalistWallet(35, 1, comp), 10);  // 6 + round(3.5)=4 → 10（半档进位）
+  assert.equal(capitalistWallet(5, 1, comp), 7);    // 6 + round(0.5)=1 → 7
+  assert.equal(capitalistWallet(0, 1, comp), 6);    // 池空 → 只剩基 6n
 });
 test('资本家最小出资 = 1，且可全押（无强制全押、无保留金）', () => {
   assert.equal(getMinStake('capitalist', 3, comp, { mode: 'competitive' }), 1);
@@ -302,13 +310,25 @@ test('settleRound：投资人担保作用于【乘后】缺口（减 2n 后再�
   assert.equal(s.shortfall, 7);            // 乘后 9 − 担保 2 = 7
   assert.equal(s.debts.A + s.debts.B, 7);  // 剩余 7 由农民补（各余 5，可全补）
 });
-test('资本家税：随局恒定 max(taxMin, ⌊开局池×10%⌋)，pool≤0 不扣、至多扣到池空', () => {
-  assert.equal(computeTax(30, 30, comp), 3);  // floor(3)
-  assert.equal(computeTax(15, 30, comp), 3);  // 池亏损，税不变（恒定税）
-  assert.equal(computeTax(15, 15, comp), 2);  // floor(1.5)=1 → 下限 2
-  assert.equal(computeTax(1, 30, comp), 1);   // 至多扣到池空
-  assert.equal(computeTax(0, 30, comp), 0);
-  assert.equal(computeTax(-5, 30, comp), 0);
+test('资本家税：按当前池 max(taxMin, round(当前池×10%))，pool≤0 不扣、至多扣到池空', () => {
+  assert.equal(computeTax(30, comp), 3);   // round(3.0)=3
+  assert.equal(computeTax(25, comp), 3);   // round(2.5)=3（四舍五入进位）
+  assert.equal(computeTax(15, comp), 2);   // round(1.5)=2
+  assert.equal(computeTax(10, comp), 2);   // round(1.0)=1 → 下限 taxMin=2
+  assert.equal(computeTax(1, comp), 1);    // 至多扣到池空（min(pool,税)）
+  assert.equal(computeTax(0, comp), 0);
+  assert.equal(computeTax(-5, comp), 0);
+});
+test('资本家征税间隔 = 农民人数，round%interval===0 才扣（round≥1）', () => {
+  assert.equal(taxInterval(1), 1);
+  assert.equal(taxInterval(4), 4);
+  assert.equal(taxInterval(0), 1);         // clamp 到 ≥1
+  assert.equal(taxDueThisRound(1, 1), true);   // 1 农民 → 每回合征
+  assert.equal(taxDueThisRound(1, 2), false);  // 2 农民 → 回合 1 不征
+  assert.equal(taxDueThisRound(2, 2), true);   // 回合 2 征
+  assert.equal(taxDueThisRound(4, 2), true);
+  assert.equal(taxDueThisRound(3, 2), false);
+  assert.equal(taxDueThisRound(0, 1), false);  // round≥1 守卫
 });
 
 console.log(`\n全部通过：${passed} 项 ✅`);

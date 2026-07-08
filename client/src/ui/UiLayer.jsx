@@ -34,7 +34,7 @@ const PHASE_META = {
   },
   REVEAL: { label: '揭牌', hint: '各家下注已公开，空格确认后掷硬币' },
   COIN_FLIP: { label: '掷硬币', hint: '正面地主阵营胜，反面农民阵营胜' },
-  REFLIP: { label: '重掷决策', hint: '农民输了！暴食者可请求重掷硬币（每局 3 次）' },
+  REFLIP: { label: '重掷决策', hint: '农民输了！暴食者可请求重掷硬币（每局次数=农民人数，每回合限 1 次）' },
   SETTLE: { label: '系统结算', hint: '桌上的钱聚拢成彩池，按规则分成几份送到各家圈里' },
   NEGOTIATE: {
     label: '农民协商',
@@ -541,8 +541,8 @@ function GoalHud() {
 }
 
 // ---------- 资本家资金池 HUD（本人/观战可见） ----------
-// 始终填满的渐隐条：左区（绿）=个人资金/池=可挪用比例，右区（红）=下回合税/池=税负比例；
-// 区宽随池涨跌阻尼变化。税额服务端直发（§8.6 恒定税），客户端只渲染。
+// 始终填满的渐隐条：左区（绿）=个人资金/池=可挪用比例，右区（红）=下次税/池=税负比例；
+// 区宽随池涨跌阻尼变化。征税改间隔制（§8.6，每「农民人数」回合、按当前池），税额与倒计时服务端直发。
 function CapitalistHud() {
   const state = useGameStore(s => s.state);
   const c = state.capitalist;
@@ -550,11 +550,13 @@ function CapitalistHud() {
   if (!c || c.pool == null) return null;
   const pool = Math.max(0, c.pool);
   const tax = c.taxNext ?? 0;
+  const rtn = Math.max(0, c.taxRoundsToNext ?? 0);        // 距下次征税回合数（0=本回合征）
+  const taxLabel = rtn <= 0 ? '本回合征税：' : `征税(${rtn}回合后)：`;
   // 左区分子固定用开局个人资金（下注中 balance 暂时下探，占比不该跟着抖）
   const personal = c.personalInitial ?? c.personal ?? 0;
   return (
     <div className="goal-hud hud-card quest-card">
-      <QuestLine bump={bump} pairs={[['担保资金：', pool], ['回合税务：', tax, 'var(--danger)']]} />
+      <QuestLine bump={bump} pairs={[['担保资金：', pool], [taxLabel, tax, 'var(--danger)']]} />
       <QuestFullBar
         left={pool > 0 ? personal / pool : 0}
         right={pool > 0 ? tax / pool : (tax > 0 ? 1 : 0)}
@@ -591,16 +593,17 @@ function GluttonHud() {
   if (me?.role !== 'glutton' || me?.mealAllowance == null) return null;
   const meal = me.mealAllowance;
   const bal = Math.max(0, me.balance ?? 0);
-  const maxReflips = state.config?.competitive?.glutton?.maxReflips ?? 3;
+  // 重掷条满格基准 = 本局重掷总数（=农民人数，服务端 reflipsMax 直发；老存档回落到当前剩余）。
+  const total = Math.max(1, me.reflipsMax ?? me.reflipsLeft ?? 1);
   const left = Math.max(0, me.reflipsLeft ?? 0);
   const pairs = [['伙食费：', meal, meal > 0 ? 'var(--danger)' : 'var(--px-gold)']];
-  pairs.push(left > 0 ? ['可重掷：', left] : ['不可重掷', '']);
+  pairs.push(left > 0 ? ['可重掷：', `${left}/${total}`] : ['不可重掷', '']);
   return (
     <div className="goal-hud hud-card quest-card">
       <QuestLine bump={bump} pairs={pairs} />
       <QuestFullBar right={bal > 0 ? meal / bal : (meal > 0 ? 1 : 0)} />
       <span className="quest-reflip">
-        <span className="qr-fill" style={{ width: pct(maxReflips > 0 ? left / maxReflips : 0) }} />
+        <span className="qr-fill" style={{ width: pct(left / total) }} />
       </span>
     </div>
   );

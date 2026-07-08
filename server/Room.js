@@ -4,11 +4,11 @@
 // 分钱四子阶段 = SETTLE(系统结算) + NEGOTIATE(农民协商) + FINALIZE(正式结算) + 下一轮 DISCUSSION(农民讨论)。
 
 import crypto from 'crypto';
-import { roomConfig, getInitialBalance, getInitialPool, getMinStake, factionOf } from './config.js';
+import { roomConfig, getInitialBalance, getInitialPool, getMinStake, factionOf, capitalistWallet } from './config.js';
 import { getMode } from './modes/index.js';
 import { flipCoin, betBounds, validateBet, settleRound, applyAllocation } from './logic/rules.js';
 import { relativeGoal, goalPenalty, drawGoalInterval } from './logic/landlordGoal.js';
-import { computeWage, wageDueThisRound, investorWaiver, computeTax } from './logic/competitive.js';
+import { computeWage, wageDueThisRound, investorWaiver, computeTax, taxInterval, taxDueThisRound } from './logic/competitive.js';
 import { createLedger, buildSettleScript, flowsFromParts } from './logic/payout.js';
 import { apportion } from './logic/apportion.js';
 import { saveGameRecord } from './storage.js';
@@ -119,7 +119,8 @@ export class Room {
       pledge: 0,              // 投资人本回合担保额（掷币前可改）
       premium: 0,             // 投资人本回合已扣保费（锁定后）
       mealAllowance: 0,       // 暴食者累积饭账（成本，农民胜时扣除）
-      reflipsLeft: 0,         // 暴食者剩余重掷次数（每局）
+      reflipsLeft: 0,         // 暴食者剩余重掷次数（每局；开局 = 农民阵营人数）
+      reflipsMax: 0,          // 暴食者本局重掷总次数（HUD 进度条满格基准，随局固定）
       usedReflipThisRound: false,
       passedReflip: false,    // 暴食者本重掷窗已放弃
       ws,
@@ -259,6 +260,7 @@ export class Room {
     this.startedAt = Date.now();
     this.history = [];
     const opts = { mode: this.mode };
+    this.capFarmers = farmers.length;   // 花名册农民阵营人数：资本家动态钱包/资金池的固定基准（不随破产缩水）
     // 竞技地主初始按花名册：农民阵营各自初始资金之和。
     const farmerTotal = farmers.reduce((s, p) => s + getInitialBalance(p.role, farmers.length, this.config, opts), 0);
     const g = this.config.competitive?.glutton;
@@ -273,7 +275,9 @@ export class Room {
       p.pledge = 0;
       p.premium = 0;
       p.mealAllowance = 0;
-      p.reflipsLeft = p.role === 'glutton' ? (g?.maxReflips ?? 0) : 0;
+      // 暴食者重掷次数 = 农民阵营人数（硬上限 maxReflips；正常局 1~4 人 ≤ 4 即恒等农民数）。
+      p.reflipsLeft = p.role === 'glutton' ? Math.min(farmers.length, g?.maxReflips ?? farmers.length) : 0;
+      p.reflipsMax = p.reflipsLeft;
       p.usedReflipThisRound = false;
     }
     // 地主资金目标基准：仅地主（非资本家）才有考核。相对制：开局定第一个目标与随机检查点。
@@ -337,6 +341,7 @@ export class Room {
       p.premium = 0;
       p.mealAllowance = 0;
       p.reflipsLeft = 0;
+      p.reflipsMax = 0;
       p.usedReflipThisRound = false;
       p.passedReflip = false;
     }
@@ -358,7 +363,7 @@ export class Room {
         id, username: '测试' + n, seat: this._seat++, role: null,
         balance: 0, bankrupt: false, online: true, ready: false, confirmed: false,
         negotiateConfirmed: false, spectator: false, emote: null,
-        pool: null, pledge: 0, premium: 0, mealAllowance: 0, reflipsLeft: 0, usedReflipThisRound: false, passedReflip: false,
+        pool: null, pledge: 0, premium: 0, mealAllowance: 0, reflipsLeft: 0, reflipsMax: 0, usedReflipThisRound: false, passedReflip: false,
         ws: null,
       });
     }
@@ -466,7 +471,9 @@ export class Room {
     this._checkAllBet();
   }
 
-  // 竞技每回合开始：清空本回合担保/保费/重掷标记，暴食者累积 1 点饭账（§8.2/8.4）。
+  // 竞技每回合开始：清空本回合担保/保费/重掷标记，暴食者累积 1 点饭账（§8.2/8.4）；
+  // 资本家动态钱包按当前池重算（§8.6）。此方法在 _enterBetting 捕获 roundStartBalances **之后**调用，
+  // 故重设钱包后须同步覆盖 roundStartBalances[cap]，否则 FINALIZE「本金归还」会还原到旧钱包、poolDelta 算错。
   _beginCompetitiveRound() {
     this.debtWaiver = 0;
     const inc = this.config.competitive.glutton.allowancePerRound;
@@ -476,6 +483,13 @@ export class Room {
       p.usedReflipThisRound = false;
       p.passedReflip = false;
       if (p.role === 'glutton') p.mealAllowance += inc;
+    }
+    // 资本家动态钱包：可下注额 = 6n + round(当前池×0.1)，每回合按当前池重算（藏池→L 不可预测=技巧地基）。
+    const cap = this._capitalist();
+    if (cap && this._isActive(cap)) {
+      cap.balance = capitalistWallet(cap.pool ?? 0, this.capFarmers, this.config);
+      cap.personalInitial = cap.balance;             // HUD 满格基准 = 本回合钱包（下注中 balance 下探不抖）
+      this.roundStartBalances[cap.id] = cap.balance; // 本金归还目标对齐新钱包（FINALIZE result.after[cap]=start）
     }
   }
 
@@ -801,8 +815,11 @@ export class Room {
         result.after[cap.id] = start;          // 个人资金恒定
         result.deltas[cap.id] = 0;
         cap.pool = (cap.pool ?? 0) + capitalistPoolDelta;
-        capitalistTax = computeTax(cap.pool, cap.poolInitial ?? 0, this.config);
-        cap.pool -= capitalistTax;
+        // 征税间隔 = 活跃农民阵营人数（每 interval 回合一次，非每回合）；税基 = 当前池。
+        if (taxDueThisRound(this.round, this.roundFarmerIds.length)) {
+          capitalistTax = computeTax(cap.pool, this.config);
+          cap.pool -= capitalistTax;
+        }
         capitalistPool = cap.pool;
         // 桌面演出：堆与本金 L 的差额在 堆↔池 间搬运（差额 === capitalistPoolDelta，可由公开信息推出，无泄密）。
         const principal = this.bets[cap.id] ?? 0;
@@ -1140,6 +1157,7 @@ export class Room {
       ...(this._competitive ? {
         pledge: p.role === 'investor' ? ((p.id === viewerId || spectator || betsPublic) ? p.pledge : null) : null,
         reflipsLeft: p.role === 'glutton' ? p.reflipsLeft : null,
+        reflipsMax: p.role === 'glutton' ? p.reflipsMax : null,
         usedReflip: p.role === 'glutton' ? p.usedReflipThisRound : null,
         mealAllowance: p.role === 'glutton' ? ((p.id === viewerId || spectator) ? p.mealAllowance : null) : null,
         pool: p.role === 'capitalist' ? ((p.id === viewerId || spectator) ? p.pool : null) : null,
@@ -1164,14 +1182,19 @@ export class Room {
 
     // 资本家 HUD（§8.6/8.7）：资金池/个人资金仅本人/观战可见；taxRate 公开（用于展示扣税规则）。
     const cap = this._capitalist();
+    const capSelf = cap && (viewerId === cap.id || spectator);
+    const taxIv = taxInterval(Math.max(1, this._activeFarmers().length)); // 征税间隔 = 活跃农民数
+    const taxMod = this.round % taxIv;
     const capitalist = (this._competitive && cap && IN_GAME_PHASES.includes(this.phase)) ? {
       id: cap.id,
-      personal: (viewerId === cap.id || spectator) ? cap.balance : null,
-      personalInitial: (viewerId === cap.id || spectator) ? (cap.personalInitial ?? null) : null,
-      pool: (viewerId === cap.id || spectator) ? cap.pool : null,
-      poolInitial: (viewerId === cap.id || spectator) ? (cap.poolInitial ?? null) : null,
-      // 下回合税（§8.6 恒定税）：服务端算好直发，客户端只渲染（不再自行套税率公式）
-      taxNext: (viewerId === cap.id || spectator) ? computeTax(cap.pool ?? 0, cap.poolInitial ?? 0, this.config) : null,
+      personal: capSelf ? cap.balance : null,
+      personalInitial: capSelf ? (cap.personalInitial ?? null) : null,
+      pool: capSelf ? cap.pool : null,
+      poolInitial: capSelf ? (cap.poolInitial ?? null) : null,
+      // 下次征税额（§8.6 间隔制、按当前池）：服务端算好直发，客户端只渲染（不再自行套税率公式）。
+      taxNext: capSelf ? computeTax(cap.pool ?? 0, this.config) : null,
+      taxInterval: taxIv,                                    // 征税间隔（回合）——公开（施压规则）
+      taxRoundsToNext: taxMod === 0 ? 0 : taxIv - taxMod,    // 距下次征税还剩几回合（0=本回合征）
       taxRate: this.config.competitive.capitalist.taxRate,
       taxMin: this.config.competitive.capitalist.taxMin,
     } : null;
@@ -1198,6 +1221,7 @@ export class Room {
         pledgeMax: this.config.competitive.investor.maxPledge,
         mealAllowance: viewer.mealAllowance,
         reflipsLeft: viewer.reflipsLeft,
+        reflipsMax: viewer.reflipsMax,
         passedReflip: viewer.passedReflip,
         pool: viewer.pool,
         wage: viewer.role === 'farmer' ? wageInfo : null,
@@ -1309,11 +1333,13 @@ export class Room {
     return piles;
   }
 
-  // 暴食者中仍可重掷者（活跃 + 本回合参与 + 尚有次数）。
+  // 暴食者中仍可重掷者（活跃 + 本回合参与 + 尚有次数 + 本回合未用过）。
+  // usedReflipThisRound 过滤即「每回合最多申请 1 次」：重掷后即退出可重掷集——
+  // 独自暴食者时窗口不再重开（_afterCoinFlip 见 length===0 直接结算），多暴食者时不阻塞闸门。
   _reflipGluttons() {
     return this.roundFarmerIds
       .map(id => this.players.get(id))
-      .filter(p => p && p.role === 'glutton' && this._isActive(p) && p.reflipsLeft > 0);
+      .filter(p => p && p.role === 'glutton' && this._isActive(p) && p.reflipsLeft > 0 && !p.usedReflipThisRound);
   }
 
   // 通用闸门：所有活跃玩家的 flag 为真（离线玩家按配置自动通过）即推进。

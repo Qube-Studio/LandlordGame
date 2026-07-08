@@ -74,7 +74,7 @@ export const PROP_COLORS = {
   crown: '#f0d060', ruby: '#c4423a',          // 地主皇冠
   hatTop: '#23232c', hatBrim: '#1e1a24', hatBand: '#d8b86a', // 资本家礼帽
   straw: '#cda861', straw2: '#c09a4e',        // 农民草帽
-  lens: '#cfd4dc',                            // 投资人镜框
+  specFrame: '#17171b', specGlass: '#cfe6ee', // 投资人半框眼镜：黑色眉框 + 冷调玻璃镜片（半透明）
   chefWhite: '#f2ece0', chefWhite2: '#f8f4ea',// 厨师帽
   drumSkin: '#c9a36a', drumBone: '#8a5a30',   // 暴食者鸡腿
   wax: P.wax,                                 // 火漆印章/酱渍（真源已提升进 P）

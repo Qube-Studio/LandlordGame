@@ -143,7 +143,7 @@ LOBBY ──房主开始──► DISCUSSION ──全员准备──► BETTING
 
 结构：贪婪定目标线，再看对方够不够——**不够走盘剥、有余走抽成**（二者互斥）。
 
-> **竞技档差异化**（`competitive.landlordAttrs`）：地主 `greed 2 / squeeze 1.5 / rake 0.8`（厚资本、赢面凶）；资本家 `greed 1.5 / squeeze 3 / rake 0.4`（赢面温和但逼债极狠，配资金池）。快速档基础地主沿用上表默认 `1.5 / 1.5 / 0.5`。
+> **竞技档差异化**（`competitive.landlordAttrs`）：地主 `greed 2 / squeeze 1.5 / rake 0.8`（厚资本、赢面凶）；资本家 `greed 1.6 / squeeze 6 / rake 0.4`（**专家向**：低贪婪压「躺赢地板」、高盘剥抬「骗押技巧天花板」）。快速档基础地主沿用上表默认 `1.5 / 1.5 / 0.5`。
 
 记地主下注 `L`，农民下注合计 `F`，桌面总额 `pot = L + F`，目标 `target = round(L × greed)`。**所有带小数的比例计算（三倍率 / 目标 / 罚款 / 税）统一走四舍五入 `config.rounding: 'round'`**；不做零头账（被舍去的小数不累积）。
 
@@ -357,9 +357,9 @@ data/              运行时数据（gitignore）
 | 农民 | `investor` 投资人 | 12 | 掷币前担保 n（§8.3） | — |
 | 农民 | `glutton` 暴食者 | 8 | 农民输时重掷（§8.4） | 饭账（农民胜时扣，§8.4） |
 | 地主 | `landlord` 地主 | ⌊农民总资金 × 2⌋ | — | 资金目标考核（§8.5） |
-| 地主 | `capitalist` 资本家 | 个人 农民数×5 + 资金池 农民数×15 | 押注从个人资金出、本金必归还（§8.6） | 每回合资金池税（§8.6） |
+| 地主 | `capitalist` 资本家 | 钱包(动态) 6n+round(池÷10) + 资金池 农民数×20 | 押注从钱包出、本金必归还（§8.6） | 每「农民数」回合按当前池征税（§8.6） |
 
-- **初始资金按花名册**：竞技模式下 `getInitialBalance` 需「按角色名册」计算——先求各农民按其角色初始资金之和 `farmerTotal`，地主 = ⌊`landlordFundMultiplier` × farmerTotal⌋，资本家个人 = 活跃农民数 × `personalPerFarmer`(5)、资金池 = 活跃农民数 × `poolPerFarmer`(15)。换公式只改此函数（保持 §0.2 扩展点）。
+- **初始资金按花名册**：竞技模式下 `getInitialBalance` 需「按角色名册」计算——先求各农民按其角色初始资金之和 `farmerTotal`，地主 = ⌊`landlordFundMultiplier` × farmerTotal⌋，资本家钱包 = `capitalistWallet`（动态 = 6×农民数 + round(当前池 × `personalPoolShare`0.1)，每回合重算）、资金池 = 活跃农民数 × `poolPerFarmer`(20)。换公式只改这些函数（保持 §0.2 扩展点）。
 - 角色身份（哪一种）与现有 landlord/farmer 一样**公开**（座位、头顶名牌显示），用于施压与配合；**技能进度**的隐私见 §8.7。
 
 ### 8.2 工资（基础农民被动）
@@ -382,13 +382,13 @@ data/              运行时数据（gitignore）
 主题呼应「暴食」——每回合不停吃饭累积**饭账（成本）**，赢钱时才结清，但能强行干预掷币。
 
 - **饭账 mealAllowance**：每回合 +`glutton.allowancePerRound`（默认 1），是累积的**待扣成本**而非收益。**仅农民阵营赢时**于 FINALIZE 把当前累积额从该暴食者余额**扣除**（记为 `allowanceCharged`），随后清零；扣除在破产判定前，**允许直接扣到破产**（囤饭账有风险）。农民输则饭账继续累积（不结算）。
-- **重掷**：当 COIN_FLIP 落定为**农民输**时进入 **REFLIP 决策窗**（仅当场上存在尚有次数的暴食者且农民输时才出现）。每个暴食者每局最多 `glutton.maxReflips`（默认 3）次：
-  - 暴食者请求重掷（`request_reflip`）→ 服务端**权威重新 flipCoin**，客户端回放新动画。
+- **重掷**：当 COIN_FLIP 落定为**农民输**时进入 **REFLIP 决策窗**（仅当场上存在尚有次数的暴食者且农民输时才出现）。**每个暴食者每局重掷次数 = 活跃农民阵营人数**（开局定，`min(农民数, glutton.maxReflips)`；`maxReflips` 默认 4 = 最大农民数、仅作硬上限），且**每回合最多申请 1 次**：
+  - 暴食者请求重掷（`request_reflip`）→ 服务端**权威重新 flipCoin**，客户端回放新动画；请求后该暴食者**本回合不再获得决策窗**（`usedReflipThisRound`）。
   - 暴食者可主动**放弃重掷**（`pass_reflip`，不消耗次数）；**全部可重掷暴食者放弃（或离线自动放弃）即提前进入 SETTLE**，不必等满决策窗。
-  - 重掷**只消耗 1 次重掷机会**，不影响饭账（饭账只在农民胜时结清）；重掷后仍为农民输则饭账继续累积，其余有次数的暴食者仍可继续请求。
-  - 任一暴食者使农民转胜、或全部暴食者放弃/用尽次数、或超时 → 退出 REFLIP 窗进入 SETTLE。
-- 隐私：mealAllowance 仅本人/观战可见；剩余重掷次数公开（施压）。
-- **多暴食者**：各自独立计数与结清；同一次落定可被多名暴食者接力重掷。
+  - 重掷**只消耗 1 次重掷机会**，不影响饭账（饭账只在农民胜时结清）；重掷后仍为农民输则饭账继续累积——但该暴食者本回合已用满 1 次、退出可重掷集，其余**尚未申请**的暴食者仍可继续请求。
+  - 任一暴食者使农民转胜、或全部暴食者放弃/用尽本回合机会/用尽次数、或超时 → 退出 REFLIP 窗进入 SETTLE。
+- 隐私：mealAllowance 仅本人/观战可见；剩余/总重掷次数（`reflipsLeft`/`reflipsMax`）公开（施压）。
+- **多暴食者**：各自独立计数与结清；同一次落定可被多名暴食者接力重掷（但每人本回合限 1 次）。
 
 ### 8.5 地主（竞技数值）
 
@@ -401,11 +401,11 @@ data/              运行时数据（gitignore）
 
 风险结构与地主完全不同：**个人资金只是押注用的钱包、本金永远拿回**，真正的血条是**资金池**。
 
-- **个人资金（押注钱包）= 活跃农民数 × `capitalist.personalPerFarmer`(5)**。押注像地主一样把 L 放上桌，但**无论输赢，本金 L 在 FINALIZE 原封不动归还**（即现有「桌面→手牌」回收动画）——故个人资金恒定不变、**不决定破产**。
-- **最小出资额 = `capitalist.minStake`(1)**（固定，不随农民数）。**押注边界 `L ∈ [1, 个人资金]`，可全押**（押满个人资金；因本金必归还，无需留保留金，也没有强制全押的特殊情形）。
-- **资金池 = 真实钱包/血条**：初始 = 活跃农民数 × `capitalist.poolPerFarmer`(15)，承接全部**净盈亏**——FINALIZE 时 `pool += (本回合按地主口径算出的净变动)`，即 `pool += (实际收取额 − L)`（资本家胜为正、农民胜为 `−L`）。本金 L 归个人资金、盈亏归资金池，二者不重复计。
-- **押注与结算结构**与地主相同（L vs F，`target = ⌊L × greed⌋`，正面 = 资本家胜）；资本家有自己一套 `landlordAttrs.capitalist`（贪婪/盘剥/抽成），可与地主差异化。
-- **税收**：FINALIZE 时资金池 −`max(capitalist.taxMin, round(开局池量 × capitalist.taxRate))`——税额**随局恒定**（按开局池量计、不随池子涨跌；默认开局池 15n → 税 `max(2, round(15n×10%)) = max(2, round(1.5n))`，n=农民数：n=1→2、n=2→3、n=3→5、n=4→6），单次至多扣到池空，池 ≤ 0 不再扣。核心决策：押多大才能让池的净赢盖过固定税、又不被大额回摆拖垮。（2026-07-05 调参：原「⌊当前池×10%⌋」改为恒定税，HUD 上税占比条更可读、亏损时不再越亏越轻。）
+- **个人资金（押注钱包，动态）= `personalPerFarmer`(6)×花名册农民数 + `round(当前池 × personalPoolShare(0.1))`**，**每回合按当前池重算**（`capitalistWallet`，见 Room._beginCompetitiveRound；开局吃开局池 = 6n+round(20n×0.1)=**8n**）。押注把 L 放上桌，但**无论输赢，本金 L 在 FINALIZE 原封不动归还**——故它只是「本回合能押多少」的额度、**不决定破产**。**藏池（农民看不到资金池）+ 动态钱包 → 农民猜不准 L 上限**，是资本家「读牌/骗押」技巧的地基（见下平衡设计）。
+- **最小出资额 = `capitalist.minStake`(1)**（固定，不随农民数）。**押注边界 `L ∈ [1, 本回合钱包]`，可全押**（因本金必归还，无需留保留金，也没有强制全押的特殊情形）。
+- **资金池 = 真实钱包/血条**：初始 = 活跃农民数 × `capitalist.poolPerFarmer`(20)，承接全部**净盈亏**——FINALIZE 时 `pool += (本回合按地主口径算出的净变动)`，即 `pool += (实际收取额 − L)`（资本家胜为正、农民胜为 `−L`）。本金 L 归钱包、盈亏归资金池，二者不重复计。
+- **押注与结算结构**与地主相同（L vs F，`target = round(L × greed)`，正面 = 资本家胜）；`landlordAttrs.capitalist` = **贪婪 1.6 / 盘剥 6 / 抽成 0.4**。**专家向调参**：低贪婪(1.6，仍低于盈亏平衡 g=2)压低「躺赢地板」，高盘剥(6)放大「逼农民填不起→按当前余额巨额罚债」的技巧收益＝高天花板。模拟(真实结算)：菜鸟平push被农民读死 ~30%、高手骗押 ~55%+；技巧空间由盘剥主导（贪婪定高度、盘剥定坡度）。
+- **税收**：**每「活跃农民阵营人数」回合征一次**（间隔制，`taxDueThisRound(round, farmerCount)` = `round % max(1,farmerCount) === 0`，`round≥1`；征税回合 FINALIZE 时扣，非征税回合不扣），税额 = `max(capitalist.taxMin, round(当前池 × capitalist.taxRate))`——**按当前池计**（越亏扣越少、给失血的资本家喘息；下限 `taxMin`=2 兜底），单次至多扣到池空，池 ≤ 0 不再扣。间隔随农民数放缓（n=1 每回合、n=4 每 4 回合）。核心决策：押多大才能让池的净赢盖过周期税、又不被大额回摆拖垮。（版本沿革：2026-07-05 曾改「按开局池恒定、每回合扣」；2026-07-08 定为「间隔=农民数、按当前池」——减轻长期税压、配合资本家偏弱的现状。）
 - **无资金目标考核**。**破产**：FINALIZE 后资金池 ≤ 0。**FINALIZE 顺序**：本金 L 归还个人资金 → 净盈亏入资金池 → 扣税 → 破产判定。
 
 ### 8.7 阶段 / 协议 / 视图增量
@@ -423,10 +423,11 @@ data/              运行时数据（gitignore）
 competitive: {
   initialBalance: { farmer: 15, investor: 12, glutton: 8 },
   landlordFundMultiplier: 2,
-  capitalist: { personalPerFarmer: 5, poolPerFarmer: 15, minStake: 1, taxRate: 0.10, taxMin: 2 },
+  capitalist: { personalPerFarmer: 6, poolPerFarmer: 20, personalPoolShare: 0.1, minStake: 1, taxRate: 0.10, taxMin: 2 }, // 钱包动态=6n+round(池×0.1)
+  landlordAttrs: { capitalist: { greed: 1.6, squeeze: 6, rake: 0.4 } }, // 专家向：低贪婪压地板、高盘剥抬天花板
   wage:    { baseInterval: 5, minInterval: 2, perFarmerIntervalReduce: 1, baseAmount: 1, perFarmerAmountBonus: 1 },
   investor:{ maxPledge: 3, waiveMultiplier: 2 },
-  glutton: { allowancePerRound: 1, maxReflips: 3 },
+  glutton: { allowancePerRound: 1, maxReflips: 4 }, // 每局重掷 = min(农民数, maxReflips)；maxReflips=maxFarmers 仅作硬上限
   // landlordGoal 沿用顶层相对制（不再单独 schedule 覆盖）
 }
 ```

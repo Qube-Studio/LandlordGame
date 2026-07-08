@@ -12,6 +12,13 @@ const pmatGlow = (color) => new THREE.MeshStandardMaterial({
 const fabricMat = (color) => new THREE.MeshStandardMaterial({
   map: tex('fabric', { color, pattern: 'stripe' }), roughness: 1, flatShading: true,
 });
+// 玻璃镜片：半透明冷调 + 低粗糙（出高光）。用 transparent/opacity 而非 transmission——
+// 招募令 bustSnapshot 是无场景背景的离屏渲染，transmission 折射在那里会失效；半透明两处都稳。
+// depthWrite:false 避免遮住身后的脸；镜片在脸前，透过它能看到脸。
+const glassMat = (color) => new THREE.MeshStandardMaterial({
+  color, transparent: true, opacity: 0.34, roughness: 0.12, metalness: 0,
+  flatShading: true, depthWrite: false,
+});
 const box = (mat, w, h, d, x = 0, y = 0, z = 0) => {
   const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
   m.position.set(x, y, z);
@@ -39,11 +46,16 @@ export function buildHeadProp(role) {
       g.add(box(fabricMat(PROP_COLORS.straw), 0.74, 0.05, 0.74, 0, 0.295, 0));
       g.add(box(fabricMat(PROP_COLORS.straw2), 0.4, 0.18, 0.4, 0, 0.405, 0));
       return g;
-    case 'investor': { // 圆框眼镜(马甲/领带/袖套已烘进皮肤)
-      const lens = pmat(PROP_COLORS.lens);
-      g.add(box(lens, 0.15, 0.15, 0.03, -0.12, 0.025, 0.29));
-      g.add(box(lens, 0.15, 0.15, 0.03, 0.12, 0.025, 0.29));
-      g.add(box(lens, 0.1, 0.03, 0.03, 0, 0.025, 0.29));
+    case 'investor': { // 半框眼镜=黑色眉框(仅顶部)+玻璃镜片(马甲/领带/袖套已烘进皮肤)
+      const glass = glassMat(PROP_COLORS.specGlass);
+      // 亮黑框:低粗糙+金属度→出高光,在哑光深色屏幕脸上才能作为"框"跳出来(纯哑光黑会与屏幕融掉)。
+      const frame = new THREE.MeshStandardMaterial({
+        color: PROP_COLORS.specFrame, roughness: 0.28, metalness: 0.55, flatShading: true,
+      });
+      g.add(box(glass, 0.15, 0.15, 0.026, -0.12, 0.02, 0.29));  // 左镜片(玻璃)
+      g.add(box(glass, 0.15, 0.15, 0.026, 0.12, 0.02, 0.29));   // 右镜片(玻璃)
+      g.add(box(frame, 0.42, 0.04, 0.05, 0, 0.115, 0.30));      // 眉框:横贯双镜片顶缘的黑条(仅顶部,无下/侧框)
+      g.add(box(frame, 0.09, 0.03, 0.045, 0, 0.055, 0.30));     // 鼻梁:两镜片间黑色小桥
       return g;
     }
     case 'glutton': // 厨师帽(围裙已烘进皮肤)

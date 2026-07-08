@@ -25,10 +25,22 @@ export function investorWaiver(totalPledge, config) {
   return Math.max(0, totalPledge) * config.competitive.investor.waiveMultiplier;
 }
 
-// 资本家每回合资金池税（§8.6，2026-07-05 调参）：税额随局恒定 = max(taxMin, round(开局池量 × taxRate))
-//（不随当前池涨跌——亏损时不再越亏越轻，HUD 税占比条也更可读）；单次至多扣到池空，pool ≤ 0 不再扣。
-export function computeTax(pool, initialPool, config) {
+// 资本家资金池税（§8.6，2026-07-08 改版）：**每「农民阵营人数」回合征一次**（间隔制，见 taxDueThisRound），
+// 税额 = max(taxMin, round(当前池 × taxRate))——按当前池计（越亏扣越少，给失血的资本家喘息；下限 taxMin 兜底）。
+// 单次至多扣到池空，pool ≤ 0 不再扣。
+export function computeTax(pool, config) {
   const t = config.competitive.capitalist;
   if (!(pool > 0)) return 0;
-  return Math.min(pool, Math.max(t.taxMin, roundBy(Math.max(0, initialPool || 0) * t.taxRate, config)));
+  return Math.min(pool, Math.max(t.taxMin, roundBy(pool * t.taxRate, config)));
+}
+
+// 资本家征税间隔 = 活跃农民阵营人数（至少 1）。人越多、征得越疏。
+export function taxInterval(farmerCount) {
+  return Math.max(1, farmerCount || 1);
+}
+
+// 本回合是否征税：round 为间隔整数倍（round≥1）。与工资 wageDueThisRound 同构。
+export function taxDueThisRound(round, farmerCount) {
+  const interval = taxInterval(farmerCount);
+  return round >= 1 && round % interval === 0;
 }

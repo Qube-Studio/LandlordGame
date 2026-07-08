@@ -200,19 +200,19 @@ await test('竞技资本家：本金留堆归还、盈亏差额走池、税收/�
     roles: { landlord: 'capitalist', farmers: ['glutton'] },
   });
   const cap = room.players.get(C);
-  assert.equal(cap.balance, 5);  // 个人 = 1 农民 × 5
-  assert.equal(cap.pool, 15);
+  assert.equal(cap.balance, 8);  // 钱包 = 6×1 + round(20×0.1) = 8
+  assert.equal(cap.pool, 20);
   await playToSettle(room, C, [G], { [C]: 2, [G]: 1 }, 'tails');
   await until(() => room.phase === 'FINALIZE', '单农民跳协商');
-  // pot 3 全归暴食者；资本家堆 0 → 池垫付本金 2；池 15−2−税2=11；暴食者饭账 1 从堆里扣
+  // pot 3 全归暴食者；资本家堆 0 → 池垫付本金 2；池 20−2−税2=16；暴食者饭账 1 从堆里扣
   assert.deepEqual(stepSources(room), ['capitalistPool', 'capitalistTax', 'mealAllowance']);
   assert.equal(room.payout.piles[C], 2);      // 本金留堆
   assert.equal(room.payout.piles[G], 3 - 1);  // take 3 − 饭账 1
-  assert.equal(cap.pool, 11);
+  assert.equal(cap.pool, 16);
   room.takePayout(C);
   room.takePayout(G);
   await until(() => room.phase === 'DISCUSSION', '下一回合');
-  assert.equal(cap.balance, 5);                          // 个人资金恒定
+  assert.equal(cap.balance, 8);                          // 本回合钱包 8（本金必归还）
   assert.equal(room.players.get(G).balance, 7 + 3 - 1);  // 押1后7 + take3 − 饭账1
   room.destroy();
 });
@@ -225,14 +225,31 @@ await test('竞技资本家：盈余入池步（heads 全覆盖）', async () =>
   });
   await playToSettle(room, C, [F], { [C]: 2, [F]: 1 }, 'heads');
   await until(() => room.phase === 'FINALIZE', '单农民跳协商');
-  // target round(2×1.5)=3 = pot → landlordTake 3；堆 3 − 本金 2 = 盈余 1 入池；税 max(2, round(开局池15×0.1))=2
+  // target round(2×1.6)=round(3.2)=3 = pot → landlordTake 3；堆 3 − 本金 2 = 盈余 1 入池；
+  // 1 农民 → 间隔 1 每回合征税；税基=当前池(20+盈余1=21) → max(2, round(21×0.1)=2)=2
   const pool = room.payout.script.find(s => s.source === 'capitalistPool');
   assert.deepEqual(pool.flows, [{ from: { kind: 'pile', id: C }, to: { kind: 'pool', id: C }, amount: 1 }]);
   assert.equal(room.payout.piles[C], 2);
-  assert.equal(room.players.get(C).pool, 15 + 1 - 2);
+  assert.equal(room.players.get(C).pool, 20 + 1 - 2);
   room.takePayout(C);
   await until(() => room.phase === 'DISCUSSION', '下一回合');
-  assert.equal(room.players.get(C).balance, 5);  // 个人资金恒定 = 1 农民 × 5
+  assert.equal(room.players.get(C).balance, 8);  // 本回合钱包 = 6×1+round(20×0.1) = 8
+  room.destroy();
+});
+
+// ---------------------------------------------------------------------------
+await test('竞技资本家税·间隔制：2 农民 → 回合 1 不征税（round%interval≠0）', async () => {
+  // 征税间隔 = 农民人数 = 2；回合 1：1%2≠0 → 不征税（旧版每回合都扣，此为新行为的守卫）。
+  const { room, L: C, fids: [A, B] } = setupRoom({
+    mode: 'competitive', farmers: 2,
+    roles: { landlord: 'capitalist', farmers: ['farmer', 'farmer'] },
+  });
+  // 资本家押 4 → target round(4×1.6)=round(6.4)=6；两农民各押 1 → pot=6=target（无溢余/无缺口）。heads 农民无所得可分。
+  await playToSettle(room, C, [A, B], { [C]: 4, [A]: 1, [B]: 1 }, 'heads');
+  await until(() => room.phase !== 'SETTLE', '离开系统结算');
+  if (room.phase === 'NEGOTIATE') { room.negotiateConfirm(A, true); room.negotiateConfirm(B, true); }
+  await until(() => room.phase === 'FINALIZE', '进入结算入账');
+  assert.ok(!stepSources(room).includes('capitalistTax'), '回合 1（间隔 2）不应出现征税步');
   room.destroy();
 });
 

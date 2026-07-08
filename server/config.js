@@ -68,17 +68,19 @@ export const DEFAULT_CONFIG = {
     landlordFundMultiplier: 2,                          // 地主初始 = ⌊农民总资金 × 2⌋
     initialBalance: { farmer: 15, investor: 12, glutton: 8 }, // 农民阵营按角色的初始资金
     // 资本家：个人资金=押注钱包（本金必归还、不决定破产）；资金池=血条（承接盈亏、被税、耗尽即破产）。
-    capitalist: { personalPerFarmer: 5, poolPerFarmer: 15, minStake: 1, taxRate: 0.10, taxMin: 2 },
+    //   钱包为**动态**：每回合 = personalPerFarmer×农民数 + round(当前池 × personalPoolShare)，随池涨跌（见 capitalistWallet）。
+    //   藏池 + 动态钱包 = 农民猜不准资本家的下注上限 L，是资本家「读牌/骗押」技巧的地基（GAME_SPEC §8.6）。
+    capitalist: { personalPerFarmer: 6, poolPerFarmer: 20, personalPoolShare: 0.1, minStake: 1, taxRate: 0.10, taxMin: 2 },
     // 地主阵营角色属性（覆盖顶层 landlordAttrs；两角色差异化，见 GAME_SPEC §3.5）。
-    //   地主：厚资本、赢面凶（贪婪高、抽成狠）；资本家：赢面温和但逼债极狠（盘剥 3），配合资金池打法。
+    //   地主：厚资本、赢面凶（贪婪高、抽成狠）；资本家：**专家向**——低贪婪(1.6)压低躺赢地板、高盘剥(6)放大逼填收益=高技巧天花板。
     landlordAttrs: {
       landlord:   { greed: 2,   squeeze: 1.5, rake: 0.8 },
-      capitalist: { greed: 1.5, squeeze: 3,   rake: 0.4 },
+      capitalist: { greed: 1.6, squeeze: 6,   rake: 0.4 },
     },
     // 基础农民工资（m=活跃农民总数）：interval=max(minInterval, baseInterval−(m−1)·reduce)，amount=base+(m−1)·bonus。
     wage:    { baseInterval: 5, minInterval: 2, perFarmerIntervalReduce: 1, baseAmount: 1, perFarmerAmountBonus: 1 },
     investor:{ maxPledge: 3, waiveMultiplier: 2 },      // 担保保费先扣 n；农民输则缺口减 waiveMultiplier×Σn
-    glutton: { allowancePerRound: 1, maxReflips: 3 },   // 每回合 +1 饭账（成本，仅农民胜时从余额扣除并清零，可扣破产）；每局最多 3 次重掷
+    glutton: { allowancePerRound: 1, maxReflips: 4 },   // 每回合 +1 饭账（成本，仅农民胜时从余额扣除并清零，可扣破产）；每局重掷申请数 = 活跃农民阵营人数（maxReflips 为硬上限，取 maxFarmers=4 使正常局恒等于农民数），且每回合最多申请 1 次
     // 地主资金目标沿用顶层相对制（不再单独 schedule 覆盖）——地主/资本家均吃 landlordGoal 相对目标。
   },
 };
@@ -103,7 +105,8 @@ export function getInitialBalance(role, farmerCount, config, opts = {}) {
     if (role === 'farmer') return c.initialBalance.farmer;
     if (role === 'investor') return c.initialBalance.investor;
     if (role === 'glutton') return c.initialBalance.glutton;
-    if (role === 'capitalist') return Math.max(1, (farmerCount || 1) * c.capitalist.personalPerFarmer);
+    // 资本家开局钱包 = 动态钱包公式吃开局池（= 6n + round(20n×0.1) = 8n）；此后每回合按当前池重算（Room._beginCompetitiveRound）。
+    if (role === 'capitalist') return capitalistWallet(getInitialPool('capitalist', farmerCount, config), farmerCount, config);
     // 竞技地主初始经统一 roundBy（默认倍数 2 为整数、当前零影响；将来倍率若设小数会自动四舍五入）。
     if (role === 'landlord') return Math.max(1, roundBy((opts.farmerTotal ?? 0) * config.landlordFundMultiplier, config));
   }
@@ -117,6 +120,15 @@ export function getInitialBalance(role, farmerCount, config, opts = {}) {
 export function getInitialPool(role, farmerCount, config) {
   if (role !== 'capitalist') return null;
   return Math.max(0, (farmerCount || 1) * config.competitive.capitalist.poolPerFarmer);
+}
+
+// 资本家可下注额（钱包，§8.6）= personalPerFarmer×农民数 + round(当前池 × personalPoolShare)。
+// **动态**：每回合按当前池重算（Room._beginCompetitiveRound）。本金必归还、不决定破产（血条是资金池）。
+// farmerCount 用开局花名册人数（与资金池同基准，不随破产缩水）。
+export function capitalistWallet(pool, farmerCount, config) {
+  const c = config.competitive.capitalist;
+  const base = Math.max(1, (farmerCount || 1)) * c.personalPerFarmer;
+  return Math.max(1, base + roundBy(Math.max(0, pool || 0) * c.personalPoolShare, config));
 }
 
 // 最小出资额：农民固定，地主随活跃农民人数变化；竞技资本家固定（默认 1）。
