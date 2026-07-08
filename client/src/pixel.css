@@ -389,6 +389,29 @@ img, svg, canvas { -webkit-user-drag: none; user-drag: none; }
 .orient-card .orient-hint { font-size: 12px; color: var(--ink-dim); }
 @keyframes orient-rock { 0%, 100% { transform: rotate(-15deg); } 50% { transform: rotate(75deg); } }
 
+/* iOS Safari 一次性「添加到主屏全屏」引导条：顶部居中（正对着地址栏说事），避开刘海安全区 */
+.ios-install-hint {
+  position: fixed; z-index: 130;
+  top: max(6px, env(safe-area-inset-top, 0px));
+  left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 8px;
+  max-width: min(94vw, 600px);
+  padding: 7px 8px 7px 12px;
+  background: rgba(10, 11, 15, 0.94);
+  border: 2px solid #000;
+  box-shadow: inset 0 0 0 1px rgba(232, 194, 90, 0.28), 0 6px 20px rgba(0, 0, 0, 0.5);
+  font-family: var(--font-cjk); font-size: 13px; line-height: 1.4; color: var(--ink);
+  animation: ui-rise var(--t-ui) var(--e-enter) both;
+}
+.ios-install-hint b { color: var(--px-gold); }
+.ios-hint-text { flex: 1; min-width: 0; }
+.ios-hint-x {
+  flex: none; width: 26px; height: 26px; padding: 0; line-height: 1;
+  background: none; border: none; color: var(--ink-dim);
+  font-size: 15px; cursor: pointer;
+}
+.ios-hint-x:hover { color: var(--ink); }
+
 /* ---- 底部动作区（HUD 2.0：纵向 = 阶段提示小字 + 阶段面板；底边让位给桌沿抽屉把手） ---- */
 .hud-bottom {
   position: absolute; left: 0; right: 0; bottom: 40px;
