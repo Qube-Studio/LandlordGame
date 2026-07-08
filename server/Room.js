@@ -1027,8 +1027,9 @@ export class Room {
       console.error('保存对局记录失败:', err);
     }
     this._broadcastState();
-    // 终局演出后自动回大厅（§阶段七）：到点跑回大厅重置。房主手动「再来一局」会经 _setPhase 清掉这个定时器，不会二次触发。
-    this._after(returnMs, () => { if (this.phase === 'ENDED') this._resetToLobby(); });
+    // 终局后是否自动回大厅：默认 endedToLobbyMs=0 → **不自动回，留在终局对局等房主手动「下一局」**（restart_game）。
+    // 仅 >0 时到点自动回；房主手动重开会经 _setPhase 清掉这个定时器，不会二次触发。
+    if (returnMs > 0) this._after(returnMs, () => { if (this.phase === 'ENDED') this._resetToLobby(); });
   }
 
   // ---------- 聊天（语音接口预留：见 index.js NOT_IMPLEMENTED 分支） ----------

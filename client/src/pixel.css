@@ -1399,7 +1399,7 @@ body {
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 26px;
   pointer-events: none;
   background: radial-gradient(ellipse at center, rgba(6, 7, 11, 0.42) 0%, rgba(6, 7, 11, 0.64) 100%);
-  animation: victory-scrim-in 0.5s ease-out both;
+  animation: victory-scrim-in 0.5s ease-out backwards; /* 不用 both：forwards 填充会把 opacity 钉在 1、盖过 .leaving 的淡出 */
   transition: opacity 0.9s ease;
 }
 .victory-overlay.leaving { opacity: 0; }
@@ -1440,6 +1440,18 @@ body {
 
 .victory-hint { animation: victory-hint-in 0.6s ease-out 1.1s both; }
 @keyframes victory-hint-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+/* 终局操作行（大字淡出后浮现，独立于罩层不随淡走）：房主「下一局」+ 战绩提示 */
+.victory-controls {
+  position: fixed; left: 50%; bottom: 12%; transform: translateX(-50%);
+  z-index: 91;
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  pointer-events: none;                 /* 容器透传，按钮单独接事件 */
+  animation: victory-hint-in 0.5s ease-out both;
+}
+.victory-controls.dimmed { opacity: 0.04; }
+.victory-next { pointer-events: auto; font-size: 15px; padding: 8px 22px; }
+.victory-controls .victory-hint { animation: none; }
 
 /* 组装完成的金色爆点：从文字中心四散、旋转、淡出（--dx/--dy/--rot 由 JS 逐粒子注入），外加一圈扩散光环。
    绝对定位从中心起爆：left/top 50% 定位到中心，再用 -50% 归正粒子自身，之后按 --dx/--dy 外抛。 */

@@ -1,17 +1,19 @@
 // 终局演出（§阶段七，仅 3D 输入模式；2D 仍用 UiLayer#EndedPanel 的按钮面板）：
-// 阵营区分文案 → 逐字机甲组装式砸入（屏外带过冲落位）→ 组装完成爆金色粒子 → 驻留 → 收尾淡出。
+// 阵营区分文案 → 逐字机甲组装式砸入（屏外带过冲落位）→ 组装完成爆金色粒子 → 驻留 → 收尾淡出，
+// **淡出后露出终局桌面、不自动回大厅——房主点「下一局」才重开**（endedToLobbyMs 默认 0）。
 // 罩层 pointer-events:none：只挡视觉不挡交互，鼠标仍可转视角（相机 look 挂在 window 上，天然不受影响）。
-// 打开账本（L）时自身淡隐让位，收起即回。收尾淡出对齐服务端 endedReturnAt（自动回大厅时刻）。
+// 打开账本（L）时自身淡隐让位，收起即回。
 // 注：高斯模糊罩底另在演示分支单独评估，不并入正式游戏。
 import { useEffect, useMemo, useState } from 'react';
 import { useGameStore } from '../store/gameStore';
 import { ROLE_LABEL, factionOf, isFarmerSide, isLandlordSide } from '../game/roles';
-import { IS_3D_INPUT } from '../game/inputMode';
+import { IS_3D_INPUT, IS_TOUCH } from '../game/inputMode';
 import PixelText from '../assets/pixelfont/PixelText';
 
 const STAG = 130;      // 逐字入场间隔
 const SPARKS = 32;     // 组装完成的爆点粒子数
 const TEXT_SIZE = 14;  // 大字像素点边长（字高 ≈ 7×size）
+const DWELL = 2600;    // 爆点后驻留多久开始收尾淡出（无自动回大厅时自走）
 
 export default function VictoryOverlay() {
   const phase = useGameStore(s => s.state?.phase);
@@ -23,6 +25,8 @@ function VictoryStage() {
   const winnerSide = useGameStore(s => s.state.winnerSide);
   const myRole = useGameStore(s => s.state.me?.role);
   const spectator = useGameStore(s => !!s.state.me?.spectator);
+  const isHost = useGameStore(s => !!s.state.me?.isHost);
+  const send = useGameStore(s => s.send);
   const endedReturnAt = useGameStore(s => s.state.endedReturnAt);
   const panelOpen = useGameStore(s => s.panel != null);
   const landlordRole = useGameStore(s => s.state.players.find(p => isLandlordSide(p.role))?.role);
@@ -43,29 +47,44 @@ function VictoryStage() {
 
   useEffect(() => {
     const timers = [setTimeout(() => setBurst(true), burstAt)];
-    if (endedReturnAt) { // 对齐自动回大厅时刻，提前 ~0.9s 收尾淡出（回大厅时 phase 变更会卸载本层）
-      const ms = Math.max(burstAt + 600, endedReturnAt - Date.now() - 900);
-      timers.push(setTimeout(() => setLeaving(true), ms));
-    }
+    // 收尾淡出：默认（endedToLobbyMs=0，endedReturnAt 为 null）自走驻留 DWELL 后淡出，露出终局桌面；
+    // 若配置了自动回大厅（>0）则仍对齐其时刻提前 ~0.9s 淡（回大厅时 phase 变更卸载本层）。
+    const leaveAt = endedReturnAt
+      ? Math.max(burstAt + 600, endedReturnAt - Date.now() - 900)
+      : burstAt + DWELL;
+    timers.push(setTimeout(() => setLeaving(true), leaveAt));
     return () => timers.forEach(clearTimeout);
   }, [burstAt, endedReturnAt]);
 
   return (
-    <div className={`victory-overlay ${tone}${leaving ? ' leaving' : ''}${panelOpen ? ' dimmed' : ''}`}>
-      <div className={`victory-stage${burst ? ' landed' : ''}`}>
-        <div className="victory-text">
-          {chars.map((ch, i) => (
-            <span key={i} className="victory-char" style={{ animationDelay: `${i * STAG}ms`, '--rd': i % 2 ? 1 : -1 }}>
-              <PixelText size={TEXT_SIZE} color={color}>{ch}</PixelText>
-            </span>
-          ))}
+    <>
+      <div className={`victory-overlay ${tone}${leaving ? ' leaving' : ''}${panelOpen ? ' dimmed' : ''}`}>
+        <div className={`victory-stage${burst ? ' landed' : ''}`}>
+          <div className="victory-text">
+            {chars.map((ch, i) => (
+              <span key={i} className="victory-char" style={{ animationDelay: `${i * STAG}ms`, '--rd': i % 2 ? 1 : -1 }}>
+                <PixelText size={TEXT_SIZE} color={color}>{ch}</PixelText>
+              </span>
+            ))}
+          </div>
+          {burst && <Sparks />}
         </div>
-        {burst && <Sparks />}
       </div>
-      <div className="victory-hint">
-        <PixelText size={2.5} color="var(--ink-dim)">按 L 查看战绩</PixelText>
-      </div>
-    </div>
+      {/* 终局操作行：淡出后浮现（不随大字淡走）。房主=「下一局」按钮（重开）；其余=等待文案。
+          移动端不显示「按 L 查看战绩」（无键盘；账本仍可点桌沿 Dock 的账本页签）。 */}
+      {leaving && (
+        <div className={`victory-controls${panelOpen ? ' dimmed' : ''}`}>
+          {isHost
+            ? (
+              <button className="btn primary victory-next" onClick={() => send({ type: 'restart_game' })}>
+                下一局{!IS_TOUCH && <span className="keycap">空格</span>}
+              </button>
+            )
+            : <PixelText size={2.5} color="var(--ink-dim)">等待房主开下一局</PixelText>}
+          {!IS_TOUCH && <div className="victory-hint"><PixelText size={2} color="var(--ink-dim)">按 L 查看战绩</PixelText></div>}
+        </div>
+      )}
+    </>
   );
 }
 

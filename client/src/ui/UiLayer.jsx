@@ -19,7 +19,7 @@ import RoleWall from './RoleWall';
 import LedgerBook from './LedgerBook';
 import { EVENT_TEXT } from '../game/settleText';
 import { ROLE_LABEL, ROLE_GLYPH, factionOf, isFarmerSide, isLandlordSide } from '../game/roles';
-import { IS_3D_INPUT } from '../game/inputMode';
+import { IS_3D_INPUT, IS_TOUCH } from '../game/inputMode';
 
 const Icon = getArt('icon');
 
@@ -801,6 +801,28 @@ const PHASE_PANELS = {
 
 // （旧「FINALIZE 桌面→手牌 2D 幽灵飞行」已退役：拿取的钱由 3D 编导层 PayoutLayer 飞向资金蜡烛，§3.8）
 
+// 移动端触觉反馈：有人破产→一次短震；终局(胜/负)→一次脉冲震动。
+// 仅 IS_TOUCH 且支持 Vibration API（Android Chrome 支持；iOS Safari 无此 API，自动降级不震）。
+function useMobileHaptics() {
+  const players = useGameStore(s => s.state?.players);
+  const phase = useGameStore(s => s.state?.phase);
+  const prevBankruptRef = useRef(null); // null=尚未建立基线（冷挂载/重连不为既有破产者补震）
+  const endedRef = useRef(false);
+  useEffect(() => {
+    if (!IS_TOUCH || typeof navigator === 'undefined' || !navigator.vibrate || !players) return;
+    const ids = players.filter(p => p.bankrupt).map(p => p.id);
+    const prev = prevBankruptRef.current;
+    if (prev && ids.some(id => !prev.includes(id))) navigator.vibrate(45); // 新破产者：短震
+    prevBankruptRef.current = ids;
+  }, [players]);
+  useEffect(() => {
+    if (!IS_TOUCH || typeof navigator === 'undefined' || !navigator.vibrate) return;
+    if (phase === 'ENDED') {
+      if (!endedRef.current) { endedRef.current = true; navigator.vibrate([0, 90, 70, 140]); } // 终局：脉冲
+    } else endedRef.current = false;
+  }, [phase]);
+}
+
 export default function UiLayer() {
   const state = useGameStore(s => s.state);
   const connected = useGameStore(s => s.connected);
@@ -808,6 +830,7 @@ export default function UiLayer() {
   const setPanel = useGameStore(s => s.setPanel);
   useGameKeys();
   useWaitHints();
+  useMobileHaptics();
   const Panel = PHASE_PANELS[state.phase] ?? NullPanel;
 
   // 抽屉随阶段收起：阶段切换一律收起面板（别挡住新阶段行动区）；**进大厅/首挂不再自动升起招募令**
