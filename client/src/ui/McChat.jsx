@@ -212,9 +212,9 @@ export default function McChat() {
   };
   useEffect(() => () => clearTimeout(graceRef.current), []); // 卸载清理宽限计时
 
-  // 关闭聊天：收起 + 清输入 + 失焦；淡出租约延到收起布局落定后按视野重发（见下 useLayoutEffect）——
-  // 此刻仍是展开布局，量不到收起视野，直接 leaseVisible 会从屏外更早消息开淡。
-  const closeChat = useCallback(() => { setOpen(false); setText(''); inputRef.current?.blur(); leasePendingRef.current = true; }, [setOpen]);
+  // 关闭聊天：收起 + 失焦。**保留草稿**——不清 text，关闭重开继续写（仅发送成功才清，见 submit）。
+  // 淡出租约延到收起布局落定后按视野重发（见下 useLayoutEffect）——此刻仍是展开布局，量不到收起视野。
+  const closeChat = useCallback(() => { setOpen(false); inputRef.current?.blur(); leasePendingRef.current = true; }, [setOpen]);
 
   // 退出聊天落定：收起 DOM 就绪后（paint 前、rAF 首帧前）按视野重发错峰租约——**保持用户当前滚动位置**
   // （强制钉底=「退出被拽底」），淡出从他正看着的那片视野里最旧那条开始；贴底与否按现位置重新测量。
@@ -228,8 +228,20 @@ export default function McChat() {
 
   // 展开自动聚焦输入
   useEffect(() => { if (open && !readonly) inputRef.current?.focus(); }, [open, readonly, tab]);
-  // 展开/切频道：跳到底并视为贴底
-  useEffect(() => { const el = logRef.current; if (open && el) { el.scrollTop = el.scrollHeight; stickRef.current = true; } }, [open, tab]);
+  // 展开/切频道：滚到底并视为贴底。**移动端**虚拟键盘弹起 + 展开列表重排发生在同步 effect 之后，
+  // 同步 scrollTop 会量到旧 scrollHeight（表现为「打开聊天不显示最新消息」）——故推迟到布局落定(双 rAF)
+  // 再滚，并监听 visualViewport resize（键盘弹起/收起）在贴底时补滚到底。
+  useEffect(() => {
+    if (!open) return undefined;
+    stickRef.current = true;
+    const toBottom = () => { const el = logRef.current; if (el) el.scrollTop = el.scrollHeight; };
+    toBottom();                                            // 立即滚一次（桌面即够）
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => { toBottom(); raf2 = requestAnimationFrame(toBottom); }); // 布局落定后再滚
+    const onVV = () => { if (stickRef.current) toBottom(); };  // 键盘弹起 resize → 贴底则补滚
+    window.visualViewport?.addEventListener('resize', onVV);
+    return () => { cancelAnimationFrame(raf1); cancelAnimationFrame(raf2); window.visualViewport?.removeEventListener('resize', onVV); };
+  }, [open, tab]);
   // 展开态新消息：仅当本就贴底才自动跟随（读历史时不被拽到底）；收起态跟随由帧钟处理
   useEffect(() => { const el = logRef.current; if (open && el && stickRef.current) el.scrollTop = el.scrollHeight; }, [open, rendered.length]);
 

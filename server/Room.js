@@ -420,7 +420,11 @@ export class Room {
       p.emote = null;       // 手动表情每回合清空
     }
     this._broadcastState();
+    // 短喘息（反馈②）：进讨论后到点 discussionMs **自动**进下注——纯过场喘息，玩家端无「准备/跳过」入口。
+    // 仍保留 ready 门槛：仅供**离线全员自动代准备**时即时推进（无在线人观看，无需等喘息）。discussionMs=0 回退旧门槛。
     this._checkGate('ready', () => this._enterBetting());
+    const ms = this.config.timing.discussionMs;
+    if (ms > 0) this._after(ms, () => { if (this.phase === 'DISCUSSION') this._enterBetting(); });
   }
 
   // 手动设置表情（任务⑧ 预留接口）：null 清除，其余须为允许的手动表情之一。

@@ -45,6 +45,7 @@ export const DEFAULT_CONFIG = {
     coinAnimMs: 6000,         // 硬币动画后自动进入系统结算（须 ≥ 客户端 coinSim DURATION 6.0s，否则最长抛掷被打断）
     settleViewMs: 5200,       // 系统结算展示后自动进入协商（须容纳桌面聚拢→分堆→派送演出，§3.8）
     finalizeMs: 2600,         // 全员拿取完成后进入下一回合讨论的收尾间隔
+    discussionMs: 1500,       // DISCUSSION「短喘息」：进讨论后到点**自动**进下注（无手动准备、无跳过入口——纯过场喘息）。0 = 回退到旧「全员准备」门槛
     negotiateTimeoutMs: 120000, // 协商超时按当前方案生效（0 = 不超时）
     takeTimeoutMs: 45000,     // FINALIZE 拿取超时：到点未拿的自动入账（0 = 不超时，AFK 会卡场）
     takeAutoDelayMs: 2600,    // 进入拿取阶段后，代离线玩家自动拿取的延迟（让观众看完演出）

@@ -1470,9 +1470,12 @@ body {
   z-index: 91;
   display: flex; flex-direction: column; align-items: center; gap: 12px;
   pointer-events: none;                 /* 容器透传，按钮单独接事件 */
-  animation: victory-hint-in 0.5s ease-out both;
+  /* backwards（非 both）：动画结束后不保留 opacity:1，否则会盖掉下面 .dimmed 的 0.04（打开账本时让位失效→按钮压在账本上）。 */
+  animation: victory-hint-in 0.5s ease-out backwards;
+  transition: opacity 0.2s ease;        /* 打开/关闭账本时平滑让位 */
 }
-.victory-controls.dimmed { opacity: 0.04; }
+.victory-controls.dimmed { opacity: 0.04; pointer-events: none; }
+.victory-controls.dimmed .victory-next { pointer-events: none; } /* 让位账本时按钮不可点（防隐形误触「下一局」重开） */
 .victory-next { pointer-events: auto; font-size: 15px; padding: 8px 22px; }
 .victory-controls .victory-hint { animation: none; }
 

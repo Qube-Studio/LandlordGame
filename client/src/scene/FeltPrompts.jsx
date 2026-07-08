@@ -41,9 +41,8 @@ export default function FeltPrompts({ mySpot, players, spots, playerId }) {
       secondary = [{ text: '开始游戏', k: 'S', color: 'var(--px-gold)', onClick: () => send({ type: 'start_game' }) }];
     }
   } else if (state.phase === 'DISCUSSION') {
-    lines = me.ready
-      ? [{ text: '等待所有人准备...', color: 'var(--ink-dim)' }]
-      : [{ text: '准备下注！', k: 'space', color: 'var(--px-gold)', onClick: () => send({ type: 'ready' }) }];
+    // 短喘息（反馈②）：纯过场，到点自动进下注，玩家无需任何操作（无跳过入口）。
+    lines = [{ text: '下一回合…', color: 'var(--ink-dim)' }];
   } else if (state.phase === 'BETTING') {
     // 已下注等待他人：浮字保持显示金额（验收修订③；自己钱堆的 ¥ 标签此时让位，Scene3D 侧隐藏）。
     // 飞牌在途不抢戏，落定后浮现；下注操作中（bet==null）浮字由 HandLayer 负责。

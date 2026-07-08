@@ -25,7 +25,7 @@ const Icon = getArt('icon');
 
 const PHASE_META = {
   LOBBY: { label: '准备大厅', hint: '在招募令墙上选择角色（R 呼出/收起），准备/开始按空格' },
-  DISCUSSION: { label: '战术讨论', hint: '农民可密谈，所有人按空格准备后进入下注' },
+  DISCUSSION: { label: '战术讨论', hint: '农民可密谈；短暂喘息后自动进入下注' },
   BETTING: {
     label: '下注中',
     hint: IS_3D_INPUT
@@ -121,7 +121,7 @@ function useGameKeys() {
         if (panel === 'roles') { setPanel(null); send({ type: 'lobby_ready', ready: true }); } // 反馈⑥：面板展开时空格=收起并自动准备
         else send({ type: 'lobby_ready', ready: !me?.lobbyReady });
       }
-      else if (phase === 'DISCUSSION' && !me?.ready && !me?.spectator) send({ type: 'ready' });
+      // DISCUSSION 是纯过场短喘息（反馈②）：空格不再做「准备/跳过」——自动进下注。
       else if (phase === 'REVEAL' && !me?.confirmed && !me?.spectator) send({ type: 'confirm_reveal' });
       else if (phase === 'NEGOTIATE' && state.roundFarmerIds?.includes(playerId)) {
         send({ type: 'negotiate_confirm', confirmed: !me?.negotiateConfirmed });
@@ -640,17 +640,12 @@ function LobbyPanel() {
   );
 }
 
-// DISCUSSION：3D 模式准备提示在圈上（FeltPrompts，反馈⑫），面板退役
+// DISCUSSION：纯过场短喘息（反馈②），到点自动进下注、无操作入口；3D 圈上浮字 FeltPrompts 同款被动文字
 function DiscussionPanel() {
-  const state = useGameStore(s => s.state); const send = useGameStore(s => s.send); const me = state.me;
+  const state = useGameStore(s => s.state); const me = state.me;
   if (IS_3D_INPUT) return null;
   if (me?.spectator) return <div className="phase-panel"><p className="dim">正在观战。</p></div>;
-  return (
-    <div className="phase-panel">
-      {me?.ready ? <p className="ok">已准备，等待其他玩家…</p>
-        : <button className="btn primary wide" onClick={() => send({ type: 'ready' })}>准备完毕 <span className="keycap">空格</span></button>}
-    </div>
-  );
+  return <div className="phase-panel"><p className="dim">下一回合即将开始…</p></div>;
 }
 function BettingPanel() {
   const state = useGameStore(s => s.state); const me = state.me;
