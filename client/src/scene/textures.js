@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { noteCanvas } from '../assets/pixelnote';
 import { PROP_COLORS, shade } from '../assets/palette';
+import { TICKET_GRID, TICKET_COLS, TICKET_ROWS, ticketCellColor } from '../assets/ticketArt';
 
 function pixelTexture(draw, size = 16) {
   const c = document.createElement('canvas');
@@ -14,6 +15,33 @@ function pixelTexture(draw, size = 16) {
   tex.magFilter = THREE.NearestFilter;
   tex.minFilter = THREE.NearestFilter;
   tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+// 对质票券贴图（§8.8）：像素画走 assets/ticketArt.js 单一真源（与 2D PixelTicket / 3D 锯齿几何同网格）。
+// 邮票造型：左右锯齿 + 暗金边 + 信封翻盖 V。缓存单例，NearestFilter 保持硬边。
+// 注意：Tickets3D 的挤出几何 UV 是网格原始坐标（0..cols, 0..rows），由几何侧设置 repeat/offset 换算。
+let _ticketTex = null;
+export function ticketTexture() {
+  if (_ticketTex) return _ticketTex;
+  const cell = 8;
+  const c = document.createElement('canvas');
+  c.width = TICKET_COLS * cell; c.height = TICKET_ROWS * cell;
+  const ctx = c.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+  TICKET_GRID.forEach((line, y) => {
+    for (let x = 0; x < TICKET_COLS; x++) {
+      const ch = line[x];
+      if (ch === ' ') continue;
+      ctx.fillStyle = ticketCellColor(ch, x, y); // 逐格配色：边框/齿尖/斜面/纸纹（单一真源）
+      ctx.fillRect(x * cell, y * cell, cell, cell);
+    }
+  });
+  const tex = new THREE.CanvasTexture(c);
+  tex.magFilter = THREE.NearestFilter;
+  tex.minFilter = THREE.NearestFilter;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  _ticketTex = tex;
   return tex;
 }
 

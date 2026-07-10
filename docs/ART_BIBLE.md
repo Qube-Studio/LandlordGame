@@ -47,7 +47,7 @@
 | ok | `#8fc77a` | 加钱/达标 |
 
 **角色布料**(shirt/pants/sleeve, 收编现值): landlord `#caa24a/#5a4424/#b8902f`; capitalist `#6e4a92/#3a2a4e/#5e3f80`; farmer `#7a9a4e/#4a5230/#6c8a44`; investor `#3f8a82/#2c4a48/#368079`; glutton `#9a6a3a/#5a3e26/#8a5e32`; none `#8a7a64/#54483a/#7a6a54`。
-**面额**(bg/ink/accent, 收编 pixelnote 现值): 10 `#caa84e/#403211/#ecd78d`; 5 `#6fa87e/#1d3726/#abd7b9`; 2 `#5f93b5/#152e3d/#abd1e6`; 1 `#b8a07a/#382e1b/#decba8`; DEBT `#c45048/#360f0b/#eaa39d`; BACK `#23262f/#7d8696/#363b46`。
+**面额**(bg/ink/accent, 货币=蜡烛后暖化并入烛光世界,保四色相): 10 `#d6ab4a/#3a2b0d/#f4dc8e`(蜂蜡金); 5 `#7f9a52/#26311a/#c6d69a`(暖橄榄绿); 2 `#5a8ba0/#14303a/#a8ccd7`(暖岩蓝,去冰); 1 `#c2a06e/#3a2c17/#e6cfa2`(牛脂暖褐); DEBT `#b8443c/#2e0c09/#e39a92`(火漆红); BACK `#262019/#8a795c/#37301f`(暖木背)。
 
 **语义层**: `surface=wood700`、`accent=brassHi`、`gold=brassHi`、`panelLine=wood900`。
 **工具层**: `shade(hex,±pct)`、`alpha(hex,a)` — bevel/阴影/暗边一律派生,不另设 token。
@@ -110,7 +110,7 @@ mulberry32 种子 PRNG,全部 NearestFilter、按参数 key 缓存、永不逐�
 
 ## 1.6 钱/币/卡
 
-**钞票**(44×62 网格、缓存键、2D/3D 单一真源机制**不变**): ①边框改扭索波纹(accent 2px 重复纹)+四角花角;②中央大数字凸版化(ink 主体+右下 1px `shade(ink,-30)` 阴影+左上 1px accent 高光);③面额水印暗纹(`shade(bg,±6)`:10=城楼/5=麦穗/2=河纹/1=铜钱 8×8 像素图);④底部序列号小字行;⑤背面「地」改火漆印章(暗红 `#7a2020` 圆章+压纹,弃 YaHei 字体改点阵);⑥债务牌加锁链纹边;⑦锁定挂锁改黄铜色。**3D 卡边缘**: edge 材质由 `#d9c9a0` 改为按面额 accent 色带(银行捆钞感),CARD_MATS 缓存不变。
+**钞票**(44×62 网格、缓存键、2D/3D 单一真源机制**不变**;**货币=蜡烛**后全面改烛本位母题,`draw()` 与 `DENOM_COLORS` 之外零结构改动): ①边框扭索波纹(accent 2px 重复纹)+四角花角;②中央大数字凸版化(ink 主体+右下 1px `shade(ink,-30)` 阴影);③**蜡烛水印**——弃旧朝代母题(城楼/麦穗/河纹/铜钱),改用货币符同一份 `CANDLE_ROWS`(`drawCandleGlyph`,cell4,`shade(bg,±8)`)框在数字后垫底;④**左上角标 `¥N`**(蜡烛符+面额,复用字体 ¥ 字形);⑤**底部烛焰计数条 `drawTally`**——N 个焰点(暗焰身+accent 亮焰尖)落在黄铜横轨上,N=面额(>5 折两行,10=两行5),照素材版式,取代旧 `YUAN`/序列号行(债务=熄灭暗桩,无亮尖);⑥背面火漆印章由「王」改**蜡烛印**(`drawCandleGlyph` cell2,暗红 `#7a2020` 圆章+压纹);⑦债务牌保留锁链纹边、锁定保留黄铜挂锁。**3D 卡边缘**: edge 材质按面额 accent 色带(银行捆钞感),CARD_MATS 缓存不变。
 **硬币=全剧最亮道具**: 纹理 64→128²——王面双层明暗浮雕皇冠、禾面麦穗束、圆周 32 刻齿、字符双绘(偏移1px暗底);侧壁贴 `coinEdge`;材质 `metalness 0.55 / roughness 0.4 / emissive #6a4a10 ×0.25`(翻飞时金闪被 Bloom 捕获)。coinSim 物理烘焙**一字不动**。
 **落桌反馈**: 飞牌落定 scale 1.15→1(3帧 punch);硬币落点金环 ringGeometry(0.3,0.38) scale 0→2.2 / opacity 0.8→0,500ms 后卸载。
 

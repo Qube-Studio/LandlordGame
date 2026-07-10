@@ -8,7 +8,7 @@ import { roomConfig, getInitialBalance, getInitialPool, getMinStake, factionOf, 
 import { getMode } from './modes/index.js';
 import { flipCoin, betBounds, validateBet, settleRound, applyAllocation } from './logic/rules.js';
 import { relativeGoal, goalPenalty, drawGoalInterval } from './logic/landlordGoal.js';
-import { computeWage, wageDueThisRound, investorWaiver, computeTax, taxInterval, taxDueThisRound } from './logic/competitive.js';
+import { computeWage, wageDueThisRound, investorWaiver, computeTax, taxInterval, taxDueThisRound, judgeAccusation } from './logic/competitive.js';
 import { createLedger, buildSettleScript, flowsFromParts } from './logic/payout.js';
 import { apportion } from './logic/apportion.js';
 import { saveGameRecord } from './storage.js';
@@ -25,10 +25,11 @@ function mulberry32(seed) {
 }
 
 // REFLIP = 竞技暴食者重掷决策窗（§8.4），夹在 COIN_FLIP 与 SETTLE 之间，仅农民输且有暴食者时出现。
-export const PHASES = ['LOBBY', 'DISCUSSION', 'BETTING', 'REVEAL', 'COIN_FLIP', 'REFLIP', 'SETTLE', 'NEGOTIATE', 'FINALIZE', 'ENDED'];
+// CHALLENGE = 竞技对质窗（§8.8），夹在 BETTING 与 REVEAL 之间，仅竞技且有农民凑得齐票时出现。
+export const PHASES = ['LOBBY', 'DISCUSSION', 'BETTING', 'CHALLENGE', 'REVEAL', 'COIN_FLIP', 'REFLIP', 'SETTLE', 'NEGOTIATE', 'FINALIZE', 'ENDED'];
 
 const PAYOUT_PHASES = ['SETTLE', 'NEGOTIATE', 'FINALIZE'];
-const IN_GAME_PHASES = ['DISCUSSION', 'BETTING', 'REVEAL', 'COIN_FLIP', 'REFLIP', ...PAYOUT_PHASES];
+const IN_GAME_PHASES = ['DISCUSSION', 'BETTING', 'CHALLENGE', 'REVEAL', 'COIN_FLIP', 'REFLIP', ...PAYOUT_PHASES];
 
 // 角色中文名（系统播报用，与客户端 game/roles.js#ROLE_LABEL 一致）。
 const ROLE_LABEL = {
@@ -73,6 +74,12 @@ export class Room {
     this.goalNextRound = 0;        // 下一检查点回合（0=无考核，如资本家）
     this.goalSeed = 0;             // 间隔 PRNG 种子（可复现）
     this._goalRng = null;          // 间隔 PRNG（由种子生成）
+    // 对质/指控（§8.8）：本回合进行中的指控与上一次裁决；强制检查点 flag 在 CHALLENGE 置真、FINALIZE 消费。
+    this.accusation = null;        // 交流窗进行中：{accuserId, targetId, dir?, deadline}；null=决定窗(IDLE)
+    this.lastAccusation = null;    // 本回合已落定的指控裁决（贯穿 REVEAL/FINALIZE 显示，下回合清空）
+    this.challengeDeadline = null; // 决定窗（15s）截止绝对时刻
+    this._forceGoalCheckpoint = false; // 猜对地主 → FINALIZE 强制一次目标评估（不重定基）
+    this._forceTax = false;            // 猜对资本家 → FINALIZE 强制额外扣一次税
     this.roundFarmerIds = [];
     this.roundStartBalances = {};
     this.history = [];
@@ -123,6 +130,8 @@ export class Room {
       reflipsMax: 0,          // 暴食者本局重掷总次数（HUD 进度条满格基准，随局固定）
       usedReflipThisRound: false,
       passedReflip: false,    // 暴食者本重掷窗已放弃
+      tickets: 0,             // 对质票（每角色按局发放，§8.8；非竞技/地主阵营恒 0）
+      challengeSkip: false,   // 对质决定窗：本农民已投票跳过
       ws,
     };
     this.players.set(player.id, player);
@@ -279,7 +288,15 @@ export class Room {
       p.reflipsLeft = p.role === 'glutton' ? Math.min(farmers.length, g?.maxReflips ?? farmers.length) : 0;
       p.reflipsMax = p.reflipsLeft;
       p.usedReflipThisRound = false;
+      // 对质票按角色**按局**发放（仅竞技农民阵营；地主阵营/快速模式恒 0）。之后不每回合重置，可 NEGOTIATE 转赠。
+      p.tickets = this.mode === 'competitive' ? (this.config.competitive.accusation?.tickets?.[p.role] ?? 0) : 0;
+      p.challengeSkip = false;
     }
+    // 对质状态归零（新局）：进行中指控/裁决/强制检查点 flag。
+    this.accusation = null;
+    this.lastAccusation = null;
+    this._forceGoalCheckpoint = false;
+    this._forceTax = false;
     // 地主资金目标基准：仅地主（非资本家）才有考核。相对制：开局定第一个目标与随机检查点。
     this.landlordInitial = this._landlord()?.role === 'landlord' ? (this._landlord()?.balance ?? 0) : 0;
     if (this.config.landlordGoal?.enabled && this.landlordInitial > 0) {
@@ -344,7 +361,13 @@ export class Room {
       p.reflipsMax = 0;
       p.usedReflipThisRound = false;
       p.passedReflip = false;
+      p.tickets = 0;
+      p.challengeSkip = false;
     }
+    this.accusation = null;
+    this.lastAccusation = null;
+    this._forceGoalCheckpoint = false;
+    this._forceTax = false;
     this._broadcastState();
   }
 
@@ -364,6 +387,7 @@ export class Room {
         balance: 0, bankrupt: false, online: true, ready: false, confirmed: false,
         negotiateConfirmed: false, spectator: false, emote: null,
         pool: null, pledge: 0, premium: 0, mealAllowance: 0, reflipsLeft: 0, reflipsMax: 0, usedReflipThisRound: false, passedReflip: false,
+        tickets: 0, challengeSkip: false,
         ws: null,
       });
     }
@@ -418,7 +442,14 @@ export class Room {
       p.confirmed = false;
       p.negotiateConfirmed = false;
       p.emote = null;       // 手动表情每回合清空
+      p.challengeSkip = false; // 对质跳过投票每回合清空
     }
+    // 上一回合的对质裁决/强制检查点 flag 到此清空（本回合 REVEAL/FINALIZE 才需看到，已过去）。
+    this.accusation = null;
+    this.lastAccusation = null;
+    this._forceGoalCheckpoint = false;
+    this._forceTax = false;
+    this.challengeDeadline = null;
     this._broadcastState();
     // 短喘息（反馈②）：进讨论后到点 discussionMs **自动**进下注——纯过场喘息，玩家端无「准备/跳过」入口。
     // 仍保留 ready 门槛：仅供**离线全员自动代准备**时即时推进（无在线人观看，无需等喘息）。discussionMs=0 回退旧门槛。
@@ -529,7 +560,141 @@ export class Room {
   _checkAllBet() {
     if (this.phase !== 'BETTING') return;
     const pending = this._activePlayers().filter(p => this.bets[p.id] === undefined);
-    if (pending.length === 0) this._enterReveal();
+    if (pending.length === 0) {
+      // 竞技且有农民凑得齐票 → 进对质窗；否则（快速模式/无人有票）直接揭牌，不空耗 15s。
+      if (this._competitive && this._anyFarmerCanAccuse()) this._enterChallenge();
+      else this._enterReveal();
+    }
+  }
+
+  // ---------- 对质 / 指控（§8.8，竞技专属，夹在 BETTING 与 REVEAL 之间） ----------
+
+  // 本回合参与的活跃农民（roundFarmerIds ∩ 活跃）。跳过闸门/可指控判定/跳过重置都用它。
+  _roundFarmers() {
+    return this.roundFarmerIds.map(id => this.players.get(id)).filter(p => p && this._isActive(p));
+  }
+
+  _anyFarmerCanAccuse() {
+    const cost = this.config.competitive.accusation?.cost ?? 2;
+    return this._roundFarmers().some(f => (f.tickets ?? 0) >= cost);
+  }
+
+  _enterChallenge() {
+    this._setPhase('CHALLENGE');
+    this.lastAccusation = null;
+    for (const p of this._roundFarmers()) p.challengeSkip = false;
+    this._armChallengeWindow();  // 置 accusation=null + 决定窗 deadline + 15s 计时
+    this._broadcastState();
+    this._autoActOffline();      // 离线农民自动投跳过
+  }
+
+  // 决定窗（IDLE）：清 accusation、重挂 15s 计时。cancel 也复用它回到决定窗。
+  _armChallengeWindow() {
+    this._clearTimers();
+    this.accusation = null;
+    const ms = this.config.timing.challengeMs;
+    this.challengeDeadline = ms > 0 ? Date.now() + ms : null;
+    if (ms > 0) this._after(ms, () => {
+      if (this.phase === 'CHALLENGE' && !this.accusation) this._enterReveal();
+    });
+  }
+
+  // 发起指控（决定窗）：恒扣 cost 票（任何情况不返还），开交流窗（≤accuseDeliberateMs），等 accuseResolve/accuseCancel。
+  accuse(playerId, targetId) {
+    if (this.phase !== 'CHALLENGE') return { error: '当前不是对质阶段' };
+    if (this.accusation) return { error: '已有指控进行中' };
+    const actor = this.players.get(playerId);
+    if (!actor || factionOf(actor.role) !== 'farmer' || !this._isActive(actor)) return { error: '只有农民阵营可以指控' };
+    if (!this.roundFarmerIds.includes(playerId)) return { error: '本回合未参与' };
+    const cost = this.config.competitive.accusation?.cost ?? 2;
+    if ((actor.tickets ?? 0) < cost) return { error: '对质票不足' };
+    const target = this.players.get(targetId);
+    if (!target || factionOf(target.role) !== 'landlord' || !this._isActive(target)) return { error: '指控目标无效' };
+    actor.tickets -= cost; // 立即扣，之后一律不返还
+    this._clearTimers();
+    const ms = this.config.timing.accuseDeliberateMs;
+    const deadline = ms > 0 ? Date.now() + ms : null;
+    this.accusation = { accuserId: playerId, targetId, deadline };
+    this.challengeDeadline = deadline;
+    // 交流窗超时 → 自动取消并直接揭牌（整段硬上限，不回决定窗）。
+    if (ms > 0) this._after(ms, () => {
+      if (this.phase === 'CHALLENGE' && this.accusation?.accuserId === playerId) {
+        this.accusation = null;
+        this._enterReveal();
+      }
+    });
+    this._systemChat(`${actor.username} 花 ${cost} 票发起对质，指向 ${target.username}（${ROLE_LABEL[target.role] ?? '地主'}）`);
+    this._broadcastState();
+    return { ok: true };
+  }
+
+  // 预选方向（交流窗、仅发起者，§8.8 两段确认第一击）：只记 pendingDir 并广播（农民阵营可见——
+  // 队友同步看到「哪个符号变大」），不判定。再点同一方向（accuseResolve）才落定。可反复改选。
+  accusePick(playerId, dir) {
+    if (this.phase !== 'CHALLENGE') return { error: '当前不是对质阶段' };
+    const acc = this.accusation;
+    if (!acc || acc.accuserId !== playerId) return { error: '你没有进行中的指控' };
+    if (dir !== 'more' && dir !== 'less') return { error: '无效的指控方向' };
+    acc.pendingDir = dir;
+    this._broadcastState();
+    return { ok: true };
+  }
+
+  // 落定指控（交流窗、仅发起者）：判定敌方暗注 vs 农民阵营总注，猜对置强制检查点 flag，进揭牌。
+  accuseResolve(playerId, dir) {
+    if (this.phase !== 'CHALLENGE') return { error: '当前不是对质阶段' };
+    const acc = this.accusation;
+    if (!acc || acc.accuserId !== playerId) return { error: '你没有进行中的指控' };
+    if (dir !== 'more' && dir !== 'less') return { error: '无效的指控方向' };
+    const targetBet = this.bets[acc.targetId] ?? 0;
+    const factionTotal = this.roundFarmerIds.reduce((s, id) => s + (this.bets[id] ?? 0), 0);
+    const correct = judgeAccusation(targetBet, factionTotal, dir);
+    this.lastAccusation = { accuserId: playerId, targetId: acc.targetId, dir, correct, targetBet, factionTotal };
+    if (correct) {
+      const t = this.players.get(acc.targetId);
+      if (t?.role === 'landlord') this._forceGoalCheckpoint = true;       // 强制一次目标评估（FINALIZE 消费，不重定基）
+      else if (t?.role === 'capitalist') this._forceTax = true;           // 强制额外扣一次税
+    }
+    const target = this.players.get(acc.targetId);
+    this._systemChat(correct
+      ? `对质命中！${target?.username ?? '敌方'} 将被强制结算一次制约`
+      : `对质落空，${this.players.get(playerId)?.username ?? '指控者'} 未能命中`);
+    this.accusation = null;
+    this._broadcastState();
+    this._enterReveal();
+    return { ok: true };
+  }
+
+  // 取消指控（交流窗、仅发起者）：票不返还，回到决定窗（重置 15s 与跳过投票）。
+  accuseCancel(playerId) {
+    if (this.phase !== 'CHALLENGE') return { error: '当前不是对质阶段' };
+    const acc = this.accusation;
+    if (!acc || acc.accuserId !== playerId) return { error: '你没有进行中的指控' };
+    for (const p of this._roundFarmers()) p.challengeSkip = false;
+    this._armChallengeWindow();
+    this._systemChat('指控取消，虚惊一场');
+    this._broadcastState();
+    return { ok: true };
+  }
+
+  // 投票跳过对质（决定窗、活跃农民）：全体农民同意跳过（离线自动满足）即揭牌。
+  challengeSkip(playerId) {
+    if (this.phase !== 'CHALLENGE') return { error: '当前不是对质阶段' };
+    if (this.accusation) return { error: '指控进行中，无法跳过' };
+    const actor = this.players.get(playerId);
+    if (!actor || factionOf(actor.role) !== 'farmer' || !this._isActive(actor)) return { error: '只有农民阵营可以跳过' };
+    if (!this.roundFarmerIds.includes(playerId)) return { error: '本回合未参与' };
+    actor.challengeSkip = true;
+    this._broadcastState();
+    this._checkChallengeSkipGate();
+    return { ok: true };
+  }
+
+  _checkChallengeSkipGate() {
+    if (this.phase !== 'CHALLENGE' || this.accusation) return;
+    const farmers = this._roundFarmers();
+    const allSkip = farmers.every(f => f.challengeSkip || (!f.online && this.config.autoActForOffline));
+    if (allSkip) this._enterReveal();
   }
 
   // 暴食者放弃本窗重掷（§8.4）：所有可重掷暴食者都放弃（或离线自动放弃）即进入结算。
@@ -698,6 +863,28 @@ export class Room {
     return { ok: true };
   }
 
+  // 对质票转赠（§8.8）：搭在 NEGOTIATE 阶段——农民把票给队友（信任/分歧的杠杆）。与钱/债转移同样重置确认。
+  transferTicket(playerId, toId, n) {
+    if (this.phase !== 'NEGOTIATE') return { error: '当前不是协商阶段' };
+    if (!Number.isInteger(n) || n <= 0) return { error: '转赠张数必须是正整数' };
+    if (playerId === toId) return { error: '不能转给自己' };
+    if (!this.roundFarmerIds.includes(playerId) || !this.roundFarmerIds.includes(toId)) {
+      return { error: '只能在本回合参与的农民之间转赠' };
+    }
+    const from = this.players.get(playerId);
+    const to = this.players.get(toId);
+    if (!from || !to || factionOf(from.role) !== 'farmer' || factionOf(to.role) !== 'farmer') {
+      return { error: '只有农民阵营之间可以转赠对质票' };
+    }
+    if ((from.tickets ?? 0) < n) return { error: '对质票不足' };
+    from.tickets -= n;
+    to.tickets = (to.tickets ?? 0) + n;
+    for (const p of this.players.values()) p.negotiateConfirmed = false; // 方案变动，重置确认
+    this._touch();
+    this._broadcastState();
+    return { ok: true };
+  }
+
   negotiateConfirm(playerId, confirmed) {
     if (this.phase !== 'NEGOTIATE') return { error: '当前不是协商阶段' };
     if (!this.roundFarmerIds.includes(playerId)) return { error: '只有本回合参与的农民可以确认' };
@@ -765,11 +952,13 @@ export class Room {
     }
 
     // ② 地主资金目标（任务 6）：检查点回合的 FINALIZE 若地主未达标，扣除惩罚（资金沉没，可致破产）。
+    //    对质命中地主（§8.8）→ _forceGoalCheckpoint：本回合额外触发一次评估，但**不重定基**（不重置间隔）。
     let landlordPenalty = 0;
     let landlordGoalValue = null;
     let landlordGoalMet = null;
+    const scheduledGoalDue = this.goalNextRound > 0 && this.round === this.goalNextRound;
     if (this.config.landlordGoal?.enabled && landlordId && this.players.get(landlordId)?.role === 'landlord'
-        && this.goalNextRound > 0 && this.round === this.goalNextRound) {
+        && (scheduledGoalDue || this._forceGoalCheckpoint)) {
       const after = result.after[landlordId] ?? 0;
       landlordGoalValue = this.goalTarget;
       landlordGoalMet = after >= landlordGoalValue;
@@ -799,12 +988,14 @@ export class Room {
           flows: flowsFromParts(landlordId, parts, recipients),
         });
       }
-      // 重定基：按（罚后）当前余额定下一个相对目标与随机检查点。
-      const base = result.after[landlordId] ?? 0;
-      this.goalBaseline = base;
-      this.goalTarget = relativeGoal(base, this.config);
-      this.goalPrevRound = this.round;
-      this.goalNextRound = this.round + drawGoalInterval(this._goalRng ?? Math.random, this.config);
+      // 重定基仅在**排期**检查点：对质强制的额外检查点不动日程（同回合排期+强制 = 只评估一次、走排期重定基）。
+      if (scheduledGoalDue) {
+        const base = result.after[landlordId] ?? 0;
+        this.goalBaseline = base;
+        this.goalTarget = relativeGoal(base, this.config);
+        this.goalPrevRound = this.round;
+        this.goalNextRound = this.round + drawGoalInterval(this._goalRng ?? Math.random, this.config);
+      }
     }
 
     // === ③ 竞技模式入账（§8）：资本家资金池换算、基础农民工资、暴食者伙食费。均在破产判定前。===
@@ -820,7 +1011,8 @@ export class Room {
         result.deltas[cap.id] = 0;
         cap.pool = (cap.pool ?? 0) + capitalistPoolDelta;
         // 征税间隔 = 活跃农民阵营人数（每 interval 回合一次，非每回合）；税基 = 当前池。
-        if (taxDueThisRound(this.round, this.roundFarmerIds.length)) {
+        // 对质命中资本家（§8.8）→ _forceTax：本回合额外扣一次（税无状态，同回合排期+强制只扣一次）。
+        if (taxDueThisRound(this.round, this.roundFarmerIds.length) || this._forceTax) {
           capitalistTax = computeTax(cap.pool, this.config);
           cap.pool -= capitalistTax;
         }
@@ -1125,7 +1317,7 @@ export class Room {
   viewFor(viewerId) {
     const viewer = this.players.get(viewerId);
     const spectator = !!(viewer?.bankrupt || viewer?.spectator); // 破产 或 断线超时降级（任务⑥）
-    const betsPublic = !['LOBBY', 'DISCUSSION', 'BETTING'].includes(this.phase);
+    const betsPublic = !['LOBBY', 'DISCUSSION', 'BETTING', 'CHALLENGE'].includes(this.phase);
     const farmerCount = this.phase === 'LOBBY'
       ? [...this.players.values()].filter(p => factionOf(p.role) === 'farmer').length
       : this.roundFarmerIds.length;
@@ -1166,22 +1358,27 @@ export class Room {
         mealAllowance: p.role === 'glutton' ? ((p.id === viewerId || spectator) ? p.mealAllowance : null) : null,
         pool: p.role === 'capitalist' ? ((p.id === viewerId || spectator) ? p.pool : null) : null,
         wage: p.role === 'farmer' ? wageInfo : null,
+        // 对质票（§8.8）：农民阵营公开（同 reflipsLeft 施压逻辑）；challengeSkip 供对质窗显示已跳过进度。
+        tickets: factionOf(p.role) === 'farmer' ? (p.tickets ?? 0) : null,
+        challengeSkip: factionOf(p.role) === 'farmer' ? !!p.challengeSkip : null,
       } : {}),
     }));
 
-    // 地主资金目标（相对制）：目标值与到期回合对所有人可见；地主当前余额仅地主/观战者/终局可见。
+    // 地主资金目标（相对制）：到期回合(倒计时)对所有人可见；**目标值/基准/余额仅地主本人/观战可见**——
+    // 农民只知道「还有几回合结算」，不知具体目标额（§8.8 对质靠读牌，不该直接看到地主 KPI 数字）。
     const landlord = this._landlord();
     const goalActive = this.config.landlordGoal?.enabled && this.goalNextRound > 0
       && landlord && landlord.role === 'landlord' && IN_GAME_PHASES.includes(this.phase);
+    const goalPublic = viewer?.role === 'landlord' || spectator;
     const landlordGoal = goalActive ? {
-      goal: this.goalTarget,
+      goal: goalPublic ? this.goalTarget : null,
       dueRound: this.goalNextRound,
       roundsLeft: Math.max(0, this.goalNextRound - this.round),
       interval: Math.max(1, this.goalNextRound - this.goalPrevRound),
-      baseline: this.goalBaseline,
-      initial: this.landlordInitial,
+      baseline: goalPublic ? this.goalBaseline : null,
+      initial: goalPublic ? this.landlordInitial : null,
       landlordId: landlord.id,
-      landlordBalance: (viewer?.role === 'landlord' || spectator) ? landlord.balance : null,
+      landlordBalance: goalPublic ? landlord.balance : null,
     } : null;
 
     // 资本家 HUD（§8.6/8.7）：资金池/个人资金仅本人/观战可见；taxRate 公开（用于展示扣税规则）。
@@ -1204,6 +1401,29 @@ export class Room {
     } : null;
 
     const canNegotiateView = spectator || factionOf(viewer?.role) === 'farmer';
+
+    // 对质窗（§8.8）：决定/交流窗 deadline、进行中指控、阵营总注（仅农民/观战可见=公开总额决策）。
+    // pendingDir（两段确认的预选方向）仅农民阵营/观战可见——队友同步看发起者的犹豫，地主看不到。
+    const challenge = (this._competitive && this.phase === 'CHALLENGE') ? {
+      deadline: this.challengeDeadline,
+      accusation: this.accusation ? {
+        accuserId: this.accusation.accuserId,
+        targetId: this.accusation.targetId,
+        ...(canNegotiateView ? { pendingDir: this.accusation.pendingDir ?? null } : {}),
+      } : null,
+      targetId: this._landlord()?.id ?? null,
+      cost: this.config.competitive.accusation?.cost ?? 2,
+      factionTotal: canNegotiateView ? this.roundFarmerIds.reduce((s, id) => s + (this.bets[id] ?? 0), 0) : null,
+    } : null;
+    // 本回合已落定的对质裁决（贯穿 REVEAL/FINALIZE 显示）：命中/落空对所有人可见；具体注额仅农民/观战可见。
+    const lastAccusation = (this._competitive && this.lastAccusation) ? {
+      accuserId: this.lastAccusation.accuserId,
+      targetId: this.lastAccusation.targetId,
+      dir: this.lastAccusation.dir,
+      correct: this.lastAccusation.correct,
+      ...(canNegotiateView ? { targetBet: this.lastAccusation.targetBet, factionTotal: this.lastAccusation.factionTotal } : {}),
+    } : null;
+
     const me = viewer ? {
       id: viewer.id,
       role: viewer.role,
@@ -1229,6 +1449,13 @@ export class Room {
         passedReflip: viewer.passedReflip,
         pool: viewer.pool,
         wage: viewer.role === 'farmer' ? wageInfo : null,
+        // 对质（§8.8）：自身票数、能否发起指控、我作为发起者进行中的指控、已跳过标记。
+        tickets: viewer.tickets ?? 0,
+        canAccuse: factionOf(viewer.role) === 'farmer' && this._isActive(viewer)
+          && (viewer.tickets ?? 0) >= (this.config.competitive.accusation?.cost ?? 2),
+        myAccusation: (this.accusation && this.accusation.accuserId === viewerId)
+          ? { targetId: this.accusation.targetId, deadline: this.accusation.deadline } : null,
+        challengeSkip: !!viewer.challengeSkip,
       } : {}),
     } : null;
 
@@ -1267,6 +1494,8 @@ export class Room {
       roundFarmerIds: this.roundFarmerIds,
       landlordGoal,
       capitalist,
+      challenge,
+      lastAccusation,
       // balancesAfter 会泄露他人余额绝对值，仅观战者/终局可见
       history: this.history.map(h => {
         if (spectator || this.phase === 'ENDED') return h;
@@ -1384,6 +1613,15 @@ export class Room {
       this._autoTakeOffline();
     } else if (this.phase === 'REFLIP') {
       this._checkReflipGate();
+    } else if (this.phase === 'CHALLENGE') {
+      if (this.accusation) {
+        // 交流窗中：发起者离线 → 自动取消并揭牌（票已扣、不退）。
+        const acc = this.players.get(this.accusation.accuserId);
+        if (acc && !acc.online) { this.accusation = null; this._enterReveal(); }
+      } else {
+        // 决定窗：离线农民按闸门自动满足跳过（_checkChallengeSkipGate 内含离线自动通过）。
+        this._checkChallengeSkipGate();
+      }
     }
   }
 

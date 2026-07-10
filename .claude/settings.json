@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(npm i *)",
-      "Bash(echo \"BUILD=$?\")"
+      "Bash(echo \"BUILD=$?\")",
+      "Bash(node test/logic.test.mjs)",
+      "Bash(node test/payout.test.mjs)"
     ]
   }
 }

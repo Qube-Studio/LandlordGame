@@ -13,6 +13,7 @@ import { decompose } from '../game/notes';
 import { factionOf } from '../game/roles';
 import { IS_3D_INPUT, IS_TOUCH } from '../game/inputMode';
 import { grab } from './grab';
+import Tickets3D from './Tickets3D';
 import MinecraftPlayer from './MinecraftPlayer';
 import Coin from './Coin';
 import PayoutLayer from './PayoutLayer';
@@ -842,7 +843,10 @@ function SceneContents({ look, freeCam = false }) {
     prevBankrupt.current = bankruptCount;
   }, [bankruptCount]);
 
-  const betsVisible = !['LOBBY', 'DISCUSSION', 'BETTING'].includes(state.phase);
+  // 对质窗（§8.8）：指控入口全在自己圈上的浮字（FeltPrompts「指控敌方 [Z]」）+ Z 快捷键（useGameKeys）——
+  // 敌方模型不再做悬停描边/头顶浮字（描边方案在本 three 版本上做不出干净效果，已整体去除）。
+  // CHALLENGE 也算「未揭牌」：对质窗里桌上的注全部**在场但面朝下**（金额仍藏，读牌靠张数）——揭牌在 REVEAL。
+  const betsVisible = !['LOBBY', 'DISCUSSION', 'BETTING', 'CHALLENGE'].includes(state.phase);
   // 分钱阶段桌面钱全部交给编导层（聚拢/分堆/派送/调整/拿取，§3.8），常规下注堆让位
   const payoutActive = PAYOUT_PHASES.includes(state.phase) && !!state.payout;
   const showFlip = state.phase === 'COIN_FLIP';
@@ -945,9 +949,15 @@ function SceneContents({ look, freeCam = false }) {
 
         {/* 圈上提示层（反馈⑪⑫）：大厅选角/准备/开始、讨论期准备下注、下注后金额驻留、揭牌确认——
             底部木板面板退役；BETTING 只在已下注后有内容（下注操作中浮字由 HandLayer 负责） */}
-        {IS_3D_INPUT && ['LOBBY', 'DISCUSSION', 'BETTING', 'REVEAL'].includes(state.phase) && (
+        {IS_3D_INPUT && ['LOBBY', 'DISCUSSION', 'BETTING', 'CHALLENGE', 'REVEAL'].includes(state.phase) && (
           <FeltPrompts mySpot={mySpot} players={players} spots={spots} playerId={playerId} />
         )}
+
+        {/* 对质票 3D 模型（§8.8，只在 CHALLENGE、农民本人有票时）：一小排薄卡浮在自己圈前 */}
+        {IS_3D_INPUT && state.phase === 'CHALLENGE' && me && !me.spectator
+          && factionOf(me.role) === 'farmer' && (me.tickets ?? 0) > 0 && (
+            <Tickets3D count={me.tickets} mySeat={mySeat} mySpot={mySpot} />
+          )}
 
         {/* 下注飞行中的牌（手牌屏幕位→世界→组内坐标，弧线落进自己的圆圈） */}
         {flightActive && <FlyingNotes betFlight={betFlight} target={mySpot} rot={rot} />}
@@ -978,7 +988,8 @@ function SceneContents({ look, freeCam = false }) {
       {/* 柔和接触阴影：低分辨率(够糊)，避免每帧高分重渲拖帧 */}
       <ContactShadows position={[0, 0.02, 0]} scale={18} blur={2.6} opacity={0.5} far={4.5} resolution={256} color={P.wood900} />
 
-      {/* 后处理：吊灯/金皇冠/金色¥微微发光 + 画面暗角，营造围炉灯火气(画质设置可关,反馈①) */}
+      {/* 后处理：吊灯/金皇冠/金色¥微微发光 + 画面暗角，营造围炉灯火气(画质设置可关,反馈①)。
+          对质白描边不再走这里（后处理 Outline 静默失效已弃用）——改由 MinecraftPlayer 的反向外壳承担。 */}
       {!NO_FX && postfxOn && (
         <EffectComposer disableNormalPass multisampling={0}>
           <Bloom intensity={0.5} luminanceThreshold={0.72} luminanceSmoothing={0.2} mipmapBlur />

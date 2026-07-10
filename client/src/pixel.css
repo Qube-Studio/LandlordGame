@@ -1221,6 +1221,15 @@ body {
 .felt-float .clickable.pressed .keycap-px { transform: translateY(1px); }
 /* quiet 行（反馈⑦：未选角的「准备！」）：onClick 仍触发提示，但默认光标、无悬停/按下/受击态变化 */
 .felt-float .quiet { pointer-events: auto; cursor: default; }
+/* 对质选择器（§8.8）：敌注 [> / <] 己方总注——大于/小于上下紧叠、点选。
+   悬停只提亮字（继承 .felt-float .clickable:hover 的 brightness，无背景块）。
+   两段确认：第一击 .picked 放大、另一个 .dimmed 略缩变暗（SVG 字形缩放无损）；再点 .picked 才落定。 */
+.challenge-pick { display: flex; flex-direction: column; align-items: center; gap: 5px; }
+.cp-ineq { display: flex; align-items: center; gap: 8px; }
+.cp-ops { display: flex; flex-direction: column; gap: 0; }
+.cp-op { padding: 0 3px; line-height: 1; transition: transform 0.12s ease, opacity 0.12s ease; }
+.cp-op.picked { transform: scale(1.5); }
+.cp-op.dimmed { transform: scale(0.8); opacity: 0.5; }
 /* 浮字受击（验收修订⑤）：整块板子顺着点击方向被推一把再弹回（动画由 PromptFloat#pushFloat
    用 WAAPI 按点击点现算，无固定 keyframes）。.poke = PromptFloat 整板接事件（行间缝隙也可戳、
    多行一体推；可交互行在 JS 侧例外）；.pushable = 独立单行浮字标记（如队友圈上的「已确认」）。
@@ -1271,6 +1280,9 @@ body {
 .hud-left-stack.quest .goal-hud.quest-card { gap: 4px; }
 .quest-line { display: flex; align-items: baseline; gap: 12px; }
 .quest-pair { display: inline-flex; align-items: baseline; gap: 2px; }
+/* 对质票行（§8.8）：像素票券横排、小间距、溢出换行（无数字，有几张画几张） */
+.ticket-row { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.ticket-hud.quest-card { padding-top: 4px; padding-bottom: 4px; }
 
 /* 进度条统一两端渐隐（与 quest-pool 同款）；条宽拉伸到与卡内文字行同宽 */
 :root { --bar-fade: linear-gradient(90deg, rgba(0, 0, 0, 0), #000 14%, #000 86%, rgba(0, 0, 0, 0)); }
@@ -1316,6 +1328,9 @@ body {
 }
 .quest-seg { flex: 1; background: rgba(255, 255, 255, 0.13); }
 .quest-seg.on { background: var(--px-gold); box-shadow: 0 0 3px rgba(232, 194, 90, 0.4); }
+/* 地主目标卡：定宽 = 进度条长（min-width 150px）；被命中多出的「⚠强制结算」换行、不拉长卡与条 */
+.hud-left-stack.quest .goal-hud.hud-card.goal-fixed { width: 150px; }
+.goal-fixed .quest-line { flex-wrap: wrap; gap: 4px 10px; }
 
 /* 重掷条（暴食卡，紧贴饭账条下方）：浅黄区分、同款两端渐隐；初始填满，每用一次扣一段 */
 .quest-reflip {
@@ -1557,4 +1572,68 @@ body {
 .role-detail.sheet .role-take {
   margin-top: 6px;
   align-self: stretch;
+}
+
+/* ============================================================
+   对质 / 指控（§8.8）：对质窗面板、票转赠条、桌面 Z 浮字
+   ============================================================ */
+.challenge-panel { text-align: center; }
+.challenge-panel .role-pick { justify-content: center; margin: 6px 0; }
+/* 小号按钮（票转赠 +1） */
+.btn.tiny {
+  padding: 2px 8px;
+  font-size: 11px;
+  min-width: 0;
+}
+/* 票转赠紧凑条：屏幕底部居中偏上，不挡桌面协商（3D）/协商板（2D） */
+.ticket-transfer {
+  position: absolute;
+  left: 50%;
+  bottom: 148px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  z-index: 40;
+  pointer-events: auto;
+  background: rgba(10, 11, 15, 0.82);
+  box-shadow: inset 0 0 0 1px rgba(232, 194, 90, 0.18), 0 6px 16px rgba(0, 0, 0, 0.5);
+}
+.ticket-transfer .tt-label { display: inline-flex; align-items: center; gap: 3px; margin-right: 2px; }
+.touch .ticket-transfer { bottom: 120px; }
+/* 桌面敌方头顶「Z 指控」浮字（drei Html，3D 悬停时出现） */
+.accuse-zfloat {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  white-space: nowrap;
+  color: #fff;
+  background: rgba(180, 40, 40, 0.82);
+  border: 2px solid #000;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.6);
+  cursor: pointer;
+  user-select: none;
+}
+.accuse-zfloat .keycap { background: #fff; color: #000; }
+
+/* 被对质命中（§8.8）：地主/资本家制约卡告警——出现时红闪+抖一下，之后持续红左条 + ⚠强制标。
+   选择器带 .hud-left-stack.quest 前缀压过去底板规则(那条把 animation/box-shadow 清了)；
+   不用 animation-fill(both/forwards)钉死，持续态靠静态 box-shadow(红左条)+数据行 ⚠标承担。 */
+.hud-left-stack.quest .goal-hud.hud-card.forced-hit {
+  animation: forced-hit-alarm 0.75s ease-out;
+  box-shadow: inset 3px 0 0 var(--danger);
+}
+@keyframes forced-hit-alarm {
+  0%   { transform: translateX(0);   background: rgba(198, 54, 54, 0.42); }
+  15%  { transform: translateX(-4px); }
+  30%  { transform: translateX(4px); }
+  45%  { transform: translateX(-3px); }
+  60%  { transform: translateX(3px);  background: rgba(198, 54, 54, 0.16); }
+  75%  { transform: translateX(-2px); }
+  100% { transform: translateX(0);   background: transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hud-left-stack.quest .goal-hud.hud-card.forced-hit { animation: none; }
 }

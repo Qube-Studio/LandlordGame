@@ -44,3 +44,11 @@ export function taxDueThisRound(round, farmerCount) {
   const interval = taxInterval(farmerCount);
   return round >= 1 && round % interval === 0;
 }
+
+// 对质判定（§8.8，纯函数）：敌方暗注 targetBet 与农民阵营总注 factionTotal 比较，dir∈{'more','less'}。
+// 相等 → 判错（无法严格「多/少」）。服务端在指控落定（accuseResolve）时调用；猜对才强制敌方多结算一次制约。
+export function judgeAccusation(targetBet, factionTotal, dir) {
+  if (dir === 'more') return targetBet > factionTotal;
+  if (dir === 'less') return targetBet < factionTotal;
+  return false;
+}

@@ -53,12 +53,21 @@ async function playToSettle(room, L, fids, bets, coin) {
   for (const p of [L, ...fids]) room.setReady(p);
   assert.equal(room.phase, 'BETTING');
   for (const p of [L, ...fids]) assert.equal(room.placeBet(p, bets[p]).ok, true, `下注失败 ${p}`);
+  // 竞技：全员下注后若有农民凑得齐票会先进对质窗（§8.8）；默认测试路径全体农民跳过对质直达揭牌。
+  if (room.phase === 'CHALLENGE') for (const id of fids) room.challengeSkip(id);
   assert.equal(room.phase, 'REVEAL');
   forceCoin(coin);
   for (const p of [L, ...fids]) room.confirmReveal(p);
   assert.equal(room.phase, 'COIN_FLIP');
   await until(() => room.phase !== 'COIN_FLIP', '硬币动画结束');
   restoreCoin();
+}
+
+// 驱动到对质窗（CHALLENGE，§8.8）：全员就绪 + 下注。竞技且有农民凑得齐票时下注后停在 CHALLENGE。
+function playToChallenge(room, L, fids, bets) {
+  for (const p of [L, ...fids]) room.setReady(p);
+  assert.equal(room.phase, 'BETTING');
+  for (const p of [L, ...fids]) assert.equal(room.placeBet(p, bets[p]).ok, true, `下注失败 ${p}`);
 }
 
 const stepSources = (room) => room.payout.script.filter(s => s.t === 'adjust').map(s => s.source);
@@ -274,6 +283,175 @@ await test('相对目标：检查点未达标→扣 round(余额×10%)、平分�
   assert.equal(h.landlordPenalty, 2);
   assert.equal(room.goalTarget, 3);      // 重定基：round(罚后 3 × 1.1)=round(3.3)=3
   assert.equal(room.goalNextRound, 2);   // 回合 1 + 间隔 1
+  room.destroy();
+});
+
+// ---------------------------------------------------------------------------
+await test('对质命中地主：FINALIZE 强制目标评估、罚金、**不重定基**（间隔不变）', async () => {
+  // 排期检查点在回合 5，本回合(1)非排期；对质命中 → 仅靠 _forceGoalCheckpoint 触发一次评估。
+  const { room, L, fids: [A] } = setupRoom({
+    mode: 'competitive', farmers: 1,
+    roles: { landlord: 'landlord', farmers: ['farmer'] },
+    config: { landlordGoal: { interval: { min: 5, max: 5, mean: 5, sd: 0.001 } } },
+  });
+  assert.equal(room.goalNextRound, 5);
+  const target = room.goalTarget;                    // round(30×1.1)=33
+  playToChallenge(room, L, [A], { [L]: 4, [A]: 1 }); // 地主 4 > 阵营 1
+  assert.equal(room.phase, 'CHALLENGE');
+  assert.equal(room.players.get(A).tickets, 3);
+  assert.equal(room.accuse(A, L).ok, true);
+  assert.equal(room.players.get(A).tickets, 1);      // 恒扣 2
+  assert.equal(room.accuseResolve(A, 'more').ok, true); // 命中
+  assert.equal(room.phase, 'REVEAL');
+  forceCoin('tails'); for (const p of [L, A]) room.confirmReveal(p);
+  await until(() => room.phase === 'FINALIZE', '单农民跳协商进 FINALIZE'); restoreCoin();
+  room.takePayout(A);
+  await until(() => room.phase === 'DISCUSSION', '下一回合');
+  const h = room.history[room.history.length - 1];
+  assert.equal(h.landlordGoalValue, target);
+  assert.equal(h.landlordGoalMet, false);
+  assert.ok(h.landlordPenalty > 0, '应有强制罚金');
+  assert.equal(room.goalNextRound, 5);               // **不重定基**：排期仍在回合 5
+  assert.equal(room.goalTarget, target);
+  room.destroy();
+});
+
+// ---------------------------------------------------------------------------
+await test('对质命中资本家：回合1(间隔2 本无税)被强制额外扣一次税、资金池下降', async () => {
+  const { room, L: C, fids: [A, B] } = setupRoom({
+    mode: 'competitive', farmers: 2,
+    roles: { landlord: 'capitalist', farmers: ['farmer', 'farmer'] },
+  });
+  assert.equal(room.players.get(C).pool, 40);
+  playToChallenge(room, C, [A, B], { [C]: 4, [A]: 1, [B]: 1 }); // 资本家 4 > 阵营 2
+  assert.equal(room.accuse(A, C).ok, true);
+  assert.equal(room.accuseResolve(A, 'more').ok, true);          // 命中 → _forceTax
+  forceCoin('heads'); for (const p of [C, A, B]) room.confirmReveal(p);
+  await until(() => ['NEGOTIATE', 'FINALIZE'].includes(room.phase), '进结算');
+  if (room.phase === 'NEGOTIATE') { room.negotiateConfirm(A, true); room.negotiateConfirm(B, true); }
+  await until(() => room.phase === 'FINALIZE', '进 FINALIZE'); restoreCoin();
+  assert.ok(stepSources(room).includes('capitalistTax'), '强制税步应出现（回合1本无排期税）');
+  const h = room.history[room.history.length - 1];
+  assert.ok(h.capitalistTax > 0, '强制税额 > 0');
+  assert.ok(room.players.get(C).pool < 40 + 2, '资金池被强制税拉低');
+  room.destroy();
+});
+
+// ---------------------------------------------------------------------------
+await test('对质落空：不置强制、目标日程/罚金不受影响，票仍恒扣 2', async () => {
+  const { room, L, fids: [A] } = setupRoom({
+    mode: 'competitive', farmers: 1,
+    roles: { landlord: 'landlord', farmers: ['farmer'] },
+    config: { landlordGoal: { interval: { min: 5, max: 5, mean: 5, sd: 0.001 } } },
+  });
+  playToChallenge(room, L, [A], { [L]: 4, [A]: 1 });   // 地主 4 > 阵营 1
+  assert.equal(room.accuse(A, L).ok, true);
+  assert.equal(room.accuseResolve(A, 'less').ok, true); // 喊「少」→ 4<1 假 → 落空
+  assert.equal(room.players.get(A).tickets, 1);         // 猜错也扣 2
+  forceCoin('tails'); for (const p of [L, A]) room.confirmReveal(p);
+  await until(() => room.phase === 'FINALIZE', '进 FINALIZE'); restoreCoin();
+  room.takePayout(A);
+  await until(() => room.phase === 'DISCUSSION', '下一回合');
+  const h = room.history[room.history.length - 1];
+  assert.equal(h.landlordGoalValue ?? null, null);      // 未触发检查点
+  assert.equal(h.landlordPenalty ?? 0, 0);
+  assert.equal(room.goalNextRound, 5);                  // 日程不变
+  room.destroy();
+});
+
+// ---------------------------------------------------------------------------
+await test('对质命中且本回合恰为排期检查点：只评估一次、走排期重定基（不双罚）', async () => {
+  const { room, L, fids: [A] } = setupRoom({
+    mode: 'competitive', farmers: 1,
+    roles: { landlord: 'landlord', farmers: ['farmer'] },
+    config: { landlordGoal: { interval: { min: 1, max: 1, mean: 1, sd: 0.001 } } },
+  });
+  assert.equal(room.goalNextRound, 1);                 // 排期在回合 1
+  const target = room.goalTarget;
+  playToChallenge(room, L, [A], { [L]: 4, [A]: 1 });
+  assert.equal(room.accuse(A, L).ok, true);
+  assert.equal(room.accuseResolve(A, 'more').ok, true); // 命中 + 本回合排期
+  forceCoin('tails'); for (const p of [L, A]) room.confirmReveal(p);
+  await until(() => room.phase === 'FINALIZE', '进 FINALIZE'); restoreCoin();
+  room.takePayout(A);
+  await until(() => room.phase === 'DISCUSSION', '下一回合');
+  const h = room.history[room.history.length - 1];
+  assert.equal(h.landlordGoalValue, target);
+  assert.ok(h.landlordPenalty > 0);
+  assert.equal(room.goalNextRound, 2);                 // 排期检查点 → 正常重定基到回合 2
+  room.destroy();
+});
+
+// ---------------------------------------------------------------------------
+await test('对质票经济：投资者2票→指控一次即用尽；取消不退、票<2 无法再发起；全跳过揭牌', async () => {
+  const { room, L, fids: [I] } = setupRoom({
+    mode: 'competitive', farmers: 1,
+    roles: { landlord: 'landlord', farmers: ['investor'] },
+  });
+  playToChallenge(room, L, [I], { [L]: 4, [I]: 1 });
+  assert.equal(room.phase, 'CHALLENGE');               // 投资者 2 票 ≥ cost 2 → 有对质窗
+  assert.equal(room.viewFor(I).me.canAccuse, true);
+  assert.equal(room.accuse(I, L).ok, true);
+  assert.equal(room.players.get(I).tickets, 0);        // 恒扣 2
+  assert.equal(room.accuseCancel(I).ok, true);         // 取消 → 回决定窗，票不退
+  assert.equal(room.phase, 'CHALLENGE');
+  assert.equal(room.accuse(I, L).error, '对质票不足');
+  assert.equal(room.viewFor(I).me.canAccuse, false);
+  assert.equal(room.challengeSkip(I).ok, true);        // 无人能再指控 → 跳过直达揭牌
+  assert.equal(room.phase, 'REVEAL');
+  room.destroy();
+});
+
+// ---------------------------------------------------------------------------
+await test('对质预选（accuse_pick 两段确认）：pendingDir 农民可见/地主不可见、可改选、仅发起者', async () => {
+  const { room, L, fids: [A, B] } = setupRoom({
+    mode: 'competitive', farmers: 2,
+    roles: { landlord: 'landlord', farmers: ['farmer', 'farmer'] },
+  });
+  playToChallenge(room, L, [A, B], { [L]: 4, [A]: 1, [B]: 1 });
+  assert.equal(room.accusePick(A, 'more').error, '你没有进行中的指控'); // 未指控不可预选
+  assert.equal(room.accuse(A, L).ok, true);
+  assert.equal(room.accusePick(B, 'more').error, '你没有进行中的指控'); // 非发起者不可预选
+  assert.equal(room.accusePick(A, 'bogus').error, '无效的指控方向');
+  assert.equal(room.accusePick(A, 'more').ok, true);
+  assert.equal(room.viewFor(A).challenge.accusation.pendingDir, 'more');
+  assert.equal(room.viewFor(B).challenge.accusation.pendingDir, 'more');   // 队友同步可见
+  assert.equal(room.viewFor(L).challenge.accusation.pendingDir, undefined); // 地主不可见
+  assert.equal(room.accusePick(A, 'less').ok, true);                        // 可反复改选
+  assert.equal(room.viewFor(B).challenge.accusation.pendingDir, 'less');
+  assert.equal(room.accuseResolve(A, 'less').ok, true);                     // 第二击落定
+  assert.equal(room.phase, 'REVEAL');
+  room.destroy();
+});
+
+// ---------------------------------------------------------------------------
+await test('无票自动跳过对质：单暴食者(0票) 下注后直达揭牌（不进 CHALLENGE）', async () => {
+  const { room, L: C, fids: [G] } = setupRoom({
+    mode: 'competitive', farmers: 1,
+    roles: { landlord: 'capitalist', farmers: ['glutton'] },
+  });
+  for (const p of [C, G]) room.setReady(p);
+  for (const p of [C, G]) room.placeBet(p, 2);
+  assert.equal(room.phase, 'REVEAL');                  // 暴食者 0 票 → 无人可指控 → 跳过 CHALLENGE
+  room.destroy();
+});
+
+// ---------------------------------------------------------------------------
+await test('对质票转赠（NEGOTIATE）：农民互转、重置确认、可用余额校验', async () => {
+  const { room, L, fids: [A, B] } = setupRoom({
+    mode: 'competitive', farmers: 2,
+    roles: { landlord: 'landlord', farmers: ['farmer', 'farmer'] },
+  });
+  await playToSettle(room, L, [A, B], { [L]: 4, [A]: 2, [B]: 1 }, 'tails'); // 内含跳过对质
+  await until(() => room.phase === 'NEGOTIATE', '进协商');
+  assert.equal(room.players.get(A).tickets, 3);
+  assert.equal(room.players.get(B).tickets, 3);
+  room.negotiateConfirm(A, true);
+  assert.equal(room.transferTicket(A, B, 1).ok, true);
+  assert.equal(room.players.get(A).tickets, 2);
+  assert.equal(room.players.get(B).tickets, 4);
+  assert.equal(room.players.get(A).negotiateConfirmed, false); // 转赠重置确认
+  assert.equal(room.transferTicket(A, B, 5).error, '对质票不足');
   room.destroy();
 });
 

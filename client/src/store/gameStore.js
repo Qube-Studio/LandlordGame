@@ -43,7 +43,7 @@ export const useGameStore = create((set, get) => ({
   leaveRoom() {
     sendMsg({ type: 'leave_room' });
     sessionStorage.removeItem('llg_room');
-    set({ roomId: null, playerId: null, state: null, chat: [], chatTab: 'all', chatFlash: 0, joining: false, insuranceDrops: [], betFlight: null, myStack: null, looks: {}, panel: null });
+    set({ roomId: null, playerId: null, state: null, chat: [], chatTab: 'all', chatFlash: 0, joining: false, insuranceDrops: [], betFlight: null, myStack: null, looks: {}, panel: null, balanceFreeze: null });
   },
 
   send(msg) {
@@ -54,6 +54,16 @@ export const useGameStore = create((set, get) => ({
   setChatOpen(v) { set({ chatOpen: v }); },
   setChatTab(v) { set({ chatTab: v }); },
   setSpaceHeld(v) { set(s => (s.spaceHeld === v ? {} : { spaceHeld: v })); },
+
+  // 拿取入账演出（§3.8）：按 F/点击拿取先把右下余额**显示**冻在旧值（服务端余额照常更新），
+  // 等 PayoutLayer 的拿取飞行落到蜡烛上再放开——那一刻数字才跳、动画才播（钱没到数字不动）。
+  balanceFreeze: null,
+  takePayout() {
+    const bal = get().state?.me?.balance;
+    if (typeof bal === 'number') set({ balanceFreeze: bal });
+    get().send({ type: 'take_payout' });
+  },
+  releaseBalanceFreeze() { set(s => (s.balanceFreeze == null ? {} : { balanceFreeze: null })); },
 
   // 本地系统消息（聊天 2.0 底座）：仅本端可见，不进服务端、不随重连回放。
   // 同 key 的旧消息被新消息顶掉。flash=true：金框脉冲 + 强制切系统页签。

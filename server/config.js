@@ -50,6 +50,8 @@ export const DEFAULT_CONFIG = {
     takeTimeoutMs: 45000,     // FINALIZE 拿取超时：到点未拿的自动入账（0 = 不超时，AFK 会卡场）
     takeAutoDelayMs: 2600,    // 进入拿取阶段后，代离线玩家自动拿取的延迟（让观众看完演出）
     reflipDecisionMs: 8000,   // 竞技暴食者重掷决策窗（§8.4）；超时无人重掷则进入结算（0 = 立即跳过）
+    challengeMs: 30000,       // 竞技对质「决定窗」：进 CHALLENGE 后到点无人指控则自动揭牌（§8.8）；农民可指控/投票跳过。0 = 立即跳过对质
+    accuseDeliberateMs: 120000, // 指控后的「交流窗」上限：指控者须在此内选定 多/少，超时自动取消并揭牌（非硬控，选定即提前进）
     endedToLobbyMs: 0,        // ENDED 后自动回大厅的延时；**默认 0 = 不自动回，留在终局对局、等房主手动「下一局」**（>0 才到点自动回大厅）
   },
 
@@ -82,6 +84,10 @@ export const DEFAULT_CONFIG = {
     wage:    { baseInterval: 5, minInterval: 2, perFarmerIntervalReduce: 1, baseAmount: 1, perFarmerAmountBonus: 1 },
     investor:{ maxPledge: 3, waiveMultiplier: 2 },      // 担保保费先扣 n；农民输则缺口减 waiveMultiplier×Σn
     glutton: { allowancePerRound: 1, maxReflips: 4 },   // 每回合 +1 饭账（成本，仅农民胜时从余额扣除并清零，可扣破产）；每局重掷申请数 = 活跃农民阵营人数（maxReflips 为硬上限，取 maxFarmers=4 使正常局恒等于农民数），且每回合最多申请 1 次
+    // 对质/指控（§8.8）：每角色**按局**发放对质票（农民阵营专属，非共享池）；一次指控恒扣 cost 票、任何情况不返还。
+    //   农民下注后、揭牌前进 CHALLENGE：农民可花票指控敌方暗注「比阵营总注多/少」，猜对则强制敌方立刻多结算一次制约（地主目标/资本家税）。
+    //   检察官(prosecutor: 4) 为下一步单独实装。票可在 NEGOTIATE 阶段转赠队友。
+    accusation: { tickets: { farmer: 3, investor: 2, glutton: 0 }, cost: 2 },
     // 地主资金目标沿用顶层相对制（不再单独 schedule 覆盖）——地主/资本家均吃 landlordGoal 相对目标。
   },
 };

@@ -15,6 +15,7 @@ import { IS_3D_INPUT } from '../game/inputMode';
 import { getCoinRest } from './coinSim';
 import { MoneyStack, ArcNote, cardLocal, cardYaw, stackTopY, promptAnchor, TABLE_TOP, CARD_W, CARD_T, CARD_D, cardMaterials } from './cards';
 import { aimFromPointer, groundFromPointer, CarrySpring, CARRY_HEIGHT } from './carry';
+import { TicketRow, TicketArc, ticketWorldPos, ticketGeometry, ticketMaterials } from './Tickets3D';
 import { grab } from './grab';
 import PromptFloat, { pushFloat } from './PromptFloat';
 import KeyCap from '../assets/pixelfont/KeyCap';
@@ -339,20 +340,25 @@ class Director {
   }
 
   // ---------- ④ 拿取：自己的堆 → 右下资金蜡烛；他人的堆 → 其身体收拢 ----------
+  // 自己的堆：**第一张**钱牌碰到蜡烛的那一帧就放开余额显示冻结（takePayout 按下时冻上）——
+  // 数字随后续落牌一路涨上去（等最后一张才动会显得迟钝，被打回）；空堆/异常路径也必须放开，否则数字永冻。
   playTake(pid) {
+    const self = pid === this.ctx.playerId;
+    const release = () => { if (self) useGameStore.getState().releaseBalanceFreeze(); };
     const p = this.pile(pid);
-    if (p.amount <= 0 && p.notes.length === 0) return 1;
+    if (p.amount <= 0 && p.notes.length === 0) { release(); return 1; }
     const spot = this.ctx.spot(pid);
     const amount = p.amount;
     const notes = p.notes.length ? p.notes : notesOf(amount);
     this.model.piles[pid] = { amount: 0, notes: [] };
-    const target = pid === this.ctx.playerId ? this.ctx.hand() : this.ctx.body(pid);
+    const target = self ? this.ctx.hand() : this.ctx.body(pid);
     const ms = this.fly(
       notes,
       (i) => { const l = cardLocal(i); return [spot.x + l[0], l[1], spot.z + l[2]]; },
       () => target,
-      { dur: 660, stagger: 42, apex: 0.9, shrinkOut: true },
+      { dur: 660, stagger: 42, apex: 0.9, shrinkOut: true, onLand: (_n, i) => { if (i === 0) release(); } },
     );
+    this.at(ms, release); // 兜底（release 幂等）：万一首张 onDone 丢失也不永冻
     return ms + S(120);
   }
 
@@ -447,6 +453,25 @@ function NegoCarriedNote({ note, carryRef, ndcRef, rot }) {
   );
 }
 
+// 被重力枪抓着的对质票（§8.8 协商拖票转赠）：与 NegoCarriedNote 同款弹簧跟随+速度倾斜。
+// slack 0.7：票排在毡面边缘，允许拽到自己身前（默认毡面夹紧会拦在半路）。
+function NegoCarriedTicket({ carryRef, ndcRef, rot }) {
+  const ref = useRef();
+  const { camera } = useThree();
+  useFrame((_, dt) => {
+    const c = carryRef.current;
+    const m = ref.current;
+    if (!c || !m) return;
+    aimFromPointer(camera, ndcRef.current, CARRY_HEIGHT, _negoTarget, 0.7);
+    _negoTarget.applyAxisAngle(UP, -rot);
+    c.spring.update(_negoTarget, dt);
+    m.position.copy(c.spring.pos);
+    c.spring.tilt(m.rotation);
+    m.visible = true;
+  });
+  return <mesh ref={ref} geometry={ticketGeometry()} material={ticketMaterials()} castShadow visible={false} />;
+}
+
 // 协商倒计时（浮字次行）：超时自动生效
 function CountdownText({ deadline }) {
   const [left, setLeft] = useState(() => Math.max(0, Math.ceil((deadline - Date.now()) / 1000)));
@@ -534,15 +559,26 @@ export default function PayoutLayer({ players, seats, spots, playerId, rot }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [payout, phase]);
 
-  useEffect(() => () => dir.dispose(), [dir]);
+  useEffect(() => () => { dir.dispose(); useGameStore.getState().releaseBalanceFreeze(); }, [dir]); // 卸载兜底：余额冻结绝不过夜
 
   // ---------- 协商 3D 直接操作：重力枪拖自己的钱牌/债务牌到队友圈 = 转移 ----------
   const canNegotiate = IS_3D_INPUT && phase === 'NEGOTIATE'
     && !!state.roundFarmerIds?.includes(playerId) && !state.me?.spectator;
   const [negoCarry, setNegoCarry] = useState(null);   // {note, kind}
   const negoCarryRef = useRef(null);
-  // 触屏：协商拖钱时相机 swipe 让位（帧级刷新；卸载兜底重置）
-  useFrame(() => { grab.active = !!negoCarryRef.current; });
+  // 对质票拖拽（§8.8 转赠）：与钱牌同一条指针管线（pressActiveRef/onMove/onUp），独立的按下/携带 ref。
+  const ticketDownRef = useRef(null);                 // {x, y} 按下位置（超阈值转拖拽）
+  const ticketCarryRef = useRef(null);                // {spring}
+  const [ticketCarry, setTicketCarry] = useState(null);
+  // 乐观票数（服务端回包前顶着显示，piles 乐观更新同理）：key=players 票数快照，快照一变旧差量即失效（渲染时忽略）。
+  const [ticketDeltas, setTicketDeltas] = useState({ key: '', map: {} });
+  const ticketKey = players.map(p => `${p.id}:${p.tickets ?? ''}`).join('|');
+  const ticketDeltaMap = ticketDeltas.key === ticketKey ? ticketDeltas.map : {};
+  // 票的落手飞行（转赠→飞进队友排 / 未落圈→飞回自己排）：hidePid 排在飞行期间少显 1 张（那张在空中）。
+  const [ticketFlight, setTicketFlight] = useState(null); // {from,to,yaw,hidePid,key}
+  const ticketFlightSeq = useRef(0);
+  // 触屏：协商拖钱/拖票时相机 swipe 让位（帧级刷新；卸载兜底重置）
+  useFrame(() => { grab.active = !!negoCarryRef.current || !!ticketCarryRef.current; });
   useEffect(() => () => { grab.active = false; }, []);
   const negoDownRef = useRef(null);
   const pressActiveRef = useRef(false);   // 真实按键是否仍按住（window pointerdown/up，可靠，不受 r3f 射线延迟影响）
@@ -550,9 +586,11 @@ export default function PayoutLayer({ players, seats, spots, playerId, rot }) {
   const pressTimer = useRef(null);
   // 每次渲染后刷新的落点/座位快照：拖拽监听器只挂一次（见下方 effect 的稳定依赖），从这里读最新值，
   // 避免每条广播都重挂监听器——那会在长按拆分/拖拽途中被 cleanup 打断（丢牌/取消拆分）。
-  const negoCtxRef = useRef({ spotByPid: {}, farmerIds: [] });
+  const negoCtxRef = useRef({ spotByPid: {}, seatByPid: {}, farmerIds: [], ticketKey: '', ticketDeltaMap: {}, ticketsByPid: {} });
   useEffect(() => {
-    negoCtxRef.current = { spotByPid, farmerIds: state.roundFarmerIds ?? [] };
+    const ticketsByPid = {};
+    players.forEach(p => { ticketsByPid[p.id] = p.tickets ?? 0; });
+    negoCtxRef.current = { spotByPid, seatByPid, farmerIds: state.roundFarmerIds ?? [], ticketKey, ticketDeltaMap, ticketsByPid };
   });
 
   // 手感与手牌层同参数：按下→移动超阈值=拖拽；按住不动 450ms=拆分（转小面额再拖）
@@ -569,6 +607,12 @@ export default function PayoutLayer({ players, seats, spots, playerId, rot }) {
       dir.splitPileNote(playerId, note.id, kind === 'debt');
     }, 450);
   };
+  // 自己的对质票按下（无拆分，只有拖拽）：同 onMyNoteDown 的 pressActiveRef 守卫（r3f 射线可能迟到）。
+  const onMyTicketDown = (i, e) => {
+    if (!canNegotiate || !pressActiveRef.current || ticketCarryRef.current || negoCarryRef.current) return;
+    e.stopPropagation();
+    ticketDownRef.current = { x: e.clientX, y: e.clientY };
+  };
 
   useEffect(() => {
     if (!canNegotiate) return undefined;
@@ -576,6 +620,24 @@ export default function PayoutLayer({ players, seats, spots, playerId, rot }) {
     const onMove = (e) => {
       ndcRef.current.x = (e.clientX / window.innerWidth) * 2 - 1;
       ndcRef.current.y = -(e.clientY / window.innerHeight) * 2 + 1;
+      // 票按下超阈值 → 转为携带。起点=**排里消失的那张的槽位**（末位；排减一张会重排居中，
+      // 从消失位起飞视觉最顺）——起点设在指针点会瞬移（钱牌从牌堆位起飞同理，踩过）。
+      const td = ticketDownRef.current;
+      if (td && !ticketCarryRef.current && Math.hypot(e.clientX - td.x, e.clientY - td.y) >= 8) {
+        ticketDownRef.current = null;
+        const { seatByPid: sb, spotByPid: pb, ticketsByPid, ticketDeltaMap: dm } = negoCtxRef.current;
+        let start;
+        if (sb[playerId] && pb[playerId]) {
+          const n = Math.max(1, (ticketsByPid[playerId] ?? 0) + (dm[playerId] ?? 0));
+          const { pos } = ticketWorldPos(sb[playerId], pb[playerId], n - 1, n);
+          start = new THREE.Vector3(pos[0], pos[1] + 0.04, pos[2]);
+        } else { // 兜底（座位缺失）：指针毡面点
+          start = groundFromPointer(camera, ndcRef.current, _negoFelt).applyAxisAngle(UP, -rot).clone();
+          start.y = TABLE_TOP + 0.25;
+        }
+        ticketCarryRef.current = { spring: new CarrySpring(start) };
+        setTicketCarry(true);
+      }
       const d = negoDownRef.current;
       if (!d || negoCarryRef.current) return;
       if (Math.hypot(e.clientX - d.x, e.clientY - d.y) < 8) return;
@@ -595,6 +657,42 @@ export default function PayoutLayer({ players, seats, spots, playerId, rot }) {
       pressActiveRef.current = false;
       clearTimeout(pressTimer.current);
       negoDownRef.current = null;
+      ticketDownRef.current = null;
+      // 票落手：指针所指毡面最近的队友圈 → transfer_ticket +1（乐观顶显）+ 飞进对方排；
+      // 没落到圈 = 取消 → 弧线飞回自己排末位。两种都用 hidePid 在飞行期间把落点排少显 1 张（那张在空中）。
+      const tc = ticketCarryRef.current;
+      if (tc) {
+        ticketCarryRef.current = null;
+        setTicketCarry(null);
+        const from = [tc.spring.pos.x, tc.spring.pos.y, tc.spring.pos.z]; // 松手瞬间的视觉位置=飞行起点
+        const { spotByPid: spots, seatByPid: seatsBy, farmerIds, ticketKey: k, ticketDeltaMap: m0, ticketsByPid } = negoCtxRef.current;
+        // 落点双判定（反馈：悬在圈上方松手要生效）：票的悬停位（玩家看到的）与指针毡面点，谁近算谁
+        const felt = groundFromPointer(camera, ndcRef.current, _negoFelt).applyAxisAngle(UP, -rot);
+        let toId = null, best = 0.8;
+        for (const pid of farmerIds) {
+          if (pid === playerId) continue;
+          const s = spots[pid];
+          if (!s) continue;
+          const dd = Math.min(
+            Math.hypot(felt.x - s.x, felt.z - s.z),
+            Math.hypot(from[0] - s.x, from[2] - s.z),
+          );
+          if (dd < best) { best = dd; toId = pid; }
+        }
+        const fly = (pid, n) => { // 飞向 pid 的第 n 张位（1-based 张数）；落地前该排少显 1 张
+          if (!(n > 0) || !seatsBy[pid] || !spots[pid]) return;
+          const { pos, yaw } = ticketWorldPos(seatsBy[pid], spots[pid], n - 1, n);
+          setTicketFlight({ from, to: pos, yaw, hidePid: pid, key: ++ticketFlightSeq.current });
+        };
+        if (toId) {
+          send({ type: 'transfer_ticket', toId, n: 1 });
+          setTicketDeltas({ key: k, map: { ...m0, [playerId]: (m0[playerId] ?? 0) - 1, [toId]: (m0[toId] ?? 0) + 1 } });
+          fly(toId, (ticketsByPid[toId] ?? 0) + (m0[toId] ?? 0) + 1); // 对方到手后的末位
+        } else {
+          fly(playerId, (ticketsByPid[playerId] ?? 0) + (m0[playerId] ?? 0)); // 飞回自己排末位（票数不变）
+        }
+        return;
+      }
       const c = negoCarryRef.current;
       if (!c) return;
       negoCarryRef.current = null;
@@ -602,15 +700,18 @@ export default function PayoutLayer({ players, seats, spots, playerId, rot }) {
       const debt = c.kind === 'debt';
       const pos = c.spring.pos; // 局部系（牌此刻的视觉位置，作飞行起点）
       const { spotByPid: spots, farmerIds } = negoCtxRef.current; // 读最新快照（监听器只挂一次）
-      // 落点判定按「指针指到毡面哪里」（世界→反旋进局部系，与玩家所见一致，反馈③）：
-      // 最近的本回合队友圈（不能给自己/地主/观战者）
+      // 落点双判定（反馈：钱悬在圈正上方松手要生效）：指针毡面点 + **牌的悬停位**（视角低时
+      // 射线∩桌面会越过牌的正下方——只按射线判，牌明明悬在圈上却不生效），谁近算谁。
       const felt = groundFromPointer(camera, ndcRef.current, _negoFelt).applyAxisAngle(UP, -rot);
       let toId = null, best = 0.8;
       for (const pid of farmerIds) {
         if (pid === playerId) continue;
         const s = spots[pid];
         if (!s) continue;
-        const dd = Math.hypot(felt.x - s.x, felt.z - s.z);
+        const dd = Math.min(
+          Math.hypot(felt.x - s.x, felt.z - s.z),
+          Math.hypot(pos.x - s.x, pos.z - s.z),
+        );
         if (dd < best) { best = dd; toId = pid; }
       }
       const settle = (pid) => {
@@ -652,6 +753,10 @@ export default function PayoutLayer({ players, seats, spots, playerId, rot }) {
       window.removeEventListener('pointercancel', onUp);
       clearTimeout(pressTimer.current);
       pressActiveRef.current = false;
+      // 相位切换/卸载时若正拖着票/票在飞：直接丢携带态与飞行（票数从 state 渲染，无账可平）。
+      ticketDownRef.current = null;
+      if (ticketCarryRef.current) { ticketCarryRef.current = null; setTicketCarry(null); }
+      setTicketFlight(null);
       // 相位切换/卸载时若正拖着一张牌（未落定）：把它放回自己堆并解冻，避免丢牌 + 队列永久冻结。
       const c = negoCarryRef.current;
       if (c) {
@@ -719,6 +824,32 @@ export default function PayoutLayer({ players, seats, spots, playerId, rot }) {
       {m.flights.map(({ key, ...f }) => <ArcNote key={key} {...f} />)}
       {negoCarry && <NegoCarriedNote note={negoCarry.note} carryRef={negoCarryRef} ndcRef={ndcRef} rot={rot} />}
 
+      {/* 协商期对质票（§8.8）：每个本回合农民圈前一排 3D 票；自己的可拖到队友圈=转赠 1 张。
+          票数=服务端 state + 乐观差量（回包快照一变即重置）；拖拽中自己排少显 1 张（那张在手上）。 */}
+      {phase === 'NEGOTIATE' && (state.roundFarmerIds ?? []).map(pid => {
+        const idx = players.findIndex(p => p.id === pid);
+        const p = players[idx];
+        if (!p || p.tickets == null || !seats[idx] || !spots[idx]) return null;
+        const mine = pid === playerId;
+        const count = (p.tickets ?? 0) + (ticketDeltaMap[pid] ?? 0)
+          - (mine && ticketCarry ? 1 : 0)                       // 拖拽中：那张在手上
+          - (ticketFlight?.hidePid === pid ? 1 : 0);            // 飞行中：那张在空中
+        return (
+          <TicketRow
+            key={`tk-${pid}`}
+            count={count}
+            seat={seats[idx]}
+            spot={spots[idx]}
+            onTicketDown={mine && canNegotiate ? onMyTicketDown : undefined}
+          />
+        );
+      })}
+      {ticketCarry && <NegoCarriedTicket carryRef={ticketCarryRef} ndcRef={ndcRef} rot={rot} />}
+      {phase === 'NEGOTIATE' && ticketFlight && (
+        <TicketArc key={ticketFlight.key} from={ticketFlight.from} to={ticketFlight.to} yaw={ticketFlight.yaw}
+          onLand={() => setTicketFlight(null)} />
+      )}
+
       {/* 协商浮字（白字无背景板）：队友圈上的确认状态 + 自己圈上的确认行 */}
       {IS_3D_INPUT && phase === 'NEGOTIATE' && alloc && (state.roundFarmerIds ?? []).map(pid => {
         if (pid === playerId || !alloc.confirms?.includes(pid)) return null;
@@ -735,7 +866,7 @@ export default function PayoutLayer({ players, seats, spots, playerId, rot }) {
       })}
       {negoIdle && mySpot && (
         <PromptFloat spot={mySpot} nw>
-          <PixelText size={2} color="#fff">{iConfirmed ? '已确认 · 等待其他农民' : '拖钱牌/债务牌到队友圈'}</PixelText>
+          <PixelText size={2} color="#fff">{iConfirmed ? '已确认 · 等待其他农民' : '拖钱牌/债务牌/对质票到队友圈'}</PixelText>
           <div className={`clickable prompt-line ${spaceHeld ? 'pressed' : ''}`} onClick={() => send({ type: 'negotiate_confirm', confirmed: !iConfirmed })}>
             <PixelText size={2} color="var(--px-gold)">{iConfirmed ? '撤销确认' : '确认分配'}</PixelText>
             <KeyCap color="var(--px-gold)" />
@@ -748,7 +879,7 @@ export default function PayoutLayer({ players, seats, spots, playerId, rot }) {
           位置同浮字规范：自己圈的「西北」压低（反馈⑤），distanceFactor 压小一档与金额标签视觉等大。 */}
       {canTake && mySpot && (
         <Html position={promptAnchor(mySpot.x, mySpot.z)} center distanceFactor={5} zIndexRange={[30, 0]}>
-          <div className="money-3d-amount take-float prompt-line" onClick={() => send({ type: 'take_payout' })}>
+          <div className="money-3d-amount take-float prompt-line" onClick={() => useGameStore.getState().takePayout()}>
             <PixelText size={2} color={P.gold}>拿取</PixelText>
             <KeyCap k="F" color={P.gold} />
           </div>

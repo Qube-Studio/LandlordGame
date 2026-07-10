@@ -68,6 +68,7 @@ export const ROLE_SHEET = {
     advanced: [
       ['团队人数 +1', '获取工资所需回合 −1（最多 −3）'],
       ['农民人数 +1', '单次获取工资 +1'],
+      ['对质票', '3（花 2 票指控敌方暗注多/少）'],
     ],
   },
   glutton: {
@@ -81,6 +82,7 @@ export const ROLE_SHEET = {
       ['单局最多重掷申请数', '农民人数'],
       ['每回合最多申请数', '1'],
       ['每回合伙食费', '1'],
+      ['对质票', '0（技能集中在重掷；可受队友转赠）'],
     ],
   },
   investor: {
@@ -91,6 +93,7 @@ export const ROLE_SHEET = {
     ],
     advanced: [
       ['投保金额上限', '农民人数 × 3'],
+      ['对质票', '2'],
     ],
   },
 };
@@ -103,3 +106,8 @@ export const isFarmerSide = (role) => factionOf(role) === 'farmer';
 // 竞技模式的两侧可选角色（LOBBY 选角用）。
 export const LANDLORD_SIDE_ROLES = ['landlord', 'capitalist'];
 export const FARMER_SIDE_ROLES = ['farmer', 'investor', 'glutton'];
+
+// 对质票（§8.8，与服务端 config.competitive.accusation 对应）：每角色**按局**发放，农民阵营专属。
+// 猜对敌方暗注「比阵营总注多/少」→ 强制敌方立刻多结算一次制约（地主目标 / 资本家税）。检察官(prosecutor:4) 下一步。
+export const ACCUSE_TICKETS = { farmer: 3, investor: 2, glutton: 0 };
+export const ACCUSE_COST = 2;

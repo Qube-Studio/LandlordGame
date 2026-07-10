@@ -82,14 +82,16 @@ export const PROP_COLORS = {
   coinGlow: '#6a4a10',                        // 硬币常驻微 emissive
 };
 
-// 面额(bg/ink/accent)——pixelnote(2D+3D 钞票)唯一色源
+// 面额(bg/ink/accent)——pixelnote(2D+3D 钞票)唯一色源。
+// 货币=蜡烛后暖化并入烛光酒馆世界:保留四个可秒辨的色相,但整体拉进蜂蜡/烛焰暖域,
+// 冷蓝(2)→暖岩蓝、冷灰背面→暖木背,不再有煞出世界的冷色。
 export const DENOM_COLORS = {
-  10:   { bg: '#caa84e', ink: '#403211', accent: '#ecd78d' },
-  5:    { bg: '#6fa87e', ink: '#1d3726', accent: '#abd7b9' },
-  2:    { bg: '#5f93b5', ink: '#152e3d', accent: '#abd1e6' },
-  1:    { bg: '#b8a07a', ink: '#382e1b', accent: '#decba8' },
-  DEBT: { bg: '#c45048', ink: '#360f0b', accent: '#eaa39d' },
-  BACK: { bg: '#23262f', ink: '#7d8696', accent: '#363b46' },
+  10:   { bg: '#d6ab4a', ink: '#3a2b0d', accent: '#f4dc8e' }, // 蜂蜡金(最亮=最高面额)
+  5:    { bg: '#7f9a52', ink: '#26311a', accent: '#c6d69a' }, // 暖橄榄绿
+  2:    { bg: '#5a8ba0', ink: '#14303a', accent: '#a8ccd7' }, // 暖岩蓝(去冰)
+  1:    { bg: '#c2a06e', ink: '#3a2c17', accent: '#e6cfa2' }, // 牛脂暖褐
+  DEBT: { bg: '#b8443c', ink: '#2e0c09', accent: '#e39a92' }, // 火漆红(与印章同源)
+  BACK: { bg: '#262019', ink: '#8a795c', accent: '#37301f' }, // 暖木背
 };
 
 // ---- 工具派生:bevel/阴影/暗边一律用 shade/alpha 派生,不另设 token ----

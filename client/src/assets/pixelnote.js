@@ -1,6 +1,6 @@
 // 唯一权威的钞票视觉：用 canvas 画一张像素钞票，2D（手牌/飞行/协商）与 3D（桌面贴图）共用同一张，
 // 保证手上与桌上的钞票完全一致。数字用自制点阵字体绘制。
-import { glyphPoints, GLYPH_ADVANCE } from './pixelfont/glyphs';
+import { glyphPoints, GLYPH_ADVANCE, CANDLE_ROWS } from './pixelfont/glyphs';
 import { DENOM_COLORS, PROP_COLORS, shade } from './palette';
 
 export const NOTE_ASPECT = 1.4; // 高/宽
@@ -25,22 +25,40 @@ function drawGlyphText(ctx, text, cx, cy, cell, color) {
   }
 }
 
-// 面额水印(8×8 点阵,ART_BIBLE §1.6):10=城楼 5=麦穗 2=河纹 1=铜钱
-const WATERMARKS = {
-  10: ['00100100', '01111110', '01011010', '11111111', '10111101', '10100101', '10111101', '11111111'],
-  5:  ['00011000', '00111100', '01011010', '00111100', '01011010', '00111100', '00011000', '00011000'],
-  2:  ['00000000', '01100110', '10011001', '00000000', '01100110', '10011001', '00000000', '00000000'],
-  1:  ['00111100', '01111110', '11100111', '11011011', '11011011', '11100111', '01111110', '00111100'],
-};
-
-function drawWatermark(ctx, value, color) {
-  const bits = WATERMARKS[value] || WATERMARKS[1];
-  const cell = 3;
-  const x0 = Math.round(NW / 2 - 4 * cell), y0 = Math.round(NH / 2 - 4 * cell);
+// 蜡烛点阵(= 货币符 ¥ 同一份 CANDLE_ROWS,5×7):水印与背面火漆章共用,单一真源。
+// 货币=蜡烛后,钞票的身份母题就是这枚蜡烛——不再用旧朝代的城楼/麦穗/河纹/铜钱。
+function drawCandleGlyph(ctx, cx, cy, cell, color) {
+  const x0 = Math.round(cx - (5 * cell) / 2);
+  const y0 = Math.round(cy - (CANDLE_ROWS.length * cell) / 2);
   ctx.fillStyle = color;
-  for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) {
-    if (bits[y][x] === '1') ctx.fillRect(x0 + x * cell, y0 + y * cell, cell, cell);
+  for (let y = 0; y < CANDLE_ROWS.length; y++) {
+    const row = CANDLE_ROWS[y];
+    for (let x = 0; x < row.length; x++) if (row[x] === '1') ctx.fillRect(x0 + x * cell, y0 + y * cell, cell, cell);
   }
+}
+
+// 底部烛焰计数条(照素材版式):N 个焰点落在黄铜横轨上,N=面额(>5 折两行,10=两行5)。
+// 正常牌=暗焰身 + 亮焰尖(accent);债务牌=熄灭的暗桩(无亮尖),与红底/锁链/负数一同读作「债」。
+function drawTally(ctx, value, theme, debt) {
+  const railY = NH - 9, rowH = 4, gap = 5;
+  const rows = value > 5 ? 2 : 1;
+  const perRow = Math.ceil(value / rows);
+  for (let r = 0; r < rows; r++) {
+    const n = r === rows - 1 ? value - perRow * r : perRow;
+    const rowW = n * gap - (gap - 3);
+    const sx = Math.round(NW / 2 - rowW / 2);
+    const py = railY - (rows - r) * rowH - 1;
+    for (let i = 0; i < n; i++) {
+      const px = sx + i * gap;
+      ctx.fillStyle = debt ? shade(theme.bg, -28) : theme.ink;
+      ctx.fillRect(px, py + 1, 3, 3);                                   // 焰身
+      if (!debt) { ctx.fillStyle = theme.accent; ctx.fillRect(px + 1, py, 1, 1); } // 亮焰尖
+    }
+  }
+  ctx.fillStyle = theme.accent;                                        // 黄铜横轨 + 两端封头
+  ctx.fillRect(10, railY, NW - 20, 1);
+  ctx.fillRect(10, railY - 1, 1, 3);
+  ctx.fillRect(NW - 11, railY - 1, 1, 3);
 }
 
 function draw(ctx, { value = 1, faceDown = false, debt = false, locked = false }) {
@@ -92,22 +110,17 @@ function draw(ctx, { value = 1, faceDown = false, debt = false, locked = false }
     ctx.beginPath(); ctx.arc(cx, cy, 10, 0, Math.PI * 2); ctx.fill();
     ctx.strokeStyle = shade(PROP_COLORS.wax, 28); ctx.lineWidth = 1;
     ctx.beginPath(); ctx.arc(cx, cy, 7.5, 0, Math.PI * 2); ctx.stroke();        // 内压环
-    ctx.fillStyle = shade(PROP_COLORS.wax, 55);                                  // 「王」印文
-    rect(ctx, cx - 4, cy - 5, 8, 2, ctx.fillStyle);
-    rect(ctx, cx - 3, cy - 1, 6, 2, ctx.fillStyle);
-    rect(ctx, cx - 4, cy + 3, 8, 2, ctx.fillStyle);
-    rect(ctx, cx - 1, cy - 5, 2, 10, ctx.fillStyle);
+    drawCandleGlyph(ctx, cx, cy, 2, shade(PROP_COLORS.wax, 55));                  // 蜡烛印文(货币=蜡烛)
     return;
   }
 
-  // 中央大数字:凸版两层(右下暗影 → 主体)。水印极淡垫底,不与数字抢戏。
+  // 中央大数字:凸版两层(右下暗影 → 主体)。蜡烛水印极淡垫底(货币=蜡烛),框住数字不抢戏。
   const label = (debt ? '-' : '') + value;
-  drawWatermark(ctx, value, debt ? shade(theme.bg, -4) : shade(theme.bg, 4)); // 水印垫底(极淡)
+  drawCandleGlyph(ctx, NW / 2, NH / 2, 4, debt ? shade(theme.bg, -8) : shade(theme.bg, 8)); // 蜡烛水印
   drawGlyphText(ctx, label, NW / 2 + 1, NH / 2, 3, shade(theme.ink, -35));
   drawGlyphText(ctx, label, NW / 2, NH / 2 - 1, 3, theme.ink);
-  drawGlyphText(ctx, String(value), 9, 10, 1, theme.ink);                // 左上角标
-  drawGlyphText(ctx, String(value), NW - 9, NH - 10, 1, theme.ink);      // 右下角标
-  drawGlyphText(ctx, debt ? 'DEBT' : 'YUAN', NW / 2, NH - 9, 1, theme.ink);
+  drawGlyphText(ctx, '¥' + value, 15, 10, 1, theme.ink);            // 左上角标:蜡烛符(¥)+ 面额
+  drawTally(ctx, value, theme, debt);                                   // 底部烛焰计数条(N 焰=面额)
 
   if (locked) {
     rect(ctx, 0, 0, NW, NH, 'rgba(8,9,13,0.55)');

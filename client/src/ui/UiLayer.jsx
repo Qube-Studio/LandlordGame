@@ -20,6 +20,7 @@ import LedgerBook from './LedgerBook';
 import { EVENT_TEXT } from '../game/settleText';
 import { ROLE_LABEL, ROLE_GLYPH, factionOf, isFarmerSide, isLandlordSide } from '../game/roles';
 import { IS_3D_INPUT, IS_TOUCH } from '../game/inputMode';
+import { TICKET_GRID, TICKET_COLS, TICKET_ROWS, TICKET_INK, ticketCellColor } from '../assets/ticketArt';
 
 const Icon = getArt('icon');
 
@@ -31,6 +32,12 @@ const PHASE_META = {
     hint: IS_3D_INPUT
       ? '点/拖/横扫捋牌下注，捋起的叠拖回怀里可散回（手牌长按拆分，圈内钱堆长按整堆拿起），空格确认'
       : '选钱牌组成下注额（长按拆分），空格确认',
+  },
+  CHALLENGE: {
+    label: '对质窗',
+    hint: IS_3D_INPUT
+      ? '农民可花 2 票指控敌方暗注「比阵营总注多/少」：悬停敌人按 Z 或用下方面板，猜对逼其多结算一次制约'
+      : '农民可花 2 票指控敌方暗注「比阵营总注多/少」，猜对逼其多结算一次制约',
   },
   REVEAL: { label: '揭牌', hint: '各家下注已公开，空格确认后掷硬币' },
   COIN_FLIP: { label: '掷硬币', hint: '正面地主阵营胜，反面农民阵营胜' },
@@ -54,6 +61,10 @@ function statusOf(p, state) {
     case 'LOBBY': return p.lobbyReady ? { text: '已准备', cls: 'ok' } : { text: '', cls: 'dim' };
     case 'DISCUSSION': return p.ready ? { text: '已准备', cls: 'ok' } : { text: '讨论中', cls: 'dim' };
     case 'BETTING': return p.hasBet ? { text: '已下注', cls: 'ok' } : { text: '思考中', cls: 'dim' };
+    case 'CHALLENGE':
+      if (isLandlordSide(p.role)) return { text: '受审', cls: 'dim' };
+      if (p.tickets != null && p.tickets < 2) return { text: '票不足', cls: 'dim' };
+      return p.challengeSkip ? { text: '已跳过', cls: 'ok' } : { text: '对质中', cls: 'dim' };
     case 'REVEAL': return p.confirmed ? { text: '已确认', cls: 'ok' } : { text: '查看中', cls: 'dim' };
     case 'NEGOTIATE':
       if (!isFarmerSide(p.role)) return { text: '等待', cls: 'dim' };
@@ -125,7 +136,7 @@ function useGameKeys() {
       else if (phase === 'REVEAL' && !me?.confirmed && !me?.spectator) send({ type: 'confirm_reveal' });
       else if (phase === 'NEGOTIATE' && state.roundFarmerIds?.includes(playerId)) {
         send({ type: 'negotiate_confirm', confirmed: !me?.negotiateConfirmed });
-      } else if (phase === 'FINALIZE' && canTake) send({ type: 'take_payout' });
+      } else if (phase === 'FINALIZE' && canTake) useGameStore.getState().takePayout(); // 冻结余额显示→飞行落地才跳数
       else if (phase === 'ENDED' && me?.isHost) send({ type: 'restart_game' });
     };
     const onKey = (e) => {
@@ -145,7 +156,14 @@ function useGameKeys() {
       const po = state.payout;
       const canTake = state.phase === 'FINALIZE' && !!po
         && po.eligible?.includes(playerId) && !po.taken?.includes(playerId);
-      if ((e.key === 'f' || e.key === 'F') && canTake) { e.preventDefault(); send({ type: 'take_payout' }); return; }
+      if ((e.key === 'f' || e.key === 'F') && canTake) { e.preventDefault(); useGameStore.getState().takePayout(); return; }
+      // 对质 (Z)：CHALLENGE 决定窗，农民有票且无进行中指控 → 指控敌方（§8.8；桌面悬停仅为视觉瞄准）
+      if (e.key === 'z' || e.key === 'Z') {
+        const ch = state.challenge; const me = state.me;
+        if (state.phase === 'CHALLENGE' && ch && me?.canAccuse && !me?.myAccusation && !ch.accusation && ch.targetId) {
+          e.preventDefault(); send({ type: 'accuse', targetId: ch.targetId }); return;
+        }
+      }
       if (e.key !== ' ') return;                // 确认类动作统一空格（反馈⑩：回车退役）
       e.preventDefault();
       if (state.phase === 'BETTING') return;    // BETTING 完全交给 HandLayer（按下态+确认），这里绝不碰
@@ -410,11 +428,13 @@ function useBalanceCount(target) {
 function BalanceHud() {
   const state = useGameStore(s => s.state);
   const playerId = useGameStore(s => s.playerId);
+  // 拿取入账演出（§3.8）：冻结期显示按下拿取那一刻的旧余额，飞行落到蜡烛才放开→数字跳动动画恰在钱落地时播
+  const balanceFreeze = useGameStore(s => s.balanceFreeze);
   const me = state.me;
-  const { display, tx, ty, scale, flash } = useBalanceCount(me?.balance ?? null);
+  const { display, tx, ty, scale, flash } = useBalanceCount(balanceFreeze != null ? balanceFreeze : (me?.balance ?? null));
   if (!me || me.balance == null) return null;
   const minStake = me.bounds?.minStake ?? 1;
-  const low = me.balance <= minStake * 2;
+  const low = display <= minStake * 2; // 按显示值判低资金色（冻结期不提前变红）
   const moved = tx || ty || (scale && scale !== 1);
   const style = moved
     ? { transform: `translate(${(tx || 0).toFixed(1)}px, ${(ty || 0).toFixed(1)}px) scale(${(scale || 1).toFixed(3)})`, transformOrigin: 'right bottom' }
@@ -512,22 +532,43 @@ function QuestLine({ pairs, bump = 0 }) {
 function GoalHud() {
   const state = useGameStore(s => s.state);
   const g = state.landlordGoal;
-  const bump = useBumpKey(g?.landlordBalance);
+  const bump = useBumpKey(g?.landlordBalance ?? g?.roundsLeft);
   if (!g) return null;
-  const cur = g.landlordBalance;                      // 农民视角 null（不泄露）
+  const due = g.roundsLeft <= 0;
+  // 被对质命中（§8.8）：制约卡告警，持续到 FINALIZE 落罚（lastAccusation 下回合 DISCUSSION 才清）。
+  const la = state.lastAccusation;
+  const forced = !!(la?.correct && la.targetId === g.landlordId);
+  // 农民视角（服务端剥离了 goal 值）：不泄露目标额，只显示「X回合后结算」倒计时（§8.8）。
+  // 进度条沿用原样式（外环 quest-ring + 进度不可知的暗斜纹 track）；卡片 goal-fixed 定宽=条长、被命中换行不拉长。
+  if (g.goal == null) {
+    const pairs = [['地主目标：', due ? '本回合结算' : `${g.roundsLeft}回合后结算`, 'var(--px-gold)']];
+    if (forced) pairs.push(['被对质：', '⚠强制结算', 'var(--danger)']);
+    const glow = due ? 'due' : '';
+    return (
+      <div className={`goal-hud hud-card quest-card goal-fixed ${forced ? 'forced-hit' : ''}`}>
+        <QuestLine bump={bump} pairs={pairs} />
+        <div className={`quest-wrap ${glow}`}>
+          {!due && <QuestSegs total={g.interval ?? 1} filled={g.roundsLeft} className="quest-ring" />}
+          <QuestTrack ratio={null} />
+        </div>
+      </div>
+    );
+  }
+  // 地主本人/观战：完整目标值 + 进度。
+  const cur = g.landlordBalance;
   const met = cur != null && cur >= g.goal;
   const lg = state.config?.landlordGoal;
   const penalty = (cur != null && lg)
     ? Math.max(lg.minPenalty ?? 0, Math.round(Math.max(0, cur) * (lg.penaltyRate ?? 0)))
     : null;
-  const due = g.roundsLeft <= 0;
   const glow = due ? `due ${cur == null ? '' : met ? 'met' : 'miss'}` : '';
-  // 地主本人看「目标」，其他人（农民/观战）看「地主目标」
+  // 地主本人看「目标」，观战看「地主目标」
   const label = state.me?.id === g.landlordId ? '目标：' : '地主目标：';
   const pairs = [[label, cur != null ? `${cur}/${g.goal}` : String(g.goal), met ? 'var(--ok)' : 'var(--px-gold)']];
   if (penalty != null) pairs.push(['罚款：', penalty, 'var(--danger)']);
+  if (forced) pairs.push(['被对质：', '⚠强制结算', 'var(--danger)']);
   return (
-    <div className="goal-hud hud-card quest-card">
+    <div className={`goal-hud hud-card quest-card goal-fixed ${forced ? 'forced-hit' : ''}`}>
       <QuestLine bump={bump} pairs={pairs} />
       <div className={`quest-wrap ${glow}`}>
         {!due && <QuestSegs total={g.interval ?? 1} filled={g.roundsLeft} className="quest-ring" />}
@@ -554,9 +595,14 @@ function CapitalistHud() {
   const taxLabel = rtn <= 0 ? '本回合征税：' : `征税(${rtn}回合后)：`;
   // 左区分子固定用开局个人资金（下注中 balance 暂时下探，占比不该跟着抖）
   const personal = c.personalInitial ?? c.personal ?? 0;
+  // 被对质命中（§8.8）：制约卡告警，持续到 FINALIZE 强制额外扣税落地。
+  const la = state.lastAccusation;
+  const forced = !!(la?.correct && la.targetId === c.id);
+  const pairs = [['担保资金：', pool], [taxLabel, tax, 'var(--danger)']];
+  if (forced) pairs.push(['被对质：', '⚠强制扣税', 'var(--danger)']);
   return (
-    <div className="goal-hud hud-card quest-card">
-      <QuestLine bump={bump} pairs={[['担保资金：', pool], [taxLabel, tax, 'var(--danger)']]} />
+    <div className={`goal-hud hud-card quest-card ${forced ? 'forced-hit' : ''}`}>
+      <QuestLine bump={bump} pairs={pairs} />
       <QuestFullBar
         left={pool > 0 ? personal / pool : 0}
         right={pool > 0 ? tax / pool : (tax > 0 ? 1 : 0)}
@@ -607,6 +653,60 @@ function GluttonHud() {
       </span>
     </div>
   );
+}
+
+// 像素票券（对质票，§8.8）：邮票造型（左右锯齿+信封翻盖 V），网格走 assets/ticketArt.js 单一真源
+// （与 3D 贴图/锯齿几何一致）。filled=金色实心票；否则=暗色轮廓（空槽占位，只画边框/翻盖/齿尖）。
+function PixelTicket({ filled = false, size = 26 }) {
+  const u = size / TICKET_COLS;
+  const edge = filled ? TICKET_INK : 'var(--ink-dim)';
+  const cells = [];
+  TICKET_GRID.forEach((line, y) => {
+    for (let x = 0; x < TICKET_COLS; x++) {
+      const c = line[x];
+      if (c === ' ') continue;
+      const isEdge = c === 'B';
+      if (!filled && !isEdge && c !== 'S') continue;             // 轮廓态：只画边+齿尖、纸面透空
+      const fill = filled ? (isEdge ? edge : ticketCellColor(c, x, y)) : 'var(--ink-dim)'; // 实心=逐格配色（同 3D 贴图）
+      cells.push(<rect key={`${x}-${y}`} x={+(x * u).toFixed(2)} y={+(y * u).toFixed(2)} width={+(u + 0.4).toFixed(2)} height={+(u + 0.4).toFixed(2)} fill={fill} />);
+    }
+  });
+  const h = size * TICKET_ROWS / TICKET_COLS;
+  return (
+    <svg width={size} height={+h.toFixed(1)} viewBox={`0 0 ${size} ${h}`} shapeRendering="crispEdges" aria-hidden="true">
+      {cells}
+    </svg>
+  );
+}
+
+// ---------- 对质票 HUD（农民阵营本人可见，§8.8） ----------
+// 极简：有几张就画几张像素票券（无数字）；一张都没有则显示一个轮廓票占位。
+function TicketHud() {
+  const state = useGameStore(s => s.state);
+  const me = state.me;
+  const tickets = me?.tickets;
+  const bump = useBumpKey(tickets);
+  if (tickets == null || !isFarmerSide(me?.role)) return null;
+  return (
+    <div className="goal-hud hud-card quest-card ticket-hud">
+      <div key={bump} className={`ticket-row ${bump ? 'quest-bump' : ''}`}>
+        {tickets > 0
+          ? Array.from({ length: tickets }, (_, i) => <PixelTicket key={i} filled />)
+          : <PixelTicket />}
+      </div>
+    </div>
+  );
+}
+
+// 通用倒计时（读服务端 deadline 绝对毫秒；对质决定/交流窗、协商等复用）。
+function Countdown({ deadline, suffix = '' }) {
+  // deadline 变化时用 key 重挂重置初值（避免 effect 内同步 setState 触发级联渲染）。
+  const [left, setLeft] = useState(() => Math.max(0, Math.ceil((deadline - Date.now()) / 1000)));
+  useEffect(() => {
+    const t = setInterval(() => setLeft(Math.max(0, Math.ceil((deadline - Date.now()) / 1000))), 500);
+    return () => clearInterval(t);
+  }, [deadline]);
+  return <span className="dim">{left}s {suffix}</span>;
 }
 
 // ---------- 阶段面板 ----------
@@ -692,6 +792,111 @@ function ReflipPanel() {
     </div>
   );
 }
+// 对质窗面板（§8.8）：两种输入模式都渲染（决策需要清晰 UI；3D 桌面悬停+Z 为增强，非唯一路径）。
+function ChallengePanel() {
+  const state = useGameStore(s => s.state);
+  const send = useGameStore(s => s.send);
+  const playerId = useGameStore(s => s.playerId);
+  const ch = state.challenge;
+  const me = state.me;
+  if (IS_3D_INPUT) return null; // 3D 模式：对质全走桌面浮字（FeltPrompts），底部面板退役（仅 ?input=2d 保留）
+  if (!ch) return null;
+  const nameOf = id => state.players.find(p => p.id === id)?.name ?? '敌方';
+  const deadline = ch.deadline;
+
+  // 我是发起者（交流窗）：选 多/少 或 取消
+  if (me?.myAccusation) {
+    return (
+      <div className="phase-panel challenge-panel">
+        <p className="danger">你已指控 {nameOf(me.myAccusation.targetId)}！赌他的暗注比农民阵营总注（<b className="gold">{ch.factionTotal}</b>）——</p>
+        <div className="role-pick">
+          <button className="btn primary" onClick={() => send({ type: 'accuse_resolve', dir: 'more' })}>更多</button>
+          <button className="btn primary" onClick={() => send({ type: 'accuse_resolve', dir: 'less' })}>更少</button>
+          <button className="btn ghost" onClick={() => send({ type: 'accuse_cancel' })}>取消（票不退）</button>
+        </div>
+        {deadline && <Countdown deadline={deadline} suffix="后自动取消" />}
+      </div>
+    );
+  }
+  // 他人正在指控（交流窗，非我发起）
+  if (ch.accusation) {
+    const who = nameOf(ch.accusation.accuserId);
+    const iAmTarget = ch.accusation.targetId === playerId;
+    return (
+      <div className="phase-panel challenge-panel">
+        <p className={iAmTarget ? 'danger' : 'dim'}>{iAmTarget ? `你正被 ${who} 指控！` : `${who} 正在指控 ${nameOf(ch.accusation.targetId)}…`}</p>
+        {deadline && <Countdown deadline={deadline} suffix="内落定" />}
+      </div>
+    );
+  }
+  // 决定窗（IDLE）
+  const farmers = state.players.filter(p => state.roundFarmerIds?.includes(p.id) && isFarmerSide(p.role));
+  const skipped = farmers.filter(p => p.challengeSkip).length;
+  if (isLandlordSide(me?.role) && !me?.spectator) {
+    return (
+      <div className="phase-panel challenge-panel">
+        <p className="dim">农民正在决定是否对质你…</p>
+        {deadline && <Countdown deadline={deadline} suffix="后自动揭牌" />}
+      </div>
+    );
+  }
+  const isFarmer = isFarmerSide(me?.role) && !me?.spectator && state.roundFarmerIds?.includes(playerId);
+  if (!isFarmer) {
+    return (
+      <div className="phase-panel challenge-panel">
+        <p className="dim">对质窗：等待农民决定…（已跳过 {skipped}/{farmers.length}）</p>
+        {deadline && <Countdown deadline={deadline} suffix="后自动揭牌" />}
+      </div>
+    );
+  }
+  const canAccuse = !!me?.canAccuse;
+  return (
+    <div className="phase-panel challenge-panel">
+      <p className="dim">
+        暗注仍藏面额。农民阵营总注 <b className="gold">{ch.factionTotal}</b>。
+        {canAccuse ? '花 2 票指控敌方暗注比它多/少——猜对逼其多结算一次制约。' : '你的票不足 2，无法发起指控。'}
+      </p>
+      <div className="role-pick">
+        {canAccuse && (
+          <button className="btn primary" onClick={() => send({ type: 'accuse', targetId: ch.targetId })}>
+            指控 {nameOf(ch.targetId)}（−2 票）{IS_3D_INPUT && <span className="keycap">Z</span>}
+          </button>
+        )}
+        <button className={`btn ${me?.challengeSkip ? 'ghost' : ''}`} onClick={() => send({ type: 'challenge_skip' })} disabled={me?.challengeSkip}>
+          {me?.challengeSkip ? `已跳过 ${skipped}/${farmers.length}` : '跳过对质'}
+        </button>
+      </div>
+      {deadline && <Countdown deadline={deadline} suffix="后自动揭牌" />}
+    </div>
+  );
+}
+
+// 对质票转赠（NEGOTIATE，§8.8）：紧凑条——把票 +1 给队友。
+// 3D 模式退役（转赠改为桌面拖票，PayoutLayer#票拖拽）；仅 ?input=2d 保留按钮版。
+function TicketTransfer() {
+  const state = useGameStore(s => s.state);
+  const send = useGameStore(s => s.send);
+  const playerId = useGameStore(s => s.playerId);
+  const me = state.me;
+  if (IS_3D_INPUT) return null;
+  if (state.phase !== 'NEGOTIATE') return null;
+  if (!isFarmerSide(me?.role) || me?.spectator || !state.roundFarmerIds?.includes(playerId)) return null;
+  const mates = state.players.filter(p => state.roundFarmerIds?.includes(p.id) && isFarmerSide(p.role) && p.id !== playerId);
+  if (mates.length === 0) return null;
+  const myTickets = me?.tickets ?? 0;
+  return (
+    <div className="ticket-transfer hud-card">
+      <span className="tt-label"><PixelText size={2} color="var(--ink-dim)">对质票</PixelText> <PixelText size={2} color="var(--px-gold)">{myTickets}</PixelText></span>
+      {mates.map(mt => (
+        <button key={mt.id} className="btn tiny" disabled={myTickets < 1}
+          onClick={() => send({ type: 'transfer_ticket', toId: mt.id, n: 1 })}>
+          给 {mt.name} +1
+        </button>
+      ))}
+    </div>
+  );
+}
+
 // SETTLE/FINALIZE：3D 模式底部面板退役（HUD 精简⑧）——分账过程即桌面演出，明细进账本 L；
 // 2D 模式（?input=2d，备移动端）保留文字版。
 function SettlePanel() {
@@ -792,7 +997,7 @@ function EndedPanel2D() {
 function CoinFlipPanel() { return IS_3D_INPUT ? null : <div className="phase-panel"><p className="dim coin-hint">掷硬币中…</p></div>; }
 function NullPanel() { return null; }
 const PHASE_PANELS = {
-  LOBBY: LobbyPanel, DISCUSSION: DiscussionPanel, BETTING: BettingPanel, REVEAL: RevealPanel,
+  LOBBY: LobbyPanel, DISCUSSION: DiscussionPanel, BETTING: BettingPanel, CHALLENGE: ChallengePanel, REVEAL: RevealPanel,
   COIN_FLIP: CoinFlipPanel, REFLIP: ReflipPanel,
   SETTLE: SettlePanel, NEGOTIATE: NegotiatePanel, FINALIZE: FinalizePanel, ENDED: EndedPanel,
 };
@@ -869,6 +1074,7 @@ export default function UiLayer() {
         <CapitalistHud />
         <WageHud />
         <GluttonHud />
+        <TicketHud />
       </div>
       <div className={`corner-stack ${hudCls('r')}`}>
         <BalanceHud />
@@ -877,6 +1083,7 @@ export default function UiLayer() {
         {/* 底部阶段提示横幅（phase-caption）暂时屏蔽（HUD 精简⑭）——文案保留在 PHASE_META.hint 备用 */}
         <Panel />
       </div>
+      <TicketTransfer />
       {panel === 'roles' && <RoleWall />}
       {panel === 'ledger' && <LedgerBook />}
       <Dock />

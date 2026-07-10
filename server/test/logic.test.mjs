@@ -7,7 +7,7 @@ import { mergeConfig, roomConfig, getInitialBalance, getInitialPool, getMinStake
 import { apportion } from '../logic/apportion.js';
 import { betBounds, settleRound, applyAllocation, allocateDebt } from '../logic/rules.js';
 import { relativeGoal, goalPenalty, drawGoalInterval } from '../logic/landlordGoal.js';
-import { computeWage, wageDueThisRound, investorWaiver, computeTax, taxInterval, taxDueThisRound } from '../logic/competitive.js';
+import { computeWage, wageDueThisRound, investorWaiver, computeTax, taxInterval, taxDueThisRound, judgeAccusation } from '../logic/competitive.js';
 import { createLedger, buildSettleScript, flowsFromParts } from '../logic/payout.js';
 
 let passed = 0;
@@ -329,6 +329,19 @@ test('资本家征税间隔 = 农民人数，round%interval===0 才扣（round�
   assert.equal(taxDueThisRound(4, 2), true);
   assert.equal(taxDueThisRound(3, 2), false);
   assert.equal(taxDueThisRound(0, 1), false);  // round≥1 守卫
+});
+test('对质判定 judgeAccusation：多/少/相等（相等判错）', () => {
+  assert.equal(judgeAccusation(10, 6, 'more'), true);   // 敌注 10 > 阵营 6：喊「多」命中
+  assert.equal(judgeAccusation(10, 6, 'less'), false);
+  assert.equal(judgeAccusation(3, 6, 'less'), true);    // 敌注 3 < 阵营 6：喊「少」命中
+  assert.equal(judgeAccusation(3, 6, 'more'), false);
+  assert.equal(judgeAccusation(6, 6, 'more'), false);   // 相等 → 无法严格「多/少」，判错
+  assert.equal(judgeAccusation(6, 6, 'less'), false);
+  assert.equal(judgeAccusation(5, 5, 'bogus'), false);  // 非法方向 → 错
+});
+test('对质票发放：竞技 accusation.tickets 农民3/投资者2/暴食者0，cost 2', () => {
+  assert.deepEqual(comp.competitive.accusation.tickets, { farmer: 3, investor: 2, glutton: 0 });
+  assert.equal(comp.competitive.accusation.cost, 2);
 });
 
 console.log(`\n全部通过：${passed} 项 ✅`);

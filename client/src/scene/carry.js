@@ -14,13 +14,15 @@ export const CARRY_HEIGHT = TABLE_TOP + 0.32;
 // 关键手感（反馈③）:射线直接与【携带高度平面】求交——被抓的牌永远钉在指针正下方,
 // 而不是先打到桌面再抬高（那会让牌浮到指针上方,越低头偏得越远）。
 // 视线朝上打不到平面时退化为沿视线固定距离；结果夹回毡面范围。
-export function aimFromPointer(camera, ndc, height, out) {
+// slack: 夹紧松弛量——对质票排在毡面边缘、玩家会把票拽向自己身前,默认 0 的毡面夹紧会把它
+// 拦在半路（"移不到面前"），票的携带传 ~0.7 放宽到座位附近；钱牌保持 0（目标圈都在毡面内）。
+export function aimFromPointer(camera, ndc, height, out, slack = 0) {
   _dir.set(ndc.x, ndc.y, 0.5).unproject(camera).sub(camera.position).normalize();
   let t = _dir.y < -0.02 ? (height - camera.position.y) / _dir.y : 3.2;
   t = Math.min(Math.max(t, 0.4), 12);
   out.copy(camera.position).addScaledVector(_dir, t);
-  out.x = THREE.MathUtils.clamp(out.x, -2.9, 2.9);
-  out.z = THREE.MathUtils.clamp(out.z, -1.95, 1.95);
+  out.x = THREE.MathUtils.clamp(out.x, -2.9 - slack, 2.9 + slack);
+  out.z = THREE.MathUtils.clamp(out.z, -1.95 - slack, 1.95 + slack);
   out.y = height;
   return out;
 }
