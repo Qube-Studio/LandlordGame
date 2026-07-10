@@ -164,6 +164,10 @@ function useGameKeys() {
           e.preventDefault(); send({ type: 'accuse', targetId: ch.targetId }); return;
         }
       }
+      // 传唤 (C)：BETTING 期检察官、自己下注前（§8.9；canSummon 服务端整门槛直发）
+      if ((e.key === 'c' || e.key === 'C') && state.phase === 'BETTING' && state.me?.canSummon) {
+        e.preventDefault(); send({ type: 'summon' }); return;
+      }
       if (e.key !== ' ') return;                // 确认类动作统一空格（反馈⑩：回车退役）
       e.preventDefault();
       if (state.phase === 'BETTING') return;    // BETTING 完全交给 HandLayer（按下态+确认），这里绝不碰
@@ -535,14 +539,16 @@ function GoalHud() {
   const bump = useBumpKey(g?.landlordBalance ?? g?.roundsLeft);
   if (!g) return null;
   const due = g.roundsLeft <= 0;
-  // 被对质命中（§8.8）：制约卡告警，持续到 FINALIZE 落罚（lastAccusation 下回合 DISCUSSION 才清）。
+  // 被对质命中（§8.8）/被传唤（§8.9）：制约卡告警，持续到 FINALIZE 落罚（下回合下注前清）。
   const la = state.lastAccusation;
-  const forced = !!(la?.correct && la.targetId === g.landlordId);
+  const summoned = state.lastSummon?.targetId === g.landlordId;
+  const forced = !!(la?.correct && la.targetId === g.landlordId) || summoned;
+  const forcedTag = summoned ? ['被传唤：', '⚠强制双倍结算', 'var(--danger)'] : ['被对质：', '⚠强制结算', 'var(--danger)'];
   // 农民视角（服务端剥离了 goal 值）：不泄露目标额，只显示「X回合后结算」倒计时（§8.8）。
   // 进度条沿用原样式（外环 quest-ring + 进度不可知的暗斜纹 track）；卡片 goal-fixed 定宽=条长、被命中换行不拉长。
   if (g.goal == null) {
     const pairs = [['地主目标：', due ? '本回合结算' : `${g.roundsLeft}回合后结算`, 'var(--px-gold)']];
-    if (forced) pairs.push(['被对质：', '⚠强制结算', 'var(--danger)']);
+    if (forced) pairs.push(forcedTag);
     const glow = due ? 'due' : '';
     return (
       <div className={`goal-hud hud-card quest-card goal-fixed ${forced ? 'forced-hit' : ''}`}>
@@ -566,7 +572,7 @@ function GoalHud() {
   const label = state.me?.id === g.landlordId ? '目标：' : '地主目标：';
   const pairs = [[label, cur != null ? `${cur}/${g.goal}` : String(g.goal), met ? 'var(--ok)' : 'var(--px-gold)']];
   if (penalty != null) pairs.push(['罚款：', penalty, 'var(--danger)']);
-  if (forced) pairs.push(['被对质：', '⚠强制结算', 'var(--danger)']);
+  if (forced) pairs.push(forcedTag);
   return (
     <div className={`goal-hud hud-card quest-card goal-fixed ${forced ? 'forced-hit' : ''}`}>
       <QuestLine bump={bump} pairs={pairs} />
@@ -595,11 +601,12 @@ function CapitalistHud() {
   const taxLabel = rtn <= 0 ? '本回合征税：' : `征税(${rtn}回合后)：`;
   // 左区分子固定用开局个人资金（下注中 balance 暂时下探，占比不该跟着抖）
   const personal = c.personalInitial ?? c.personal ?? 0;
-  // 被对质命中（§8.8）：制约卡告警，持续到 FINALIZE 强制额外扣税落地。
+  // 被对质命中（§8.8）/被传唤（§8.9）：制约卡告警，持续到 FINALIZE 强制扣税落地。
   const la = state.lastAccusation;
-  const forced = !!(la?.correct && la.targetId === c.id);
+  const summoned = state.lastSummon?.targetId === c.id;
+  const forced = !!(la?.correct && la.targetId === c.id) || summoned;
   const pairs = [['担保资金：', pool], [taxLabel, tax, 'var(--danger)']];
-  if (forced) pairs.push(['被对质：', '⚠强制扣税', 'var(--danger)']);
+  if (forced) pairs.push(summoned ? ['被传唤：', '⚠强制双倍税', 'var(--danger)'] : ['被对质：', '⚠强制扣税', 'var(--danger)']);
   return (
     <div className={`goal-hud hud-card quest-card ${forced ? 'forced-hit' : ''}`}>
       <QuestLine bump={bump} pairs={pairs} />
@@ -854,7 +861,8 @@ function ChallengePanel() {
     <div className="phase-panel challenge-panel">
       <p className="dim">
         暗注仍藏面额。农民阵营总注 <b className="gold">{ch.factionTotal}</b>。
-        {canAccuse ? '花 2 票指控敌方暗注比它多/少——猜对逼其多结算一次制约。' : '你的票不足 2，无法发起指控。'}
+        {canAccuse ? '花 2 票指控敌方暗注比它多/少——猜对逼其多结算一次制约。'
+          : me?.usedSummonThisRound ? '你本回合已传唤，不能再发起对质。' : '你的票不足 2，无法发起指控。'}
       </p>
       <div className="role-pick">
         {canAccuse && (

@@ -455,4 +455,137 @@ await test('对质票转赠（NEGOTIATE）：农民互转、重置确认、可�
   room.destroy();
 });
 
+// ---------------------------------------------------------------------------
+// 检察官·传唤（§8.9）：驱动一个完整回合（含对质跳过/协商确认/全员拿取），返回时已进下一回合 DISCUSSION。
+async function playRoundThrough(room, ids, bets, coin, { beforeBet = null } = {}) {
+  for (const p of ids) room.setReady(p);
+  assert.equal(room.phase, 'BETTING');
+  if (beforeBet) beforeBet();
+  for (const p of ids) assert.equal(room.placeBet(p, bets[p]).ok, true, `下注失败 ${p}`);
+  if (room.phase === 'CHALLENGE') for (const id of ids) if (room.roundFarmerIds.includes(id)) room.challengeSkip(id);
+  assert.equal(room.phase, 'REVEAL');
+  forceCoin(coin);
+  for (const p of ids) room.confirmReveal(p);
+  await until(() => ['SETTLE', 'NEGOTIATE', 'FINALIZE'].includes(room.phase), '进结算');
+  restoreCoin();
+  await until(() => room.phase === 'NEGOTIATE' || room.phase === 'FINALIZE', '协商或直达');
+  if (room.phase === 'NEGOTIATE') for (const id of room.roundFarmerIds) room.negotiateConfirm(id, true);
+  await until(() => room.phase === 'FINALIZE', '进 FINALIZE');
+  for (const id of room.payout.eligible) room.takePayout(id);
+  await until(() => room.phase === 'DISCUSSION' || room.phase === 'ENDED', '下一回合');
+}
+
+await test('检察官传唤地主（§8.9）：双倍罚上缴国库（不分农民）、重定基+重抽间隔、同回合互斥、递增费门槛', async () => {
+  const { room, L, fids: [P, A] } = setupRoom({
+    mode: 'competitive', farmers: 2,
+    roles: { landlord: 'landlord', farmers: ['prosecutor', 'farmer'] },
+    config: { landlordGoal: { interval: { min: 5, max: 5, mean: 5, sd: 0.001 } } },
+  });
+  // 初始：P=4, A=15 → 地主 = 2×19 = 38；目标 = round(38×1.1) = 42、排期检查点在回合 5
+  assert.equal(room.players.get(P).balance, 4);
+  assert.equal(room.players.get(P).tickets, 4);
+  assert.equal(room.players.get(L).balance, 38);
+  assert.equal(room.goalTarget, 42);
+  assert.equal(room.goalNextRound, 5);
+  const ids = [L, P, A];
+  await playRoundThrough(room, ids, { [L]: 2, [P]: 1, [A]: 1 }, 'tails', {
+    beforeBet: () => {
+      assert.equal(room.summon(A).error, '只有检察官可以传唤');       // 非检察官不可传
+      assert.equal(room.viewFor(P).me.canSummon, true);
+      assert.equal(room.viewFor(P).me.summonCost, 2);                 // 首费 = 农民数 2
+      assert.equal(room.summon(P).ok, true);
+      assert.equal(room.players.get(P).balance, 2);                   // 4 − 2（费进虚空）
+      assert.equal(room.summon(P).error, '本回合已传唤');
+      assert.equal(room.viewFor(P).me.canSummon, false);
+      assert.ok(room.lastSummon && room.lastSummon.targetId === L);
+    },
+  });
+  // 结算账目：tails 农民胜、彩池=全部注 4（L2+P1+A1）均分 2/2。地主 38−2=36 < 42 →
+  // 传唤双倍罚 = 2×max(2, round(3.6)) = 8 → 28。罚款上缴国库：P/A 一分不进。
+  assert.equal(room.players.get(L).balance, 28);
+  assert.equal(room.players.get(P).balance, 3);                       // 2−1+2（无罚金分成）
+  assert.equal(room.players.get(A).balance, 16);                      // 15−1+2（无罚金分成）
+  const h = room.history[room.history.length - 1];
+  assert.equal(h.landlordGoalValue, 42);
+  assert.equal(h.landlordGoalMet, false);
+  assert.equal(h.landlordPenalty, 8);
+  // 传唤 = 正式考核提前开庭：重定基（28）+ 重抽间隔（下检查点 = 1+5 = 6）
+  assert.equal(room.goalBaseline, 28);
+  assert.equal(room.goalTarget, Math.round(28 * 1.1));
+  assert.equal(room.goalNextRound, 6);
+  // 回合 2：递增费 = round(2×1.5) = 3；P 余额 2 < 3+1 → 资金不足
+  for (const p of ids) room.setReady(p);
+  assert.equal(room.round, 2);
+  assert.equal(room.viewFor(P).me.summonCost, 3);
+  assert.match(room.summon(P).error ?? '', /资金不足/);
+  room.destroy();
+});
+
+await test('检察官同回合互斥：传唤后当回合不能再发起对质', async () => {
+  const { room, L, fids: [P, A] } = setupRoom({
+    mode: 'competitive', farmers: 2,
+    roles: { landlord: 'landlord', farmers: ['prosecutor', 'farmer'] },
+  });
+  for (const p of [L, P, A]) room.setReady(p);
+  assert.equal(room.summon(P).ok, true);
+  for (const p of [L, P, A]) room.placeBet(p, p === L ? 2 : 1);
+  assert.equal(room.phase, 'CHALLENGE');
+  assert.equal(room.viewFor(P).me.canAccuse, false);                  // 入口同步隐藏（BUG 回归：曾只有 accuse() 硬闸门）
+  assert.equal(room.viewFor(A).me.canAccuse, true);                   // 队友入口不受影响
+  assert.equal(room.accuse(P, L).error, '本回合已传唤，不能再发起对质');
+  assert.equal(room.accuse(A, L).ok, true);                           // 队友照常可指控
+  room.destroy();
+});
+
+await test('检察官传唤后若无其他农民有票：不开对质空窗，直接揭牌', async () => {
+  const { room, L, fids: [P, G] } = setupRoom({
+    mode: 'competitive', farmers: 2,
+    roles: { landlord: 'landlord', farmers: ['prosecutor', 'glutton'] },
+  });
+  for (const p of [L, P, G]) room.setReady(p);
+  assert.equal(room.summon(P).ok, true);
+  for (const p of [L, P, G]) room.placeBet(p, p === L ? 2 : 1);
+  assert.equal(room.phase, 'REVEAL'); // 暴食者 0 票、检察官已传唤不可对质 → 15s 决定窗没人能用，跳过
+  room.destroy();
+});
+
+await test('检察官传唤·下注后不可传 + 快速模式不可传', async () => {
+  const { room, L, fids: [P] } = setupRoom({
+    mode: 'competitive', farmers: 1,
+    roles: { landlord: 'landlord', farmers: ['prosecutor'] },
+  });
+  for (const p of [L, P]) room.setReady(p);
+  room.placeBet(P, 1);
+  assert.equal(room.summon(P).error, '请在自己下注前传唤');
+  room.destroy();
+  const q = setupRoom({ farmers: 1 });
+  for (const p of [q.L, ...q.fids]) q.room.setReady(p);
+  assert.equal(q.room.summon(q.fids[0]).error, '仅竞技模式可传唤');
+  q.room.destroy();
+});
+
+await test('检察官传唤资本家（§8.9）：双倍税 + 税钟锚点归零（下轮不征、隔轮再征）', async () => {
+  const { room, L: C, fids: [P, A] } = setupRoom({
+    mode: 'competitive', farmers: 2,
+    roles: { landlord: 'capitalist', farmers: ['prosecutor', 'farmer'] },
+  });
+  assert.equal(room.players.get(C).pool, 40);                         // 池 = 2×20
+  const ids = [C, P, A];
+  // 回合 1：传唤 → tails 资本家输 1 → 池 39 → 传唤双倍税 = 2×max(2, round(3.9)) = 8 → 31；锚=1
+  await playRoundThrough(room, ids, { [C]: 1, [P]: 1, [A]: 1 }, 'tails', {
+    beforeBet: () => { assert.equal(room.summon(P).ok, true); },
+  });
+  assert.equal(room.players.get(C).pool, 31);
+  assert.equal(room.taxAnchorRound, 1);
+  // 此刻已进回合 2 的 DISCUSSION：锚=1、间隔 2 → 下次税在回合 3，距今 1 回合（排期的回合 2 被锚跳过）
+  assert.equal(room.viewFor(C).capitalist.taxRoundsToNext, 1);
+  // 回合 2：本该排期征税（2%2==0）但锚=1 → 不征。tails 输 1 → 池 30
+  await playRoundThrough(room, ids, { [C]: 1, [P]: 1, [A]: 1 }, 'tails');
+  assert.equal(room.players.get(C).pool, 30);
+  // 回合 3：距锚 2 回合 → 征税 max(2, round(2.9)) = 3。tails 输 1 → 29 − 3 = 26
+  await playRoundThrough(room, ids, { [C]: 1, [P]: 1, [A]: 1 }, 'tails');
+  assert.equal(room.players.get(C).pool, 26);
+  room.destroy();
+});
+
 console.log(`\n全部通过：${passed} 项 ✅`);

@@ -3,7 +3,7 @@
 // 地主资金目标序列（放缓/封顶）与惩罚、初始资金动态、下注边界。
 
 import assert from 'node:assert/strict';
-import { mergeConfig, roomConfig, getInitialBalance, getInitialPool, getMinStake, factionOf, capitalistWallet } from '../config.js';
+import { mergeConfig, roomConfig, getInitialBalance, getInitialPool, getMinStake, factionOf, capitalistWallet, summonCost } from '../config.js';
 import { apportion } from '../logic/apportion.js';
 import { betBounds, settleRound, applyAllocation, allocateDebt } from '../logic/rules.js';
 import { relativeGoal, goalPenalty, drawGoalInterval } from '../logic/landlordGoal.js';
@@ -339,9 +339,26 @@ test('对质判定 judgeAccusation：多/少/相等（相等判错）', () => {
   assert.equal(judgeAccusation(6, 6, 'less'), false);
   assert.equal(judgeAccusation(5, 5, 'bogus'), false);  // 非法方向 → 错
 });
-test('对质票发放：竞技 accusation.tickets 农民3/投资者2/暴食者0，cost 2', () => {
-  assert.deepEqual(comp.competitive.accusation.tickets, { farmer: 3, investor: 2, glutton: 0 });
+test('对质票发放：竞技 accusation.tickets 农民3/投资者2/暴食者0/检察官4，cost 2', () => {
+  assert.deepEqual(comp.competitive.accusation.tickets, { farmer: 3, investor: 2, glutton: 0, prosecutor: 4 });
   assert.equal(comp.competitive.accusation.cost, 2);
+});
+test('检察官（§8.9）：初始资金 4；传唤费 = round(农民数 × 1.5^已传次数)（150% 递增）', () => {
+  assert.equal(getInitialBalance('prosecutor', 3, comp, { mode: 'competitive' }), 4);
+  assert.equal(factionOf('prosecutor'), 'farmer');
+  // nF=2: 2,3,5(4.5),7(6.75),10(10.125)…；nF=3: 3,5(4.5),7(6.75),10；nF=4: 4,6,9,14(13.5)
+  assert.deepEqual([0, 1, 2, 3, 4].map(k => summonCost(2, k, comp)), [2, 3, 5, 7, 10]);
+  assert.deepEqual([0, 1, 2, 3].map(k => summonCost(3, k, comp)), [3, 5, 7, 10]);
+  assert.deepEqual([0, 1, 2, 3].map(k => summonCost(4, k, comp)), [4, 6, 9, 14]);
+  assert.equal(summonCost(1, 0, comp), 1);                    // 单农民局首费 1
+});
+test('税钟锚点（§8.9 传唤重置）：anchor 缺省=0 行为不变；锚定后从锚点重新起算', () => {
+  assert.equal(taxDueThisRound(2, 2), true);                  // 旧行为：round%2===0
+  assert.equal(taxDueThisRound(2, 2, 0), true);               // anchor 0 与缺省一致
+  assert.equal(taxDueThisRound(3, 2, 3), false);              // 刚锚定（本回合传唤）→ 不征
+  assert.equal(taxDueThisRound(4, 2, 3), false);              // 锚后 1 回合（间隔 2）→ 不征
+  assert.equal(taxDueThisRound(5, 2, 3), true);               // 锚后 2 回合 → 征
+  assert.equal(taxDueThisRound(7, 2, 3), true);               // 锚后 4 回合 → 征（周期延续）
 });
 
 console.log(`\n全部通过：${passed} 项 ✅`);

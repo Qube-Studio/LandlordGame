@@ -66,6 +66,7 @@ export const ROLE_CLOTH = {
   farmer:     { shirt: '#7a9a4e', pants: '#4a5230', sleeve: '#6c8a44' },
   investor:   { shirt: '#3f8a82', pants: '#2c4a48', sleeve: '#368079' },
   glutton:    { shirt: '#9a6a3a', pants: '#5a3e26', sleeve: '#8a5e32' },
+  prosecutor: { shirt: '#41527a', pants: '#2a3550', sleeve: '#394a6e' }, // 检察制服（深藏青，暖光下微紫）
   none:       { shirt: '#8a7a64', pants: '#54483a', sleeve: '#7a6a54' },
 };
 
@@ -77,6 +78,7 @@ export const PROP_COLORS = {
   specFrame: '#17171b', specGlass: '#cfe6ee', // 投资人半框眼镜：黑色眉框 + 冷调玻璃镜片（半透明）
   chefWhite: '#f2ece0', chefWhite2: '#f8f4ea',// 厨师帽
   drumSkin: '#c9a36a', drumBone: '#8a5a30',   // 暴食者鸡腿
+  procNavy: '#2e3a52', procNavy2: '#26304a',  // 检察官制帽（深藏青帽墙/平顶；金徽复用 crown）
   wax: P.wax,                                 // 火漆印章/酱渍（真源已提升进 P）
   coinGold: '#e8bf3c', coinTails: '#5f9ec2',  // 硬币双面底色
   coinGlow: '#6a4a10',                        // 硬币常驻微 emissive

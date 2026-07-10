@@ -350,13 +350,14 @@ data/              运行时数据（gitignore）
 两大阵营，角色在 LOBBY 选定、`start_game` 时锁定并据此计算初始资金：
 
 - **地主阵营**（恰 1 人，二者互斥）：`landlord` 地主 / `capitalist` 资本家。
-- **农民阵营**（1–4 人，**可重复**选取，可出现多个同种角色）：`farmer` 基础农民 / `investor` 投资人 / `glutton` 暴食者。
+- **农民阵营**（1–4 人，**可重复**选取，可出现多个同种角色）：`farmer` 基础农民 / `investor` 投资人 / `glutton` 暴食者 / `prosecutor` 检察官。
 
 | 阵营 | 角色 id | 初始资金 | 主动技能 | 被动 |
 |------|--------|---------|---------|------|
 | 农民 | `farmer` 基础农民 | 15 | — | 工资（§8.2） |
 | 农民 | `investor` 投资人 | 12 | 掷币前担保 n（§8.3） | — |
 | 农民 | `glutton` 暴食者 | 8 | 农民输时重掷（§8.4） | 饭账（农民胜时扣，§8.4） |
+| 农民 | `prosecutor` 检察官 | 4 | 下注前传唤：强制双倍结算（§8.12） | 玻璃大炮（阵营最穷）；对质票 4 |
 | 地主 | `landlord` 地主 | ⌊农民总资金 × 2⌋ | — | 资金目标考核（§8.5） |
 | 地主 | `capitalist` 资本家 | 钱包(动态) 6n+round(池÷10) + 资金池 农民数×20 | 押注从钱包出、本金必归还（§8.6） | 每「农民数」回合按当前池征税（§8.6） |
 
@@ -466,4 +467,21 @@ competitive: {
 
 **协议**：新增 `accuse` / `accuse_resolve` / `accuse_cancel` / `challenge_skip` / `transfer_ticket`；`viewFor` 新增 `challenge`（deadline/accusation/factionTotal(农民可见)/targetId）、`lastAccusation`、`players[].tickets/challengeSkip`、`me.tickets/canAccuse/myAccusation`。`betsPublic` 加 `CHALLENGE`（暗注仍藏）。离线：决定窗离线农民自动满足跳过闸门，交流窗发起者离线自动取消。
 
-**客户端（全 3D 桌面浮字，§阶段五范式）**：整套对质走 `FeltPrompts` 桌面浮字，**底部 2D 面板仅 `?input=2d` 保留**（`ChallengePanel` 在 3D `return null`）。**指控入口即自己圈上浮字「指控敌方 [Z]」**（点浮字或按 Z=`useGameKeys`；敌方唯一无需选目标）——**不再有敌方模型描边/头顶浮字**（试过后处理 Outline〔three r184 静默失效〕、反向外壳〔深盒透视太细〕、EdgesGeometry 线框〔看穿式笼子、桌下穿帮〕，均做不出干净效果，整体去除）。发起者在自己圈上浮字用 **`敌注 [> / <] 己方总注` 选择器**（`ChallengePick`：上下紧叠大于/小于，悬停只提亮无背景块）+ 倒计时（`FloatCountdown`）+ 取消——**两段确认**：第一击 `accuse_pick` 只预选（选中符号放大、另一个略缩变暗；`pendingDir` 服务端广播、仅农民阵营/观战可见），再点已放大的那个才 `accuse_resolve` 落定，可反复改选；**队友（其他农民）同步观看该选择器（只读，含预选态）+「等待 名（身份）操作」**，无法操作；农民决定窗 `指控敌方 [Z]` / `跳过`（跳过后浮字显示 `已跳过 N/M`）+ 阵营总注 + 倒计时。**对质窗桌面所有注在场但面朝下**（`betsVisible` 排除 CHALLENGE，金额仍藏、读牌靠张数，REVEAL 才翻）；左上 `TicketHud`：**有几张画几张手绘像素票券**（`PixelTicket`，无数字；0 张则一个暗色轮廓票占位），不显示可指控次数/进度条。**票券像素画单一真源 = `assets/ticketArt.js`**（素面邮票：28×18 程序生成网格——左右粗锯齿〔2 格宽×2 格深、齿距 2 格〕+暗金边框+带纸纹的纸面〔`ticketCellColor` 逐格配色：内圈斜面高光/阴影+哈希撒点颗粒〕，无图案），2D SVG / 3D 贴图（`textures.js#ticketTexture`）/ 3D 锯齿挤出几何（`Tickets3D.jsx#ticketGeometry`，有纸厚、锯齿在**模型上**真实建模、随网格分辨率变细）三处共用。对质窗内自己圈前摆一小排 3D 票（`Tickets3D`；间距>票宽不重叠，>4 张换排；扣票即少张）。**转赠 = NEGOTIATE 拖票**（PayoutLayer：每个农民圈前一排 3D 票，自己的可重力枪拖到队友圈 = `transfer_ticket` +1，乐观票数顶显；**落手飞行**：转赠成功弧线飞进队友排末位、未落到圈弧线飞回自己排——`TicketArc`，飞行期落点排少显 1 张防重影；2D 按钮条 `TicketTransfer` 仅 `?input=2d` 保留）。**地主目标对农民只显倒计时**：`viewFor` 对非地主非观战剥离 `goal/baseline/initial/landlordBalance`，`GoalHud` 农民分支只渲染「地主目标：X 回合后结算」（对质靠读牌，不该直接看到 KPI 数字）+ 原样进度条（外环 + 进度不可知暗斜纹）；目标卡 `goal-fixed` **定宽=进度条长**，被命中多出的「⚠强制结算」换行、不拉长卡与条。**被命中反馈**：地主/资本家的左上制约卡（GoalHud/CapitalistHud）红闪+抖一下 + 持续红左条 + `⚠强制结算/扣税` 标，由 `lastAccusation.correct && targetId===本卡主` 驱动，持续到 FINALIZE 落罚（下回合 DISCUSSION 清）。**后续**：检察官角色（4 票指控专家 + 专属加成）、地主贿赂（为 120s 交流窗注入戏与反制）、票的 3D 筹码拖拽。
+**客户端（全 3D 桌面浮字，§阶段五范式）**：整套对质走 `FeltPrompts` 桌面浮字，**底部 2D 面板仅 `?input=2d` 保留**（`ChallengePanel` 在 3D `return null`）。**指控入口即自己圈上浮字「指控敌方 [Z]」**（点浮字或按 Z=`useGameKeys`；敌方唯一无需选目标）——**不再有敌方模型描边/头顶浮字**（试过后处理 Outline〔three r184 静默失效〕、反向外壳〔深盒透视太细〕、EdgesGeometry 线框〔看穿式笼子、桌下穿帮〕，均做不出干净效果，整体去除）。发起者在自己圈上浮字用 **`敌注 [> / <] 己方总注` 选择器**（`ChallengePick`：上下紧叠大于/小于，悬停只提亮无背景块）+ 倒计时（`FloatCountdown`）+ 取消——**两段确认**：第一击 `accuse_pick` 只预选（选中符号放大、另一个略缩变暗；`pendingDir` 服务端广播、仅农民阵营/观战可见），再点已放大的那个才 `accuse_resolve` 落定，可反复改选；**队友（其他农民）同步观看该选择器（只读，含预选态）+「等待 名（身份）操作」**，无法操作；农民决定窗 `指控敌方 [Z]` / `跳过`（跳过后浮字显示 `已跳过 N/M`）+ 阵营总注 + 倒计时。**对质窗桌面所有注在场但面朝下**（`betsVisible` 排除 CHALLENGE，金额仍藏、读牌靠张数，REVEAL 才翻）；左上 `TicketHud`：**有几张画几张手绘像素票券**（`PixelTicket`，无数字；0 张则一个暗色轮廓票占位），不显示可指控次数/进度条。**票券像素画单一真源 = `assets/ticketArt.js`**（素面邮票：28×18 程序生成网格——左右粗锯齿〔2 格宽×2 格深、齿距 2 格〕+暗金边框+带纸纹的纸面〔`ticketCellColor` 逐格配色：内圈斜面高光/阴影+哈希撒点颗粒〕，无图案），2D SVG / 3D 贴图（`textures.js#ticketTexture`）/ 3D 锯齿挤出几何（`Tickets3D.jsx#ticketGeometry`，有纸厚、锯齿在**模型上**真实建模、随网格分辨率变细）三处共用。对质窗内自己圈前摆一小排 3D 票（`Tickets3D`；间距>票宽不重叠，>4 张换排；扣票即少张）。**转赠 = NEGOTIATE 拖票**（PayoutLayer：每个农民圈前一排 3D 票，自己的可重力枪拖到队友圈 = `transfer_ticket` +1，乐观票数顶显；**落手飞行**：转赠成功弧线飞进队友排末位、未落到圈弧线飞回自己排——`TicketArc`，飞行期落点排少显 1 张防重影；2D 按钮条 `TicketTransfer` 仅 `?input=2d` 保留）。**地主目标对农民只显倒计时**：`viewFor` 对非地主非观战剥离 `goal/baseline/initial/landlordBalance`，`GoalHud` 农民分支只渲染「地主目标：X 回合后结算」（对质靠读牌，不该直接看到 KPI 数字）+ 原样进度条（外环 + 进度不可知暗斜纹）；目标卡 `goal-fixed` **定宽=进度条长**，被命中多出的「⚠强制结算」换行、不拉长卡与条。**被命中反馈**：地主/资本家的左上制约卡（GoalHud/CapitalistHud）红闪+抖一下 + 持续红左条 + `⚠强制结算/扣税` 标，由 `lastAccusation.correct && targetId===本卡主` 驱动，持续到 FINALIZE 落罚（下回合 DISCUSSION 清）。**后续**：地主贿赂（为 120s 交流窗注入戏与反制）。
+
+### 8.12 检察官 / 传唤（2026-07-10 加入）
+
+> 设计动机：对质吸收了检察官原案（花钱逼结算）后，检察官重定位为**确定性法器**——普通对质是「赌」（读牌、猜多少、可能落空），传唤是「买」（花钱、必然开庭、免猜）。数值经模拟定稿（无脑刷/噪声读/全知/供养四策略 × nF 2-4，见记忆 role-attrs-balance-design）。
+
+- **角色**：`prosecutor` 农民阵营，初始资金 **4**（玻璃大炮——身板代价被「地主初始=农民总×2」系统性对冲，落在个人破产风险上），对质票 **4**。
+- **传唤（主动技）**：**BETTING 阶段、自己下注前**、每回合至多 1 次、不限总次数。
+  - **费用** = `round(本回合农民数 × 1.5^本局已传次数)`（**150% 递增**，`summonCost`），当场从检察官余额扣除、**进虚空**；须扣后仍够最小下注额。递增费是平衡核心：单局次数被指数费用封顶（~3 次）、「全队供养刷传唤」自动变亏本买卖（模拟实证：供养流反而让地主胜率回升）。
+  - **效果**：正式考核**提前开庭**——本回合 FINALIZE 按 `penaltyMult`(2) 倍结算敌方制约：
+    - 地主：未达标 → 罚 `2 × goalPenalty`（封顶到余额），**罚款上缴国库（进虚空，不分农民）**——切断检察官「罚金分成→付下次费」的自供血回路（模拟定稿）；随后**重定基 + 重抽间隔**（与排期检查点同构，就是那次考核提前了）。
+    - 资本家：`2 × computeTax`（封顶到池）+ **税钟锚点归到本回合**（`taxAnchorRound`，下次排期税从传唤回合重新起算——传唤自带的「资敌面」）。
+  - 免猜、必然开庭：对方达标则无罚（钱白花 + 帮对方重新排期），这是检察官的技巧面——**从公开信息推断对方虚实**（目标值/余额对农民隐藏）。
+  - **同回合互斥**：传唤后本回合不能再发起对质（`usedSummonThisRound`）。同回合排期/对质强制/传唤并存只评估一次，传唤语义优先。
+- **协议**：`summon {}`（BETTING）；错误路径：非检察官/已下注/本回合已传/资金不足/快速模式。`viewFor`：`me.canSummon/summonCost/summonsUsed/usedSummonThisRound`（门槛服务端整算直发）；`players[].summonsUsed` 公开（施压，同 reflipsLeft）；`lastSummon {byId,targetId,cost,round}` 公开（驱动被传唤方制约卡 `⚠强制双倍结算/税` 告警，下回合下注前清）。
+- **演出**：adjust step `source: summonPenalty/summonTax`（label「传唤双倍罚款上缴国库/传唤双倍税」，flows→void=钱飞向虚空收缩消失，客户端零改动）；系统聊天播报传唤。客户端入口=下注期自己圈**东北副浮字「传唤（¥N）[C]」**（C 键=useGameKeys；已传显示确认态）。
+- **美术**：检察制帽（深藏青帽墙+宽平顶+正面金徽，`headProps.js`）；制服（藏青对襟+白衬领+金纽扣列+左胸检徽，`texlib.js#drawBodyFront`）；配色 `palette.js` `procNavy/procNavy2` + `ROLE_CLOTH.prosecutor`。
+- **模拟结论（定稿依据）**：基线（无检察官）地主胜率 nF=2/3/4 → 36/32/30%；国库版检察官在场（噪声读）→ 29/24/30%（−7~−8pp，nF=4 因费用门槛自限≈0）；检察官个人破产率 65~74%（烈士角色）；本角色**无技巧梯度**（免猜的命中率=地主线下基础概率），定位为「确定性压力阀」，技巧角色由资本家承担。

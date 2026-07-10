@@ -96,6 +96,14 @@ export default function FeltPrompts({ mySpot, players, spots, playerId }) {
     // 飞牌在途不抢戏，落定后浮现；下注操作中（bet==null）浮字由 HandLayer 负责。
     const flying = betFlight && betFlight.round === state.round;
     if (me.bet != null && !flying) lines = [{ text: `已下注 ¥${me.bet}`, color: 'var(--px-gold)' }];
+    // 检察官·传唤（§8.9）：东北副浮字（主浮字区归 HandLayer）——下注前可传，费用随次数 150% 递增。
+    if (me.role === 'prosecutor' && !me.spectator) {
+      if (me.canSummon) {
+        secondary = [{ text: `传唤（¥${me.summonCost}）`, k: 'C', color: 'var(--px-gold)', onClick: () => send({ type: 'summon' }) }];
+      } else if (me.usedSummonThisRound) {
+        secondary = [{ text: '已传唤 · 强制双倍结算', color: 'var(--ok)' }];
+      }
+    }
   } else if (state.phase === 'CHALLENGE') {
     // 对质窗（§8.8）：全在自己圈上的浮字里做（指控入口即「指控敌方 [Z]」，不悬停敌方模型）。均带倒计时（ch.deadline）。
     const ch = state.challenge;
@@ -127,7 +135,7 @@ export default function FeltPrompts({ mySpot, players, spots, playerId }) {
         { text: `阵营总注 ¥${total ?? '?'}`, color: 'var(--ink-dim)' },
         me.canAccuse
           ? { text: '指控敌方', k: 'Z', color: 'var(--px-gold)', onClick: () => send({ type: 'accuse', targetId: ch?.targetId }) }
-          : { text: '对质票不足', color: 'var(--ink-dim)' }, // 无 quiet：纯信息行要能戳着玩（受击推板）
+          : { text: me.usedSummonThisRound ? '已传唤 · 不可对质' : '对质票不足', color: 'var(--ink-dim)' }, // 无 quiet：纯信息行要能戳着玩（受击推板）
         me.challengeSkip
           ? { text: `已跳过 ${skipped}/${farmers.length}`, color: 'var(--ok)' }
           : { text: '跳过', color: 'var(--ink-dim)', onClick: () => send({ type: 'challenge_skip' }) },
@@ -153,7 +161,7 @@ export default function FeltPrompts({ mySpot, players, spots, playerId }) {
       .filter(({ p, spot }) => p.id !== playerId && p.lobbyReady && p.role && spot)
     : [];
 
-  if (!lines.length && !custom && !others.length) return null;
+  if (!lines.length && !custom && !secondary && !others.length) return null;
 
   // quiet 行：默认光标、无 clickable 三态、不参与受击（.quiet 见 CSS 与 PromptFloat#pushFloat 排除），但 onClick 仍触发。
   // {deadline} 行 → 渲染倒计时组件。

@@ -39,10 +39,13 @@ export function taxInterval(farmerCount) {
   return Math.max(1, farmerCount || 1);
 }
 
-// 本回合是否征税：round 为间隔整数倍（round≥1）。与工资 wageDueThisRound 同构。
-export function taxDueThisRound(round, farmerCount) {
+// 本回合是否征税：距锚点回合数为间隔整数倍（≥1）。与工资 wageDueThisRound 同构。
+// anchor（默认 0=开局，行为与旧版完全一致）：检察官传唤（§8.9）强制双倍税后把税钟归零——
+// 锚点挪到传唤回合，下次征税从那里重新起算（传唤自带的「资敌面」：延后了排期税）。
+export function taxDueThisRound(round, farmerCount, anchor = 0) {
   const interval = taxInterval(farmerCount);
-  return round >= 1 && round % interval === 0;
+  const since = round - (anchor || 0);
+  return since >= 1 && since % interval === 0;
 }
 
 // 对质判定（§8.8，纯函数）：敌方暗注 targetBet 与农民阵营总注 factionTotal 比较，dir∈{'more','less'}。

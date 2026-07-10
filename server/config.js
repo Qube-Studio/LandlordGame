@@ -69,7 +69,7 @@ export const DEFAULT_CONFIG = {
   // 覆盖到顶层（让既有 landlordGoal.js、settleRound 直接用竞技数值），其余角色专属参数按需直接读取。
   competitive: {
     landlordFundMultiplier: 2,                          // 地主初始 = ⌊农民总资金 × 2⌋
-    initialBalance: { farmer: 15, investor: 12, glutton: 8 }, // 农民阵营按角色的初始资金
+    initialBalance: { farmer: 15, investor: 12, glutton: 8, prosecutor: 4 }, // 农民阵营按角色的初始资金（检察官=玻璃大炮）
     // 资本家：个人资金=押注钱包（本金必归还、不决定破产）；资金池=血条（承接盈亏、被税、耗尽即破产）。
     //   钱包为**动态**：每回合 = personalPerFarmer×农民数 + round(当前池 × personalPoolShare)，随池涨跌（见 capitalistWallet）。
     //   藏池 + 动态钱包 = 农民猜不准资本家的下注上限 L，是资本家「读牌/骗押」技巧的地基（GAME_SPEC §8.6）。
@@ -86,16 +86,22 @@ export const DEFAULT_CONFIG = {
     glutton: { allowancePerRound: 1, maxReflips: 4 },   // 每回合 +1 饭账（成本，仅农民胜时从余额扣除并清零，可扣破产）；每局重掷申请数 = 活跃农民阵营人数（maxReflips 为硬上限，取 maxFarmers=4 使正常局恒等于农民数），且每回合最多申请 1 次
     // 对质/指控（§8.8）：每角色**按局**发放对质票（农民阵营专属，非共享池）；一次指控恒扣 cost 票、任何情况不返还。
     //   农民下注后、揭牌前进 CHALLENGE：农民可花票指控敌方暗注「比阵营总注多/少」，猜对则强制敌方立刻多结算一次制约（地主目标/资本家税）。
-    //   检察官(prosecutor: 4) 为下一步单独实装。票可在 NEGOTIATE 阶段转赠队友。
-    accusation: { tickets: { farmer: 3, investor: 2, glutton: 0 }, cost: 2 },
+    //   票可在 NEGOTIATE 阶段转赠队友。
+    accusation: { tickets: { farmer: 3, investor: 2, glutton: 0, prosecutor: 4 }, cost: 2 },
+    // 检察官·传唤（§8.9）：**下注阶段、自己下注前**、每回合至多 1 次、不限总次数——
+    //   花费 round(本回合农民数 × costGrowth^本局已传次数) **进虚空**（150% 递增），
+    //   立刻把敌方的正式考核提前开庭：FINALIZE 按 penaltyMult 倍结算制约（地主目标罚 / 资本家税），
+    //   罚款**上缴国库（进虚空，不分农民）**——切断检察官自供血回路（数值模拟定稿，2026-07-10）；
+    //   然后重定基 + 重抽间隔（= 就是那次排期考核，只是提前 + 翻倍）。同回合传唤后不能再发起对质。
+    prosecutor: { summon: { costGrowth: 1.5, penaltyMult: 2 } },
     // 地主资金目标沿用顶层相对制（不再单独 schedule 覆盖）——地主/资本家均吃 landlordGoal 相对目标。
   },
 };
 
-// 角色 → 阵营。地主阵营={landlord, capitalist}，农民阵营={farmer, investor, glutton}。
+// 角色 → 阵营。地主阵营={landlord, capitalist}，农民阵营={farmer, investor, glutton, prosecutor}。
 // 这是竞技模式的核心抽象：Room/结算只关心阵营（哪一侧），具体角色只影响技能。
 const LANDLORD_ROLES = new Set(['landlord', 'capitalist']);
-const FARMER_ROLES = new Set(['farmer', 'investor', 'glutton']);
+const FARMER_ROLES = new Set(['farmer', 'investor', 'glutton', 'prosecutor']);
 export function factionOf(role) {
   if (LANDLORD_ROLES.has(role)) return 'landlord';
   if (FARMER_ROLES.has(role)) return 'farmer';
@@ -112,6 +118,7 @@ export function getInitialBalance(role, farmerCount, config, opts = {}) {
     if (role === 'farmer') return c.initialBalance.farmer;
     if (role === 'investor') return c.initialBalance.investor;
     if (role === 'glutton') return c.initialBalance.glutton;
+    if (role === 'prosecutor') return c.initialBalance.prosecutor;
     // 资本家开局钱包 = 动态钱包公式吃开局池（= 6n + round(20n×0.1) = 8n）；此后每回合按当前池重算（Room._beginCompetitiveRound）。
     if (role === 'capitalist') return capitalistWallet(getInitialPool('capitalist', farmerCount, config), farmerCount, config);
     // 竞技地主初始经统一 roundBy（默认倍数 2 为整数、当前零影响；将来倍率若设小数会自动四舍五入）。
@@ -136,6 +143,15 @@ export function capitalistWallet(pool, farmerCount, config) {
   const c = config.competitive.capitalist;
   const base = Math.max(1, (farmerCount || 1)) * c.personalPerFarmer;
   return Math.max(1, base + roundBy(Math.max(0, pool || 0) * c.personalPoolShare, config));
+}
+
+// 检察官传唤费（§8.9）：round(本回合农民数 × costGrowth^本局已传次数)——150% 递增（进虚空）。
+// 递增是设计核心：封顶单局次数（指数费用是硬墙）、让「供养刷传唤」自动变亏本买卖。
+export function summonCost(farmerCount, timesUsed, config) {
+  const s = config.competitive?.prosecutor?.summon ?? {};
+  const growth = s.costGrowth ?? 1.5;
+  const base = Math.max(1, farmerCount || 1);
+  return Math.max(1, roundBy(base * Math.pow(growth, Math.max(0, timesUsed | 0)), config));
 }
 
 // 最小出资额：农民固定，地主随活跃农民人数变化；竞技资本家固定（默认 1）。

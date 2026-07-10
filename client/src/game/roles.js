@@ -1,16 +1,16 @@
 // 角色/阵营（表现层共享）。与服务端 config.js#factionOf 对应（§8）。
-// 地主阵营 = {landlord, capitalist}，农民阵营 = {farmer, investor, glutton}。
+// 地主阵营 = {landlord, capitalist}，农民阵营 = {farmer, investor, glutton, prosecutor}。
 
 export const ROLE_LABEL = {
   landlord: '地主', capitalist: '资本家',
-  farmer: '农民', investor: '投资人', glutton: '暴食者',
+  farmer: '农民', investor: '投资人', glutton: '暴食者', prosecutor: '检察官',
   bank: '银行', none: '未选',
 };
 
 // 单字身份章（玩家栏用，替代旧剪影图标）。多为角色名首字，暴食者取「食」而非「暴」。
 export const ROLE_GLYPH = {
   landlord: '地', capitalist: '资',
-  farmer: '农', investor: '投', glutton: '食',
+  farmer: '农', investor: '投', glutton: '食', prosecutor: '检',
 };
 
 // 角色一句话说明（选角时展示）。
@@ -20,6 +20,7 @@ export const ROLE_DESC = {
   farmer: '无主动技能，靠工资滚雪球',
   investor: '下注时投保 n（拖牌入槽），输则免阵营 2n 债务（保费先扣）',
   glutton: '每回合攒饭账（农民胜时扣除），输可重掷硬币（每局次数=农民人数）',
+  prosecutor: '玻璃大炮：下注前花钱传唤敌方强制双倍结算（罚款上缴国库），费用 150% 递增',
 };
 
 // 招募令角色手册（选角墙 RoleWall 悬停展开）：
@@ -96,18 +97,33 @@ export const ROLE_SHEET = {
       ['对质票', '2'],
     ],
   },
+  prosecutor: {
+    intro: [
+      '手握**公诉权**的玻璃大炮，靠**传唤**逼出真相。',
+      '初始资金：4（阵营最穷，钱都在权力里）。',
+      '**特殊能力**：下注前可花钱**传唤**敌方——正式考核**提前开庭**：强制**双倍结算**制约（地主目标罚 / 资本家税），随后重新排期。**免猜、必然开庭**。',
+      '**制约**：罚款**上缴国库**（不进农民腰包）；传唤费**每用一次 ×150%**；同回合传唤后不能再发起对质。',
+    ],
+    advanced: [
+      ['传唤费', '农民人数 × 1.5^已传次数（进虚空）'],
+      ['结算倍率', '双倍（罚款上缴国库）'],
+      ['传唤后', '重定基 + 重新排期（税钟归零）'],
+      ['每回合上限', '1 次（且与对质互斥）'],
+      ['对质票', '4'],
+    ],
+  },
 };
 
-const FACTION = { landlord: 'landlord', capitalist: 'landlord', farmer: 'farmer', investor: 'farmer', glutton: 'farmer' };
+const FACTION = { landlord: 'landlord', capitalist: 'landlord', farmer: 'farmer', investor: 'farmer', glutton: 'farmer', prosecutor: 'farmer' };
 export const factionOf = (role) => FACTION[role] ?? null;
 export const isLandlordSide = (role) => factionOf(role) === 'landlord';
 export const isFarmerSide = (role) => factionOf(role) === 'farmer';
 
 // 竞技模式的两侧可选角色（LOBBY 选角用）。
 export const LANDLORD_SIDE_ROLES = ['landlord', 'capitalist'];
-export const FARMER_SIDE_ROLES = ['farmer', 'investor', 'glutton'];
+export const FARMER_SIDE_ROLES = ['farmer', 'investor', 'glutton', 'prosecutor'];
 
 // 对质票（§8.8，与服务端 config.competitive.accusation 对应）：每角色**按局**发放，农民阵营专属。
-// 猜对敌方暗注「比阵营总注多/少」→ 强制敌方立刻多结算一次制约（地主目标 / 资本家税）。检察官(prosecutor:4) 下一步。
-export const ACCUSE_TICKETS = { farmer: 3, investor: 2, glutton: 0 };
+// 猜对敌方暗注「比阵营总注多/少」→ 强制敌方立刻多结算一次制约（地主目标 / 资本家税）。
+export const ACCUSE_TICKETS = { farmer: 3, investor: 2, glutton: 0, prosecutor: 4 };
 export const ACCUSE_COST = 2;

@@ -58,6 +58,11 @@ export function buildHeadProp(role) {
       g.add(box(frame, 0.09, 0.03, 0.045, 0, 0.055, 0.30));     // 鼻梁:两镜片间黑色小桥
       return g;
     }
+    case 'prosecutor': // 检察制帽:深藏青帽墙 + 宽平顶 + 正面金徽(公诉权的徽记,金色复用皇冠)
+      g.add(box(pmat(PROP_COLORS.procNavy), 0.46, 0.12, 0.46, 0, 0.335, 0));
+      g.add(box(pmat(PROP_COLORS.procNavy2), 0.56, 0.07, 0.56, 0, 0.43, 0));
+      g.add(box(pmatGlow(PROP_COLORS.crown), 0.1, 0.1, 0.04, 0, 0.35, 0.24));
+      return g;
     case 'glutton': // 厨师帽(围裙已烘进皮肤)
       g.add(box(pmat(PROP_COLORS.chefWhite), 0.46, 0.1, 0.46, 0, 0.325, 0));
       g.add(box(pmat(PROP_COLORS.chefWhite2), 0.5, 0.22, 0.5, 0, 0.485, 0));

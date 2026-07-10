@@ -334,8 +334,8 @@ const SCENES = [
   { key: 'avatars', label: '角色形象', kind: 'grid' },
   { key: 'notes', label: '钱牌', kind: 'grid' },
   { key: 'insSlot', label: '投保槽状态', kind: 'grid' },
-  { key: 'lobby', label: '选角墙(竞技)', kind: 'game', state: lobby, note: '进大厅自动升起招募令墙;R/Esc 收起,点羊皮令应征;火漆印=已被占' },
-  { key: 'roleWallQuick', label: '选角墙(快速)', kind: 'game', state: quickWall, note: '快速模式只有地主/农民两张招募令' },
+  { key: 'lobby', label: '选角墙(竞技)', kind: 'game', state: lobby, panel: 'roles', note: '单排告示板:两阵营并排一行(雕木分隔线),PC 无竖直滚动条;R/Esc 收起,点羊皮令应征;火漆印=已被占' },
+  { key: 'roleWallQuick', label: '选角墙(快速)', kind: 'game', state: quickWall, panel: 'roles', note: '快速模式只有地主/农民两张招募令' },
   { key: 'ledger', label: '酒馆账本', kind: 'game', state: ledgerScene, panel: 'ledger', note: '桌沿抽屉 L 呼出;一行一轮(最新在上),点击摊开明细;他人余额保密' },
   { key: 'betting3d', label: '3D手牌·拖拽下注', kind: 'game', state: betting3d, note: '手牌真扇形捏在相机前(抬头渐收/低头微举,甩视角带惯性摆);短按点击=直接飞入圆圈,拖到圈=暂存,点圈内牌收回,长按拆分;圈外右侧保留金' },
   { key: 'fanHand', label: '3D手牌·满手扇形', kind: 'game', state: fanHand, note: '扇面平行层(绝无穿模);竖拉拽单张/横扫捋牌(只吸划过区段,捋起即跟手,¥合计随行);拖回怀里散回;圈内钱堆长按整堆拿起;短按点击=直接飞入圆圈' },
@@ -371,7 +371,7 @@ function AvatarCard({ player }) {
   );
 }
 function AvatarGrid() {
-  const roles = ['landlord', 'capitalist', 'farmer', 'investor', 'glutton'];
+  const roles = ['landlord', 'capitalist', 'farmer', 'investor', 'glutton', 'prosecutor'];
   return (
     <div className="gal-grid">
       {roles.map(r => <AvatarCard key={r} player={{ id: r, name: ROLE_LABEL[r], role: r, online: true, bankrupt: false }} />)}

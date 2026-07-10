@@ -909,13 +909,23 @@ body {
   border-top: 2px solid var(--c-wood-950);
 }
 
-/* ---- 选角墙：羊皮招募令（顶心铜钉与模式卡同语言） ---- */
-.role-wall-body { display: flex; flex-wrap: wrap; justify-content: center; align-items: flex-start; gap: 16px 26px; }
-.role-group { display: flex; flex-direction: column; align-items: center; gap: 8px; }
-.poster-row { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; }
+/* ---- 选角墙：单排告示板（羊皮招募令，顶心铜钉与模式卡同语言）----
+   PC 端两阵营并排一行、海报流式收缩不换行：内容恒为单排高度，竖直滚动条无从出现
+   （竖排+overflow 裁切太丑，反馈轮已废弃）。触屏仍走 .touch 的横向滑动条覆写。 */
+.drawer.role-wall { width: min(1280px, 96vw); }
+.role-wall-body { display: flex; flex-wrap: nowrap; justify-content: center; align-items: stretch; gap: 0; }
+.role-wall-body .role-group { display: flex; flex-direction: column; align-items: center; gap: 8px; min-width: 0; }
+/* 阵营之间一道雕木分隔线（暗缝+受光棱），代替原先的上下两层 */
+.role-wall .role-group + .role-group {
+  margin-left: 20px; padding-left: 20px;
+  border-left: 2px solid var(--c-wood-950);
+  box-shadow: inset 2px 0 0 var(--px-bevel-l);
+}
+.poster-row { display: flex; flex-wrap: nowrap; justify-content: center; gap: 12px; flex: 1; width: 100%; min-width: 0; }
 .poster {
   position: relative;
-  width: 184px;
+  width: 184px; /* 固有宽度锚：让阵营组的 max-content 按 184/张计算（全流式会坍缩到内容宽） */
+  flex: 1 1 184px; min-width: 118px; max-width: 184px;
   display: flex; flex-direction: column; align-items: center; gap: 6px;
   padding: 14px 10px 12px;
   background-color: var(--c-parchment);
@@ -943,7 +953,7 @@ body {
   padding-bottom: 2px;
 }
 .poster-bust {
-  width: 128px; height: 160px;
+  width: min(128px, 92%); height: auto; /* 随海报流式收缩，保持素材固有 4:5 比例 */
   image-rendering: pixelated;
   display: block;
 }
@@ -957,14 +967,16 @@ body {
   color: var(--c-parch-ink);
 }
 /* 名字印章(大号火漆方章,像真印章):内容=应征玩家名。
-   flex 流式排布 + 换行,多枚印章永不重叠;小角度交替旋转出"随手盖章"感。 */
+   单行叠章(负 margin 层叠、可收缩截断):多人应征时高度恒定不撑高海报,
+   小角度交替旋转出"随手盖过来"的感觉;宁可名字省略号也不让告示板长竖滚动条。 */
 .poster-seals {
-  display: flex; flex-wrap: wrap; justify-content: center; align-items: center;
-  gap: 8px; width: 100%; margin-top: 8px;
+  display: flex; flex-wrap: nowrap; justify-content: center; align-items: center;
+  width: 100%; margin-top: 8px; min-height: 48px;
 }
+.poster-seal + .poster-seal { margin-left: -8px; }
 .poster-seal {
   display: inline-flex; align-items: center; justify-content: center;
-  min-width: 62px; max-width: 100%; min-height: 44px;
+  flex: 0 1 auto; min-width: 0; max-width: 100%; min-height: 44px;
   padding: 5px 10px;
   background: var(--c-wax);
   border: 2px solid rgba(0, 0, 0, 0.32);

@@ -7,7 +7,7 @@ import * as THREE from 'three';
 import { skinCanvas } from '../assets/texlib';
 import { buildHeadProp } from './headProps';
 
-const ROLES = ['landlord', 'capitalist', 'farmer', 'investor', 'glutton'];
+const ROLES = ['landlord', 'capitalist', 'farmer', 'investor', 'glutton', 'prosecutor'];
 // 正交视窗 x∈[-0.4,0.4] / y∈[-0.08,0.62](罩住最宽的草帽与最高的厨师帽)→ 22×19px
 const ACC_W = 22, ACC_H = 19;
 

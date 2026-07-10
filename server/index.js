@@ -183,6 +183,7 @@ wss.on('connection', (ws, req) => {
       case 'negotiate_transfer': result = room.negotiateTransfer(pid, msg.toId, msg.kind, Number(msg.amount)); break;
       case 'transfer_ticket': result = room.transferTicket(pid, msg.toId, Number(msg.n)); break;      // 对质票转赠（§8.8，NEGOTIATE）
       case 'negotiate_confirm': result = room.negotiateConfirm(pid, msg.confirmed); break;
+      case 'summon': result = room.summon(pid); break;                                               // 检察官：传唤（§8.9，BETTING 下注前）
       case 'accuse': result = room.accuse(pid, msg.targetId); break;                                  // 对质：发起指控（§8.8）
       case 'accuse_pick': result = room.accusePick(pid, msg.dir); break;                              // 对质：预选方向（两段确认第一击，队友可见）
       case 'accuse_resolve': result = room.accuseResolve(pid, msg.dir); break;                        // 对质：落定 多/少

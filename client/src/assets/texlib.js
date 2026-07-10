@@ -666,6 +666,11 @@ function drawBodyFront(px, role, cloth) {
     px(6, 0, 4, 3, '#f0ede4'); px(7, 3, 2, 2, '#f0ede4');  // 衬衫
     px(7, 2, 2, 7, shade(cloth.pants, -25));           // 领带
     px(11, 3, 1, 4, '#f0ede4'); px(11, 2, 1, 1, P.brassHi); // 胸袋钢笔
+  } else if (role === 'prosecutor') {
+    px(0, 0, 2, 16, shade(cloth.shirt, -25)); px(14, 0, 2, 16, shade(cloth.shirt, -25)); // 制服对襟
+    px(6, 0, 4, 2, '#f0ede4'); px(7, 2, 2, 1, '#f0ede4'); // 白衬领
+    px(7, 4, 2, 2, P.brassHi); px(7, 8, 2, 2, P.brassHi); px(7, 12, 2, 2, P.brassHi); // 金纽扣列
+    px(2, 2, 3, 3, shade(P.brassHi, -8)); px(3, 3, 1, 1, P.wax); // 左胸检徽(金底红芯)
   } else if (role === 'glutton') {
     px(3, 3, 10, 13, shade(P.parchment, -8));          // 围裙
     px(3, 3, 10, 1, shade(P.parchment, -30));

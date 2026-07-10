@@ -4,7 +4,7 @@
 // 分钱四子阶段 = SETTLE(系统结算) + NEGOTIATE(农民协商) + FINALIZE(正式结算) + 下一轮 DISCUSSION(农民讨论)。
 
 import crypto from 'crypto';
-import { roomConfig, getInitialBalance, getInitialPool, getMinStake, factionOf, capitalistWallet } from './config.js';
+import { roomConfig, getInitialBalance, getInitialPool, getMinStake, factionOf, capitalistWallet, summonCost } from './config.js';
 import { getMode } from './modes/index.js';
 import { flipCoin, betBounds, validateBet, settleRound, applyAllocation } from './logic/rules.js';
 import { relativeGoal, goalPenalty, drawGoalInterval } from './logic/landlordGoal.js';
@@ -34,7 +34,7 @@ const IN_GAME_PHASES = ['DISCUSSION', 'BETTING', 'CHALLENGE', 'REVEAL', 'COIN_FL
 // 角色中文名（系统播报用，与客户端 game/roles.js#ROLE_LABEL 一致）。
 const ROLE_LABEL = {
   landlord: '地主', capitalist: '资本家',
-  farmer: '农民', investor: '投资人', glutton: '暴食者', bank: '银行',
+  farmer: '农民', investor: '投资人', glutton: '暴食者', prosecutor: '检察官', bank: '银行',
 };
 
 // 金额按 10/5/2/1 贪心分解后的张数（与客户端 game/notes.js decompose 一致）。
@@ -80,6 +80,11 @@ export class Room {
     this.challengeDeadline = null; // 决定窗（15s）截止绝对时刻
     this._forceGoalCheckpoint = false; // 猜对地主 → FINALIZE 强制一次目标评估（不重定基）
     this._forceTax = false;            // 猜对资本家 → FINALIZE 强制额外扣一次税
+    // 检察官·传唤（§8.9）：BETTING 置真、FINALIZE 消费——正式考核提前开庭（倍罚上缴国库 + 重定基/税钟归零）。
+    this._summonGoal = false;          // 传唤地主 → 本回合目标按 penaltyMult 倍结算（罚进虚空）+ 重定基重抽间隔
+    this._summonTax = false;           // 传唤资本家 → 本回合税按 penaltyMult 倍扣 + 税钟锚点归到本回合
+    this.taxAnchorRound = 0;           // 资本家税钟锚点（0=开局；传唤重置到传唤回合）
+    this.lastSummon = null;            // 本回合传唤事件 {byId, targetId, cost, round}（HUD 告警；下回合下注前清）
     this.roundFarmerIds = [];
     this.roundStartBalances = {};
     this.history = [];
@@ -132,6 +137,8 @@ export class Room {
       passedReflip: false,    // 暴食者本重掷窗已放弃
       tickets: 0,             // 对质票（每角色按局发放，§8.8；非竞技/地主阵营恒 0）
       challengeSkip: false,   // 对质决定窗：本农民已投票跳过
+      summonsUsed: 0,         // 检察官本局已传唤次数（§8.9；递增费的指数）
+      usedSummonThisRound: false, // 检察官本回合已传唤（回合 1 次上限 + 同回合不可再指控）
       ws,
     };
     this.players.set(player.id, player);
@@ -291,12 +298,18 @@ export class Room {
       // 对质票按角色**按局**发放（仅竞技农民阵营；地主阵营/快速模式恒 0）。之后不每回合重置，可 NEGOTIATE 转赠。
       p.tickets = this.mode === 'competitive' ? (this.config.competitive.accusation?.tickets?.[p.role] ?? 0) : 0;
       p.challengeSkip = false;
+      p.summonsUsed = 0;
+      p.usedSummonThisRound = false;
     }
-    // 对质状态归零（新局）：进行中指控/裁决/强制检查点 flag。
+    // 对质/传唤状态归零（新局）：进行中指控/裁决/强制检查点 flag/税钟锚点。
     this.accusation = null;
     this.lastAccusation = null;
     this._forceGoalCheckpoint = false;
     this._forceTax = false;
+    this._summonGoal = false;
+    this._summonTax = false;
+    this.taxAnchorRound = 0;
+    this.lastSummon = null;
     // 地主资金目标基准：仅地主（非资本家）才有考核。相对制：开局定第一个目标与随机检查点。
     this.landlordInitial = this._landlord()?.role === 'landlord' ? (this._landlord()?.balance ?? 0) : 0;
     if (this.config.landlordGoal?.enabled && this.landlordInitial > 0) {
@@ -363,11 +376,17 @@ export class Room {
       p.passedReflip = false;
       p.tickets = 0;
       p.challengeSkip = false;
+      p.summonsUsed = 0;
+      p.usedSummonThisRound = false;
     }
     this.accusation = null;
     this.lastAccusation = null;
     this._forceGoalCheckpoint = false;
     this._forceTax = false;
+    this._summonGoal = false;
+    this._summonTax = false;
+    this.taxAnchorRound = 0;
+    this.lastSummon = null;
     this._broadcastState();
   }
 
@@ -387,7 +406,7 @@ export class Room {
         balance: 0, bankrupt: false, online: true, ready: false, confirmed: false,
         negotiateConfirmed: false, spectator: false, emote: null,
         pool: null, pledge: 0, premium: 0, mealAllowance: 0, reflipsLeft: 0, reflipsMax: 0, usedReflipThisRound: false, passedReflip: false,
-        tickets: 0, challengeSkip: false,
+        tickets: 0, challengeSkip: false, summonsUsed: 0, usedSummonThisRound: false,
         ws: null,
       });
     }
@@ -443,12 +462,16 @@ export class Room {
       p.negotiateConfirmed = false;
       p.emote = null;       // 手动表情每回合清空
       p.challengeSkip = false; // 对质跳过投票每回合清空
+      p.usedSummonThisRound = false; // 传唤回合上限每回合清空（summonsUsed 按局累计不清）
     }
-    // 上一回合的对质裁决/强制检查点 flag 到此清空（本回合 REVEAL/FINALIZE 才需看到，已过去）。
+    // 上一回合的对质裁决/传唤/强制检查点 flag 到此清空（本回合 REVEAL/FINALIZE 才需看到，已过去）。
     this.accusation = null;
     this.lastAccusation = null;
     this._forceGoalCheckpoint = false;
     this._forceTax = false;
+    this._summonGoal = false;
+    this._summonTax = false;
+    this.lastSummon = null;
     this.challengeDeadline = null;
     this._broadcastState();
     // 短喘息（反馈②）：进讨论后到点 discussionMs **自动**进下注——纯过场喘息，玩家端无「准备/跳过」入口。
@@ -576,7 +599,8 @@ export class Room {
 
   _anyFarmerCanAccuse() {
     const cost = this.config.competitive.accusation?.cost ?? 2;
-    return this._roundFarmers().some(f => (f.tickets ?? 0) >= cost);
+    // 已传唤的检察官同回合不可对质（§8.9）——若他是唯一有票的农民，别开一扇没人能用的 15s 空窗。
+    return this._roundFarmers().some(f => (f.tickets ?? 0) >= cost && !f.usedSummonThisRound);
   }
 
   _enterChallenge() {
@@ -599,6 +623,36 @@ export class Room {
     });
   }
 
+  // 检察官·传唤（§8.9）：下注阶段、自己下注前、每回合 1 次、不限总次数。
+  // 花 round(农民数 × 1.5^已传次数) 进虚空 → 正式考核**提前开庭**：本回合 FINALIZE 按 penaltyMult 倍
+  // 结算敌方制约（地主目标罚/资本家税），罚款**上缴国库**（进虚空，不分农民——切断自供血），
+  // 然后重定基+重抽间隔（税钟锚点归到本回合）。免猜、必然开庭；同回合不可再发起对质。
+  summon(playerId) {
+    if (!this._competitive) return { error: '仅竞技模式可传唤' };
+    if (this.phase !== 'BETTING') return { error: '只能在下注阶段传唤' };
+    const actor = this.players.get(playerId);
+    if (!actor || actor.role !== 'prosecutor' || !this._isActive(actor)) return { error: '只有检察官可以传唤' };
+    if (!this.roundFarmerIds.includes(playerId)) return { error: '本回合未参与' };
+    if (this.bets[playerId] != null) return { error: '请在自己下注前传唤' };
+    if (actor.usedSummonThisRound) return { error: '本回合已传唤' };
+    if (this._summonGoal || this._summonTax) return { error: '本回合已有传唤' };
+    const target = this._landlord();
+    if (!target || !this._isActive(target)) return { error: '传唤目标无效' };
+    const cost = summonCost(this.roundFarmerIds.length, actor.summonsUsed, this.config);
+    const minStake = getMinStake(actor.role, this.roundFarmerIds.length, this.config, { mode: this.mode });
+    if (actor.balance < cost + minStake) return { error: `资金不足（传唤费 ¥${cost}，还需留出下注额）` };
+    actor.balance -= cost;                 // 传唤费当场进虚空（下注上下界随余额即时收缩）
+    actor.summonsUsed += 1;
+    actor.usedSummonThisRound = true;
+    if (target.role === 'landlord') this._summonGoal = true;
+    else this._summonTax = true;
+    this.lastSummon = { byId: playerId, targetId: target.id, cost, round: this.round };
+    this._systemChat(`${actor.username} 花 ¥${cost} 传唤 ${target.username}（${ROLE_LABEL[target.role] ?? '地主'}）——本回合强制双倍结算，罚款上缴国库`);
+    this._touch();
+    this._broadcastState();
+    return { ok: true };
+  }
+
   // 发起指控（决定窗）：恒扣 cost 票（任何情况不返还），开交流窗（≤accuseDeliberateMs），等 accuseResolve/accuseCancel。
   accuse(playerId, targetId) {
     if (this.phase !== 'CHALLENGE') return { error: '当前不是对质阶段' };
@@ -606,6 +660,7 @@ export class Room {
     const actor = this.players.get(playerId);
     if (!actor || factionOf(actor.role) !== 'farmer' || !this._isActive(actor)) return { error: '只有农民阵营可以指控' };
     if (!this.roundFarmerIds.includes(playerId)) return { error: '本回合未参与' };
+    if (actor.usedSummonThisRound) return { error: '本回合已传唤，不能再发起对质' }; // §8.9 同回合互斥
     const cost = this.config.competitive.accusation?.cost ?? 2;
     if ((actor.tickets ?? 0) < cost) return { error: '对质票不足' };
     const target = this.players.get(targetId);
@@ -953,23 +1008,28 @@ export class Room {
 
     // ② 地主资金目标（任务 6）：检查点回合的 FINALIZE 若地主未达标，扣除惩罚（资金沉没，可致破产）。
     //    对质命中地主（§8.8）→ _forceGoalCheckpoint：本回合额外触发一次评估，但**不重定基**（不重置间隔）。
+    //    检察官传唤（§8.9）→ _summonGoal：正式考核**提前开庭**——按 penaltyMult 倍罚且罚款**上缴国库**
+    //    （进虚空、不分农民），并像排期检查点一样重定基+重抽间隔。同回合三者并存只评估一次，传唤语义优先。
     let landlordPenalty = 0;
     let landlordGoalValue = null;
     let landlordGoalMet = null;
     const scheduledGoalDue = this.goalNextRound > 0 && this.round === this.goalNextRound;
     if (this.config.landlordGoal?.enabled && landlordId && this.players.get(landlordId)?.role === 'landlord'
-        && (scheduledGoalDue || this._forceGoalCheckpoint)) {
+        && (scheduledGoalDue || this._forceGoalCheckpoint || this._summonGoal)) {
       const after = result.after[landlordId] ?? 0;
       landlordGoalValue = this.goalTarget;
       landlordGoalMet = after >= landlordGoalValue;
       if (!landlordGoalMet) {
-        landlordPenalty = goalPenalty(after, this.config);
+        const mult = this._summonGoal ? (this.config.competitive?.prosecutor?.summon?.penaltyMult ?? 2) : 1;
+        landlordPenalty = Math.min(after, goalPenalty(after, this.config) * mult); // 倍罚封顶到余额（罚穿即破产）
         result.after[landlordId] = after - landlordPenalty;
         result.deltas[landlordId] = (result.deltas[landlordId] ?? 0) - landlordPenalty;
         const parts = ledger.debit(landlordId, landlordPenalty);
         const recipients = [];
-        // 惩罚资金平分给本回合农民（最大余数法；破产判定前入账，可能救活濒临破产者）。
-        if (landlordPenalty > 0 && this.roundFarmerIds.length > 0) {
+        // 传唤检查点：罚款上缴国库（显式 void 接收方 → 桌面演出=钱飞向虚空收缩消失），农民一分不进——切断检察官自供血。
+        if (this._summonGoal && landlordPenalty > 0) recipients.push({ to: { kind: 'void' }, amount: landlordPenalty });
+        // 排期/对质检查点：惩罚平分给本回合农民（最大余数法；破产判定前入账，可能救活濒临破产者）。
+        if (!this._summonGoal && landlordPenalty > 0 && this.roundFarmerIds.length > 0) {
           const shares = apportion(
             landlordPenalty,
             this.roundFarmerIds.map(id => ({ id, weight: 1, tie: this.bets[id] ?? 0 })),
@@ -984,12 +1044,14 @@ export class Room {
           }
         }
         steps.push({
-          id: nextId(), t: 'adjust', source: 'goalPenalty', label: '地主未达标罚金',
+          id: nextId(), t: 'adjust',
+          source: this._summonGoal ? 'summonPenalty' : 'goalPenalty',
+          label: this._summonGoal ? '传唤双倍罚款上缴国库' : '地主未达标罚金',
           flows: flowsFromParts(landlordId, parts, recipients),
         });
       }
-      // 重定基仅在**排期**检查点：对质强制的额外检查点不动日程（同回合排期+强制 = 只评估一次、走排期重定基）。
-      if (scheduledGoalDue) {
+      // 重定基：排期检查点照旧；**传唤 = 正式考核提前开庭**，同样重定基+重抽间隔（对质强制不动日程）。
+      if (scheduledGoalDue || this._summonGoal) {
         const base = result.after[landlordId] ?? 0;
         this.goalBaseline = base;
         this.goalTarget = relativeGoal(base, this.config);
@@ -1010,9 +1072,16 @@ export class Room {
         result.after[cap.id] = start;          // 个人资金恒定
         result.deltas[cap.id] = 0;
         cap.pool = (cap.pool ?? 0) + capitalistPoolDelta;
-        // 征税间隔 = 活跃农民阵营人数（每 interval 回合一次，非每回合）；税基 = 当前池。
-        // 对质命中资本家（§8.8）→ _forceTax：本回合额外扣一次（税无状态，同回合排期+强制只扣一次）。
-        if (taxDueThisRound(this.round, this.roundFarmerIds.length) || this._forceTax) {
+        // 征税间隔 = 活跃农民阵营人数（每 interval 回合一次，非每回合）；税基 = 当前池；税钟带锚点（传唤重置）。
+        // 对质命中资本家（§8.8）→ _forceTax：本回合额外扣一次（同回合排期+强制只扣一次）。
+        // 检察官传唤（§8.9）→ _summonTax：按 penaltyMult 倍扣（封顶到池），并把税钟锚点归到本回合
+        // （下次排期税从本回合重新起算——传唤自带的「资敌面」）。同回合并存只扣一次，传唤语义优先。
+        if (this._summonTax) {
+          const mult = this.config.competitive?.prosecutor?.summon?.penaltyMult ?? 2;
+          capitalistTax = Math.min(Math.max(0, cap.pool), computeTax(cap.pool, this.config) * mult);
+          cap.pool -= capitalistTax;
+          this.taxAnchorRound = this.round;
+        } else if (taxDueThisRound(this.round, this.roundFarmerIds.length, this.taxAnchorRound) || this._forceTax) {
           capitalistTax = computeTax(cap.pool, this.config);
           cap.pool -= capitalistTax;
         }
@@ -1035,7 +1104,9 @@ export class Room {
         }
         if (capitalistTax > 0) {
           steps.push({
-            id: nextId(), t: 'adjust', source: 'capitalistTax', label: '税收',
+            id: nextId(), t: 'adjust',
+            source: this._summonTax ? 'summonTax' : 'capitalistTax',
+            label: this._summonTax ? '传唤双倍税' : '税收',
             flows: [{ from: { kind: 'pool', id: cap.id }, to: { kind: 'void' }, amount: capitalistTax }],
           });
         }
@@ -1361,6 +1432,8 @@ export class Room {
         // 对质票（§8.8）：农民阵营公开（同 reflipsLeft 施压逻辑）；challengeSkip 供对质窗显示已跳过进度。
         tickets: factionOf(p.role) === 'farmer' ? (p.tickets ?? 0) : null,
         challengeSkip: factionOf(p.role) === 'farmer' ? !!p.challengeSkip : null,
+        // 检察官已传唤次数（§8.9）：公开（递增费可由公开事件推出；施压信息，同 reflipsLeft）。
+        summonsUsed: p.role === 'prosecutor' ? (p.summonsUsed ?? 0) : null,
       } : {}),
     }));
 
@@ -1385,7 +1458,9 @@ export class Room {
     const cap = this._capitalist();
     const capSelf = cap && (viewerId === cap.id || spectator);
     const taxIv = taxInterval(Math.max(1, this._activeFarmers().length)); // 征税间隔 = 活跃农民数
-    const taxMod = this.round % taxIv;
+    // 税钟带锚点（§8.9 传唤重置）：距锚点回合数取模；刚被传唤（锚=本回合）→ 下次税整整一个间隔之后。
+    const sinceAnchor = this.round - (this.taxAnchorRound || 0);
+    const taxMod = sinceAnchor <= 0 ? -1 : sinceAnchor % taxIv;
     const capitalist = (this._competitive && cap && IN_GAME_PHASES.includes(this.phase)) ? {
       id: cap.id,
       personal: capSelf ? cap.balance : null,
@@ -1395,7 +1470,8 @@ export class Room {
       // 下次征税额（§8.6 间隔制、按当前池）：服务端算好直发，客户端只渲染（不再自行套税率公式）。
       taxNext: capSelf ? computeTax(cap.pool ?? 0, this.config) : null,
       taxInterval: taxIv,                                    // 征税间隔（回合）——公开（施压规则）
-      taxRoundsToNext: taxMod === 0 ? 0 : taxIv - taxMod,    // 距下次征税还剩几回合（0=本回合征）
+      // 距下次征税回合数（0=本回合征）；taxMod<0=本回合刚被传唤（锚=本回合）→ 整整一个间隔之后
+      taxRoundsToNext: taxMod === 0 ? 0 : taxMod < 0 ? taxIv : taxIv - taxMod,
       taxRate: this.config.competitive.capitalist.taxRate,
       taxMin: this.config.competitive.capitalist.taxMin,
     } : null;
@@ -1423,6 +1499,8 @@ export class Room {
       correct: this.lastAccusation.correct,
       ...(canNegotiateView ? { targetBet: this.lastAccusation.targetBet, factionTotal: this.lastAccusation.factionTotal } : {}),
     } : null;
+    // 本回合传唤事件（§8.9）：对所有人公开（系统聊天已播报；驱动被传唤方制约卡 ⚠ 告警，下回合下注前清）。
+    const lastSummon = (this._competitive && this.lastSummon) ? { ...this.lastSummon } : null;
 
     const me = viewer ? {
       id: viewer.id,
@@ -1452,10 +1530,23 @@ export class Room {
         // 对质（§8.8）：自身票数、能否发起指控、我作为发起者进行中的指控、已跳过标记。
         tickets: viewer.tickets ?? 0,
         canAccuse: factionOf(viewer.role) === 'farmer' && this._isActive(viewer)
+          && !viewer.usedSummonThisRound // §8.9 同回合传唤/对质互斥（accuse() 有同款硬闸门，这里管入口显隐）
           && (viewer.tickets ?? 0) >= (this.config.competitive.accusation?.cost ?? 2),
         myAccusation: (this.accusation && this.accusation.accuserId === viewerId)
           ? { targetId: this.accusation.targetId, deadline: this.accusation.deadline } : null,
         challengeSkip: !!viewer.challengeSkip,
+        // 检察官·传唤（§8.9）：下一次费用 + 本回合可否传唤（服务端整门槛，客户端只渲染）。
+        ...(viewer.role === 'prosecutor' ? {
+          summonsUsed: viewer.summonsUsed ?? 0,
+          usedSummonThisRound: !!viewer.usedSummonThisRound,
+          summonCost: summonCost(this.roundFarmerIds.length || this._activeFarmers().length, viewer.summonsUsed ?? 0, this.config),
+          canSummon: this.phase === 'BETTING' && this._isActive(viewer)
+            && this.roundFarmerIds.includes(viewerId)
+            && this.bets[viewerId] == null
+            && !viewer.usedSummonThisRound && !this._summonGoal && !this._summonTax
+            && viewer.balance >= summonCost(this.roundFarmerIds.length, viewer.summonsUsed ?? 0, this.config)
+              + getMinStake(viewer.role, this.roundFarmerIds.length, this.config, { mode: this.mode }),
+        } : {}),
       } : {}),
     } : null;
 
@@ -1496,6 +1587,7 @@ export class Room {
       capitalist,
       challenge,
       lastAccusation,
+      lastSummon,
       // balancesAfter 会泄露他人余额绝对值，仅观战者/终局可见
       history: this.history.map(h => {
         if (spectator || this.phase === 'ENDED') return h;

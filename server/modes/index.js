@@ -24,9 +24,9 @@ export const MODES = {
     id: 'competitive',
     label: '竞技模式',
     available: true,
-    // 地主阵营：landlord / capitalist（互斥，恰 1 人）；农民阵营：farmer / investor / glutton（可重复）。
-    roles: ['landlord', 'capitalist', 'farmer', 'investor', 'glutton'],
-    description: '角色技能制：地主/资本家 对阵 基础农民/投资人/暴食者，各有专属技能。',
+    // 地主阵营：landlord / capitalist（互斥，恰 1 人）；农民阵营：farmer / investor / glutton / prosecutor（可重复）。
+    roles: ['landlord', 'capitalist', 'farmer', 'investor', 'glutton', 'prosecutor'],
+    description: '角色技能制：地主/资本家 对阵 基础农民/投资人/暴食者/检察官，各有专属技能。',
     hooks: {},
   },
 };
