@@ -585,8 +585,19 @@ export class Room {
     const pending = this._activePlayers().filter(p => this.bets[p.id] === undefined);
     if (pending.length === 0) {
       // 竞技且有农民凑得齐票 → 进对质窗；否则（快速模式/无人有票）直接揭牌，不空耗 15s。
-      if (this._competitive && this._anyFarmerCanAccuse()) this._enterChallenge();
-      else this._enterReveal();
+      if (this._competitive && this._anyFarmerCanAccuse()) {
+        this._enterChallenge();
+      } else {
+        // 跳过要有播报（否则像 UI 消失的 BUG）：仅当有人「本可以但不能」时提示——
+        // 手里还剩票但不够 cost，或检察官本回合已传唤；全 0 票（如纯暴食者阵容）不聒噪。
+        if (this._competitive) {
+          const farmers = this._roundFarmers();
+          if (farmers.some(f => (f.tickets ?? 0) > 0 || f.usedSummonThisRound)) {
+            this._systemChat('本回合无农民能发起对质（票不足/已传唤），跳过对质窗');
+          }
+        }
+        this._enterReveal();
+      }
     }
   }
 

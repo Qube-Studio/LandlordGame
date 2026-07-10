@@ -1050,7 +1050,8 @@ export default function Scene3D() {
     return () => window.removeEventListener('pointermove', onMove);
   }, []);
 
-  // 本地测试快捷键：B 补满真实测试玩家，V 切换当前操控的角色（单人玩全部角色），C 自由相机。
+  // 本地测试快捷键：B 补满真实测试玩家，V 切换当前操控的角色（单人玩全部角色），K 自由相机
+  // （原 C 让位给检察官·传唤 §8.9——开发键避让产品键）。
   useEffect(() => {
     if (!DEV) return undefined;
     const onKey = (e) => {
@@ -1058,7 +1059,7 @@ export default function Scene3D() {
       if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) return;
       const store = useGameStore.getState();
       if (e.key === 'b' || e.key === 'B') store.send({ type: 'dev_fill' });
-      else if (e.key === 'c' || e.key === 'C') setFreeCam(v => !v);
+      else if (e.key === 'k' || e.key === 'K') setFreeCam(v => !v);
       else if (e.key === 'v' || e.key === 'V') {
         const list = store.state?.players ?? [];
         if (list.length > 1) {
@@ -1083,7 +1084,7 @@ export default function Scene3D() {
         <SceneContents look={look} freeCam={freeCam} />
       </Canvas>
       {DEV && (
-        <div className="dev-hud">测试模式 · B 补满玩家 · V 切换操控角色 · C 自由相机({freeCam ? '开' : '关'})</div>
+        <div className="dev-hud">测试模式 · B 补满玩家 · V 切换操控角色 · K 自由相机({freeCam ? '开' : '关'})</div>
       )}
     </div>
   );

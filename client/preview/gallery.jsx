@@ -293,6 +293,21 @@ const quickWall = mk({
   config: { ...base.config, maxFarmers: 4 },
 });
 
+// 对质窗·单农民(§8.8 BUG 复现):竞技 1v1,决定窗——自己圈上应有「阵营总注/指控敌方[Z]/跳过/倒计时」浮字。
+const challenge1f = mk({
+  phase: 'CHALLENGE', round: 1, mode: 'competitive',
+  players: [
+    { id: 'me', name: '我', role: 'farmer', seat: 0, online: true, isHost: true, hasBet: true, betCount: 2, bet: null, balance: 6, tickets: 3, challengeSkip: false },
+    opp('l', '地主张', 'landlord', { betCount: 2, bet: null, tickets: null }),
+  ],
+  roundFarmerIds: ['me'],
+  me: {
+    id: 'me', role: 'farmer', balance: 6, bet: 2, tickets: 3,
+    canAccuse: true, challengeSkip: false, myAccusation: null,
+  },
+  challenge: { deadline: Date.now() + 120000, accusation: null, targetId: 'l', cost: 2, factionTotal: 2 },
+});
+
 // 酒馆账本(HUD 2.0):3 轮历史——农民胜(工资/饭账)、地主胜缺口补足、地主胜+破产。
 const ledgerScene = mk({
   phase: 'DISCUSSION', round: 4,
@@ -342,6 +357,7 @@ const SCENES = [
   { key: 'investorBet', label: '投资人投保圈', kind: 'game', state: investorBet, note: '3D 模式:圆圈左侧投保圈,拖牌进圈=投保、点保单牌收回(加 ?input=2d 可看旧 2D 槽)' },
   { key: 'insDrop', label: '投保掉落动画', kind: 'game', state: insDrop, note: '保单牌一张张掉出屏幕（循环演示）' },
   { key: 'reflip', label: '暴食者重掷/放弃', kind: 'game', state: reflip },
+  { key: 'challenge1f', label: '对质窗(单农民)', kind: 'game', state: challenge1f, note: '竞技 1v1 决定窗:自己圈上应有「阵营总注/指控敌方[Z]/跳过/倒计时」浮字(单农民 BUG 复现场景)' },
   { key: 'huds', label: '四类 HUD', kind: 'game', state: huds, note: '四类 HUD 已移到左上角房间号下,黑底半透明;右下角只留资金蜡烛' },
   { key: 'capitalistLoss', label: '资本家蜡烛变色', kind: 'game', state: capitalistLoss, note: '资本家上回合池亏损→右下角蜡烛应为红(个人本金恒定,须按资金池净变动判色)' },
   { key: 'ledgerCapitalist', label: '账本(资本家视角)', kind: 'game', state: ledgerCapitalist, panel: 'ledger', note: 'R1 我 +7(绿) / R2 我 −5(红)——摘要行与摘开明细的「我」都须走资金池净变动,不是恒 0 的 deltas.me' },
