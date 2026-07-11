@@ -1,12 +1,7 @@
-// 结算调整步（§3.8 adjust.source）→ 桌面浮动标签文案（单一真源）。
+// 结算调整步（§3.8 adjust.source）→ 桌面浮动标签文案（文案在 text/zh.js payoutSteps 段）。
 // 未收录的新机制回落到服务端下发的 label——服务端加新 adjust 步无需改客户端也有可读文案。
-export const PAYOUT_LABEL = {
-  debtCollect: '补缺口',
-  goalPenalty: '罚金',
-  wage: '工资',
-  mealAllowance: '饭账',
-  capitalistPool: '资金池',
-  capitalistTax: '税收',
-};
+import { T } from '../text';
+
+export const PAYOUT_LABEL = T.payoutSteps;
 
 export const labelForStep = (step) => PAYOUT_LABEL[step.source] ?? step.label ?? step.source ?? '';

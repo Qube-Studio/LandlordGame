@@ -5,6 +5,7 @@ import LoginScreen from './screens/LoginScreen';
 import LobbyScreen from './screens/LobbyScreen';
 import GameScreen from './screens/GameScreen';
 import ViewportGuard from './ui/ViewportGuard';
+import { T } from './text';
 
 export default function App() {
   const token = useAuthStore(s => s.token);
@@ -43,9 +44,9 @@ export default function App() {
       {kicked && (
         <div className="modal-mask">
           <div className="modal panel">
-            <h3>连接已断开</h3>
+            <h3>{T.app.disconnected}</h3>
             <p className="dim">{kicked}</p>
-            <button className="btn primary" onClick={relogin}>重新登录</button>
+            <button className="btn primary" onClick={relogin}>{T.app.relogin}</button>
           </div>
         </div>
       )}

@@ -9,6 +9,7 @@ import { useGameStore } from '../store/gameStore';
 import { ROLE_LABEL, factionOf, isFarmerSide, isLandlordSide } from '../game/roles';
 import { IS_3D_INPUT, IS_TOUCH } from '../game/inputMode';
 import PixelText from '../assets/pixelfont/PixelText';
+import { T } from '../text';
 
 const STAG = 130;      // 逐字入场间隔
 const SPARKS = 32;     // 组装完成的爆点粒子数
@@ -33,9 +34,9 @@ function VictoryStage() {
 
   const noFaction = spectator || !factionOf(myRole);
   const iWon = winnerSide && ((winnerSide === 'farmers') === isFarmerSide(myRole));
-  const winnerName = winnerSide === 'farmers' ? '农民' : (ROLE_LABEL[landlordRole] ?? '地主');
+  const winnerName = winnerSide === 'farmers' ? T.victory.farmers : (ROLE_LABEL[landlordRole] ?? T.victory.landlordFallback);
 
-  const text = noFaction ? `${winnerName}胜利` : iWon ? '胜利！' : '败北';
+  const text = noFaction ? T.victory.neutralWin(winnerName) : iWon ? T.victory.win : T.victory.lose;
   const tone = noFaction ? 'neutral' : iWon ? 'win' : 'lose';
   const winColor = winnerSide === 'farmers' ? 'var(--ok)' : 'var(--px-gold)';
   const color = tone === 'lose' ? '#93a0b2' : winColor;
@@ -77,11 +78,11 @@ function VictoryStage() {
           {isHost
             ? (
               <button className="btn primary victory-next" onClick={() => send({ type: 'restart_game' })}>
-                下一局{!IS_TOUCH && <span className="keycap">空格</span>}
+                {T.victory.again}{!IS_TOUCH && <span className="keycap">{T.common.keySpace}</span>}
               </button>
             )
-            : <PixelText size={2.5} color="var(--ink-dim)">等待房主开下一局</PixelText>}
-          {!IS_TOUCH && <div className="victory-hint"><PixelText size={2} color="var(--ink-dim)">按 L 查看战绩</PixelText></div>}
+            : <PixelText size={2.5} color="var(--ink-dim)">{T.victory.waitHost}</PixelText>}
+          {!IS_TOUCH && <div className="victory-hint"><PixelText size={2} color="var(--ink-dim)">{T.victory.ledgerHint}</PixelText></div>}
         </div>
       )}
     </>

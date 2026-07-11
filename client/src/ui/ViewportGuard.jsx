@@ -5,6 +5,7 @@
 //     「添加到主屏幕」从图标启动才是真全屏（standalone），横屏游玩时也会弹（旋转层只在竖屏）。
 // 纯表现层，不读游戏状态、不碰逻辑。
 import { useEffect, useState } from 'react';
+import { T } from '../text';
 
 // iOS 设备且当前不在 standalone（未从主屏图标启动）——只有这种情形地址栏删不掉、才提示。
 const IOS_HINT_KEY = 'fate.iosHint';
@@ -69,14 +70,14 @@ export default function ViewportGuard() {
   return (
     <>
       {!fs && canFullscreen && (
-        <button className="fs-btn" onClick={enterFullscreen} title="进入全屏">⛶ 全屏</button>
+        <button className="fs-btn" onClick={enterFullscreen} title={T.viewport.fullscreenTitle}>{T.viewport.fullscreenBtn}</button>
       )}
       {portrait && (
         <div className="orient-overlay">
           <div className="orient-card">
             <div className="orient-icon">📱</div>
-            <p>请横屏游玩</p>
-            {!canFullscreen && <p className="orient-hint">iPhone 可「添加到主屏」获得全屏体验</p>}
+            <p>{T.viewport.rotate}</p>
+            {!canFullscreen && <p className="orient-hint">{T.viewport.rotateHint}</p>}
           </div>
         </div>
       )}
@@ -84,9 +85,9 @@ export default function ViewportGuard() {
       {iosHint && !portrait && (
         <div className="ios-install-hint" role="status">
           <span className="ios-hint-text">
-            想去掉顶部地址栏？点底部 <b>分享</b> → <b>添加到主屏幕</b>，从图标启动即全屏
+            {T.viewport.iosHintPre}<b>{T.viewport.iosHintShare}</b>{T.viewport.iosHintMid}<b>{T.viewport.iosHintAdd}</b>{T.viewport.iosHintPost}
           </span>
-          <button className="ios-hint-x" onClick={dismissIosHint} aria-label="知道了">✕</button>
+          <button className="ios-hint-x" onClick={dismissIosHint} aria-label={T.viewport.gotIt}>✕</button>
         </div>
       )}
     </>

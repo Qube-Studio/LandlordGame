@@ -13,6 +13,7 @@ import {
 } from '../game/roles';
 import { parseRuns } from '../game/richtext';
 import { IS_TOUCH } from '../game/inputMode';
+import { T } from '../text';
 
 // 可选性判断（与服务端 takeRole 同口径，仅置灰提示）：Poster 与触屏详情卡共用。
 function selectability(role, state, me, readonly) {
@@ -82,7 +83,7 @@ function RoleSheet({ role, state, me, send, readonly, onClose }) {
           className="btn primary role-take"
           disabled={mine}
           onClick={() => { send({ type: 'take_role', role }); onClose(); }}
-        >{mine ? '已应征' : '应征'}</button>
+        >{mine ? T.roleWall.applied : T.roleWall.apply}</button>
       )}
     </div>,
     document.body
@@ -112,7 +113,7 @@ function RoleTooltip({ role, pos, advOpen }) {
       <RoleDetailBody role={role} advanced={advOpen} />
       {!advOpen && sheet.advanced?.length > 0 && (
         <div className="role-adv-hint">
-          <PixelText size={2} color="var(--ink-dim)">按住 Shift 查看高级信息</PixelText>
+          <PixelText size={2} color="var(--ink-dim)">{T.roleWall.shiftHint}</PixelText>
         </div>
       )}
     </div>,
@@ -150,7 +151,7 @@ function Poster({ role, state, me, send, readonly, onHover, onOpenSheet }) {
         </div>
       )}
       {blocked && takers.length === 0 && (
-        <div className="poster-note"><PixelText size={2} color="var(--c-parch-ink)">阵营已满</PixelText></div>
+        <div className="poster-note"><PixelText size={2} color="var(--c-parch-ink)">{T.roleWall.factionFull}</PixelText></div>
       )}
     </div>
   );
@@ -199,20 +200,20 @@ export default function RoleWall() {
   return (
     <div className="drawer role-wall">
       <div className="drawer-title">
-        <PixelText size={2} color="var(--c-wood-900)">{readonly ? '角色手册' : '招募令 · 选择你的角色'}</PixelText>
+        <PixelText size={2} color="var(--c-wood-900)">{readonly ? T.roleWall.manualTitle : T.roleWall.recruitTitle}</PixelText>
         <div className="drawer-title-right">
-          <span className="drawer-hint"><PixelText size={2} color="var(--c-wood-900)">{`地主 ${landlords}/1 · 农民 ${farmers}/${maxF}`}</PixelText></span>
+          <span className="drawer-hint"><PixelText size={2} color="var(--c-wood-900)">{T.roleWall.headcount(landlords, farmers, maxF)}</PixelText></span>
         </div>
       </div>
       <div className="drawer-body role-wall-body">
         {competitive ? (
           <>
             <div className="role-group">
-              <div className="role-group-title"><PixelText size={2} color="var(--px-gold)">地主阵营 · 1 人</PixelText></div>
+              <div className="role-group-title"><PixelText size={2} color="var(--px-gold)">{T.roleWall.landlordGroup}</PixelText></div>
               <div className="poster-row">{LANDLORD_SIDE_ROLES.map(r => <Poster key={r} role={r} {...pass} />)}</div>
             </div>
             <div className="role-group">
-              <div className="role-group-title"><PixelText size={2} color="var(--ok)">{`农民阵营 · 1–${maxF} 人,可重复`}</PixelText></div>
+              <div className="role-group-title"><PixelText size={2} color="var(--ok)">{T.roleWall.farmerGroup(maxF)}</PixelText></div>
               <div className="poster-row">{FARMER_SIDE_ROLES.map(r => <Poster key={r} role={r} {...pass} />)}</div>
             </div>
           </>

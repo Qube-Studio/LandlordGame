@@ -3,6 +3,7 @@
 
 import { getMinStake, getLandlordAttrs, roundBy } from '../config.js';
 import { apportion } from './apportion.js';
+import { ERR } from '../text.js';
 
 export function flipCoin(rng = Math.random) {
   return rng() < 0.5 ? 'heads' : 'tails';
@@ -27,13 +28,13 @@ export function betBounds({ balance, role, farmerCount, config, mode }) {
 
 export function validateBet({ amount, balance, role, farmerCount, config, mode }) {
   const bounds = betBounds({ balance, role, farmerCount, config, mode });
-  if (!Number.isInteger(amount) || amount <= 0) return { valid: false, bounds, reason: '下注必须是正整数' };
+  if (!Number.isInteger(amount) || amount <= 0) return { valid: false, bounds, reason: ERR.betNotPositive };
   if (bounds.forceAllIn) {
-    if (amount !== balance) return { valid: false, bounds, reason: `资金不足，只能全押 ${balance}` };
+    if (amount !== balance) return { valid: false, bounds, reason: ERR.betForceAllIn(balance) };
     return { valid: true, bounds };
   }
-  if (amount < bounds.min) return { valid: false, bounds, reason: `下注不能低于最小出资额 ${bounds.min}` };
-  if (amount > bounds.max) return { valid: false, bounds, reason: `必须留下最小出资额 ${bounds.minStake}` };
+  if (amount < bounds.min) return { valid: false, bounds, reason: ERR.betBelowMin(bounds.min) };
+  if (amount > bounds.max) return { valid: false, bounds, reason: ERR.betKeepMinStake(bounds.minStake) };
   return { valid: true, bounds };
 }
 

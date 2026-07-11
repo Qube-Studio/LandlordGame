@@ -12,6 +12,7 @@ import { computeWage, wageDueThisRound, investorWaiver, computeTax, taxInterval,
 import { createLedger, buildSettleScript, flowsFromParts } from './logic/payout.js';
 import { apportion } from './logic/apportion.js';
 import { saveGameRecord } from './storage.js';
+import { ERR, SYS, STEP_LABEL, ROLE_LABEL, MISC } from './text.js';
 
 // 确定性 PRNG（mulberry32）：地主目标检查点间隔用它抽取，按局种子可复现（重连/回放一致）。
 function mulberry32(seed) {
@@ -31,12 +32,6 @@ export const PHASES = ['LOBBY', 'DISCUSSION', 'BETTING', 'CHALLENGE', 'REVEAL', 
 const PAYOUT_PHASES = ['SETTLE', 'NEGOTIATE', 'FINALIZE'];
 const IN_GAME_PHASES = ['DISCUSSION', 'BETTING', 'CHALLENGE', 'REVEAL', 'COIN_FLIP', 'REFLIP', ...PAYOUT_PHASES];
 
-// 角色中文名（系统播报用，与客户端 game/roles.js#ROLE_LABEL 一致）。
-const ROLE_LABEL = {
-  landlord: '地主', capitalist: '资本家',
-  farmer: '农民', investor: '投资人', glutton: '暴食者', prosecutor: '检察官', bank: '银行',
-};
-
 // 金额按 10/5/2/1 贪心分解后的张数（与客户端 game/notes.js decompose 一致）。
 // 张数对所有人可见（任务：桌面堆叠露张数，下注阶段仍不露金额）。
 function noteCount(amount) {
@@ -49,7 +44,7 @@ function noteCount(amount) {
 export class Room {
   constructor(roomId, name, modeId, configOverrides = {}) {
     this.roomId = roomId;
-    this.name = name || '未命名房间';
+    this.name = name || MISC.defaultRoomName;
     this.mode = getMode(modeId)?.id ?? 'quick';
     this.config = roomConfig(this.mode, configOverrides);
     this.players = new Map(); // playerId -> player
@@ -109,8 +104,8 @@ export class Room {
       this._broadcastState();
       return { ok: true, playerId: existing.id };
     }
-    if (this.phase !== 'LOBBY') return { error: '游戏已开始，无法加入' };
-    if (this.players.size >= 1 + this.config.maxFarmers) return { error: '房间已满' };
+    if (this.phase !== 'LOBBY') return { error: ERR.joinStarted };
+    if (this.players.size >= 1 + this.config.maxFarmers) return { error: ERR.roomFull };
 
     const player = {
       id: crypto.randomBytes(4).toString('hex'),
@@ -202,7 +197,7 @@ export class Room {
   // 玩家主动退出房间（区别于断线）：游戏中退出视为弃局。
   leave(playerId) {
     const player = this.players.get(playerId);
-    if (!player) return { error: '不在房间中' };
+    if (!player) return { error: ERR.notInRoom };
     this.players.delete(playerId);
     this._reassignHost();
 
@@ -237,22 +232,22 @@ export class Room {
   // ---------- 大厅 ----------
 
   takeRole(playerId, role) {
-    if (this.phase !== 'LOBBY') return { error: '只能在大厅阶段选择角色' };
+    if (this.phase !== 'LOBBY') return { error: ERR.roleOnlyLobby };
     const player = this.players.get(playerId);
-    if (!player) return { error: '不在房间中' };
+    if (!player) return { error: ERR.notInRoom };
     const mode = getMode(this.mode);
-    if (!mode.roles.includes(role)) return { error: '该模式不支持此角色' };
-    if (role === 'bank') return { error: '银行角色尚未开放' };
+    if (!mode.roles.includes(role)) return { error: ERR.roleNotInMode };
+    if (role === 'bank') return { error: ERR.bankNotOpen };
     const faction = factionOf(role);
-    if (!faction) return { error: '无效角色' };
+    if (!faction) return { error: ERR.invalidRole };
     if (faction === 'landlord') {
       // 地主阵营恰 1 人：地主 / 资本家互斥。
       const taken = [...this.players.values()].find(p => factionOf(p.role) === 'landlord' && p.id !== playerId);
-      if (taken) return { error: '地主阵营已有玩家（地主/资本家互斥）' };
+      if (taken) return { error: ERR.landlordTaken };
     } else {
       // 农民阵营可重复（farmer/investor/glutton），仅限人数上限。
       const farmers = [...this.players.values()].filter(p => factionOf(p.role) === 'farmer' && p.id !== playerId);
-      if (farmers.length >= this.config.maxFarmers) return { error: '农民人数已满' };
+      if (farmers.length >= this.config.maxFarmers) return { error: ERR.farmersFull };
     }
     player.role = role;
     this._touch();
@@ -261,16 +256,16 @@ export class Room {
   }
 
   startGame(playerId) {
-    if (this.phase !== 'LOBBY') return { error: '游戏已在进行中' };
-    if (playerId !== this.hostId) return { error: '只有房主可以开始游戏' };
+    if (this.phase !== 'LOBBY') return { error: ERR.gameInProgress };
+    if (playerId !== this.hostId) return { error: ERR.hostOnlyStart };
     const all = [...this.players.values()];
     const landlordSide = all.filter(p => factionOf(p.role) === 'landlord');
     const farmers = all.filter(p => factionOf(p.role) === 'farmer');
-    if (all.some(p => !p.role)) return { error: '还有玩家未选择角色' };
-    if (all.some(p => !p.lobbyReady)) return { error: '还有玩家未准备' }; // 全员准备才能开局（反馈①：准备=开局门槛）
-    if (landlordSide.length !== 1) return { error: '需要恰好 1 名地主阵营玩家（地主或资本家）' };
-    if (farmers.length < this.config.minFarmers) return { error: `至少需要 ${this.config.minFarmers} 名农民` };
-    if (farmers.length > this.config.maxFarmers) return { error: `农民最多 ${this.config.maxFarmers} 名` };
+    if (all.some(p => !p.role)) return { error: ERR.someoneNoRole };
+    if (all.some(p => !p.lobbyReady)) return { error: ERR.someoneNotReady }; // 全员准备才能开局（反馈①：准备=开局门槛）
+    if (landlordSide.length !== 1) return { error: ERR.needOneLandlord };
+    if (farmers.length < this.config.minFarmers) return { error: ERR.needFarmers(this.config.minFarmers) };
+    if (farmers.length > this.config.maxFarmers) return { error: ERR.tooManyFarmers(this.config.maxFarmers) };
 
     this.gameId = crypto.randomBytes(6).toString('hex');
     this.startedAt = Date.now();
@@ -329,8 +324,8 @@ export class Room {
 
   // 再来一局：回到大厅并清空所有角色，让每个人重新选（任务⑤：之前会立即沿用旧角色开局，身份被锁死）。
   restartGame(playerId) {
-    if (this.phase !== 'ENDED') return { error: '游戏尚未结束' };
-    if (playerId !== this.hostId) return { error: '只有房主可以重新开始' };
+    if (this.phase !== 'ENDED') return { error: ERR.gameNotEnded };
+    if (playerId !== this.hostId) return { error: ERR.hostOnlyRestart };
     this._resetToLobby();
     return { ok: true, backToLobby: true };
   }
@@ -395,14 +390,14 @@ export class Room {
   // 把房间补满真实测试玩家并自动配好阵容（首位=地主，其余=农民），关闭自动代离线行动——
   // 全部交给测试者用 possess 逐个手动操控，实现单人玩通全部角色。
   devFill() {
-    if (this.phase !== 'LOBBY') return { error: '只能在大厅补充测试玩家' };
+    if (this.phase !== 'LOBBY') return { error: ERR.devFillLobbyOnly };
     const target = Math.min(1 + this.config.maxFarmers, 4); // 1 地主 + 3 农民
     let n = this.players.size;
     while (this.players.size < target) {
       n += 1;
       const id = crypto.randomBytes(4).toString('hex');
       this.players.set(id, {
-        id, username: '测试' + n, seat: this._seat++, role: null,
+        id, username: MISC.devPlayerPrefix + n, seat: this._seat++, role: null,
         balance: 0, bankrupt: false, online: true, ready: false, confirmed: false,
         negotiateConfirmed: false, spectator: false, emote: null,
         pool: null, pledge: 0, premium: 0, mealAllowance: 0, reflipsLeft: 0, reflipsMax: 0, usedReflipThisRound: false, passedReflip: false,
@@ -427,7 +422,7 @@ export class Room {
   // 把控制 socket 转移到目标玩家（附身）：旧占用者解绑 ws（仍 online，待被再次附身）。
   possess(ws, playerId) {
     const target = this.players.get(playerId);
-    if (!target) return { error: '目标玩家不存在' };
+    if (!target) return { error: ERR.possessNoTarget };
     for (const p of this.players.values()) {
       if (p.ws === ws && p.id !== playerId) p.ws = null;
     }
@@ -485,18 +480,18 @@ export class Room {
   // 客户端目前不暴露 UI，后续接面板时直接发 { type:'set_emote', emote } 即可。
   setEmote(playerId, emote) {
     const player = this.players.get(playerId);
-    if (!player) return { error: '不在房间中' };
+    if (!player) return { error: ERR.notInRoom };
     const allowed = ['idle', 'ready', 'bet', 'win', 'lose'];
-    if (emote !== null && !allowed.includes(emote)) return { error: '不支持的表情' };
+    if (emote !== null && !allowed.includes(emote)) return { error: ERR.badEmote };
     player.emote = emote;
     this._broadcastState();
     return { ok: true };
   }
 
   setReady(playerId) {
-    if (this.phase !== 'DISCUSSION') return { error: '当前不是准备阶段' };
+    if (this.phase !== 'DISCUSSION') return { error: ERR.notDiscussion };
     const player = this.players.get(playerId);
-    if (!player || !this._isActive(player)) return { error: '观战者无需准备' };
+    if (!player || !this._isActive(player)) return { error: ERR.spectatorNoReady };
     player.ready = true;
     this._broadcastState();
     this._checkGate('ready', () => this._enterBetting());
@@ -506,10 +501,10 @@ export class Room {
   // 大厅准备标记（UI 阶段二）：可反复切换的协调信号，让房主看到谁就绪了；
   // 不做开局门槛（startGame 不检查），房主自行掌握时机。
   setLobbyReady(playerId, ready) {
-    if (this.phase !== 'LOBBY') return { error: '只能在大厅准备' };
+    if (this.phase !== 'LOBBY') return { error: ERR.lobbyReadyOnly };
     const player = this.players.get(playerId);
-    if (!player) return { error: '不在房间中' };
-    if (!player.role) return { error: '先选择角色再准备' };
+    if (!player) return { error: ERR.notInRoom };
+    if (!player.role) return { error: ERR.pickRoleFirst };
     player.lobbyReady = !!ready;
     this._touch();
     this._broadcastState();
@@ -552,10 +547,10 @@ export class Room {
   }
 
   placeBet(playerId, amount, count, pledge) {
-    if (this.phase !== 'BETTING') return { error: '当前不是下注阶段' };
+    if (this.phase !== 'BETTING') return { error: ERR.notBetting };
     const player = this.players.get(playerId);
-    if (!player || !this._isActive(player)) return { error: '观战者不能下注' };
-    if (this.bets[playerId] !== undefined) return { error: '已经下过注了' };
+    if (!player || !this._isActive(player)) return { error: ERR.spectatorNoBet };
+    if (this.bets[playerId] !== undefined) return { error: ERR.alreadyBet };
     // 竞技投资人：投保与下注同时提交（§8.3 手牌下保）。先扣保费，扣后余额才是下注校验基数。
     if (this._competitive && player.role === 'investor' && player.premium === 0
         && Number.isInteger(pledge) && pledge >= 1) {
@@ -593,7 +588,7 @@ export class Room {
         if (this._competitive) {
           const farmers = this._roundFarmers();
           if (farmers.some(f => (f.tickets ?? 0) > 0 || f.usedSummonThisRound)) {
-            this._systemChat('本回合无农民能发起对质（票不足/已传唤），跳过对质窗');
+            this._systemChat(SYS.challengeSkipped);
           }
         }
         this._enterReveal();
@@ -639,26 +634,26 @@ export class Room {
   // 结算敌方制约（地主目标罚/资本家税），罚款**上缴国库**（进虚空，不分农民——切断自供血），
   // 然后重定基+重抽间隔（税钟锚点归到本回合）。免猜、必然开庭；同回合不可再发起对质。
   summon(playerId) {
-    if (!this._competitive) return { error: '仅竞技模式可传唤' };
-    if (this.phase !== 'BETTING') return { error: '只能在下注阶段传唤' };
+    if (!this._competitive) return { error: ERR.summonCompetitiveOnly };
+    if (this.phase !== 'BETTING') return { error: ERR.summonBettingOnly };
     const actor = this.players.get(playerId);
-    if (!actor || actor.role !== 'prosecutor' || !this._isActive(actor)) return { error: '只有检察官可以传唤' };
-    if (!this.roundFarmerIds.includes(playerId)) return { error: '本回合未参与' };
-    if (this.bets[playerId] != null) return { error: '请在自己下注前传唤' };
-    if (actor.usedSummonThisRound) return { error: '本回合已传唤' };
-    if (this._summonGoal || this._summonTax) return { error: '本回合已有传唤' };
+    if (!actor || actor.role !== 'prosecutor' || !this._isActive(actor)) return { error: ERR.summonProsecutorOnly };
+    if (!this.roundFarmerIds.includes(playerId)) return { error: ERR.notInRound };
+    if (this.bets[playerId] != null) return { error: ERR.summonBeforeBet };
+    if (actor.usedSummonThisRound) return { error: ERR.summonUsed };
+    if (this._summonGoal || this._summonTax) return { error: ERR.summonExists };
     const target = this._landlord();
-    if (!target || !this._isActive(target)) return { error: '传唤目标无效' };
+    if (!target || !this._isActive(target)) return { error: ERR.summonBadTarget };
     const cost = summonCost(this.roundFarmerIds.length, actor.summonsUsed, this.config);
     const minStake = getMinStake(actor.role, this.roundFarmerIds.length, this.config, { mode: this.mode });
-    if (actor.balance < cost + minStake) return { error: `资金不足（传唤费 ¥${cost}，还需留出下注额）` };
+    if (actor.balance < cost + minStake) return { error: ERR.summonNoFunds(cost) };
     actor.balance -= cost;                 // 传唤费当场进虚空（下注上下界随余额即时收缩）
     actor.summonsUsed += 1;
     actor.usedSummonThisRound = true;
     if (target.role === 'landlord') this._summonGoal = true;
     else this._summonTax = true;
     this.lastSummon = { byId: playerId, targetId: target.id, cost, round: this.round };
-    this._systemChat(`${actor.username} 花 ¥${cost} 传唤 ${target.username}（${ROLE_LABEL[target.role] ?? '地主'}）——本回合强制双倍结算，罚款上缴国库`);
+    this._systemChat(SYS.summon(actor.username, cost, target.username, ROLE_LABEL[target.role] ?? MISC.landlordFallback));
     this._touch();
     this._broadcastState();
     return { ok: true };
@@ -666,16 +661,16 @@ export class Room {
 
   // 发起指控（决定窗）：恒扣 cost 票（任何情况不返还），开交流窗（≤accuseDeliberateMs），等 accuseResolve/accuseCancel。
   accuse(playerId, targetId) {
-    if (this.phase !== 'CHALLENGE') return { error: '当前不是对质阶段' };
-    if (this.accusation) return { error: '已有指控进行中' };
+    if (this.phase !== 'CHALLENGE') return { error: ERR.notChallenge };
+    if (this.accusation) return { error: ERR.accuseInProgress };
     const actor = this.players.get(playerId);
-    if (!actor || factionOf(actor.role) !== 'farmer' || !this._isActive(actor)) return { error: '只有农民阵营可以指控' };
-    if (!this.roundFarmerIds.includes(playerId)) return { error: '本回合未参与' };
-    if (actor.usedSummonThisRound) return { error: '本回合已传唤，不能再发起对质' }; // §8.9 同回合互斥
+    if (!actor || factionOf(actor.role) !== 'farmer' || !this._isActive(actor)) return { error: ERR.accuseFarmersOnly };
+    if (!this.roundFarmerIds.includes(playerId)) return { error: ERR.notInRound };
+    if (actor.usedSummonThisRound) return { error: ERR.summonBlocksAccuse }; // §8.9 同回合互斥
     const cost = this.config.competitive.accusation?.cost ?? 2;
-    if ((actor.tickets ?? 0) < cost) return { error: '对质票不足' };
+    if ((actor.tickets ?? 0) < cost) return { error: ERR.noTickets };
     const target = this.players.get(targetId);
-    if (!target || factionOf(target.role) !== 'landlord' || !this._isActive(target)) return { error: '指控目标无效' };
+    if (!target || factionOf(target.role) !== 'landlord' || !this._isActive(target)) return { error: ERR.accuseBadTarget };
     actor.tickets -= cost; // 立即扣，之后一律不返还
     this._clearTimers();
     const ms = this.config.timing.accuseDeliberateMs;
@@ -689,7 +684,7 @@ export class Room {
         this._enterReveal();
       }
     });
-    this._systemChat(`${actor.username} 花 ${cost} 票发起对质，指向 ${target.username}（${ROLE_LABEL[target.role] ?? '地主'}）`);
+    this._systemChat(SYS.accuse(actor.username, cost, target.username, ROLE_LABEL[target.role] ?? MISC.landlordFallback));
     this._broadcastState();
     return { ok: true };
   }
@@ -697,10 +692,10 @@ export class Room {
   // 预选方向（交流窗、仅发起者，§8.8 两段确认第一击）：只记 pendingDir 并广播（农民阵营可见——
   // 队友同步看到「哪个符号变大」），不判定。再点同一方向（accuseResolve）才落定。可反复改选。
   accusePick(playerId, dir) {
-    if (this.phase !== 'CHALLENGE') return { error: '当前不是对质阶段' };
+    if (this.phase !== 'CHALLENGE') return { error: ERR.notChallenge };
     const acc = this.accusation;
-    if (!acc || acc.accuserId !== playerId) return { error: '你没有进行中的指控' };
-    if (dir !== 'more' && dir !== 'less') return { error: '无效的指控方向' };
+    if (!acc || acc.accuserId !== playerId) return { error: ERR.noActiveAccuse };
+    if (dir !== 'more' && dir !== 'less') return { error: ERR.badAccuseDir };
     acc.pendingDir = dir;
     this._broadcastState();
     return { ok: true };
@@ -708,10 +703,10 @@ export class Room {
 
   // 落定指控（交流窗、仅发起者）：判定敌方暗注 vs 农民阵营总注，猜对置强制检查点 flag，进揭牌。
   accuseResolve(playerId, dir) {
-    if (this.phase !== 'CHALLENGE') return { error: '当前不是对质阶段' };
+    if (this.phase !== 'CHALLENGE') return { error: ERR.notChallenge };
     const acc = this.accusation;
-    if (!acc || acc.accuserId !== playerId) return { error: '你没有进行中的指控' };
-    if (dir !== 'more' && dir !== 'less') return { error: '无效的指控方向' };
+    if (!acc || acc.accuserId !== playerId) return { error: ERR.noActiveAccuse };
+    if (dir !== 'more' && dir !== 'less') return { error: ERR.badAccuseDir };
     const targetBet = this.bets[acc.targetId] ?? 0;
     const factionTotal = this.roundFarmerIds.reduce((s, id) => s + (this.bets[id] ?? 0), 0);
     const correct = judgeAccusation(targetBet, factionTotal, dir);
@@ -723,8 +718,8 @@ export class Room {
     }
     const target = this.players.get(acc.targetId);
     this._systemChat(correct
-      ? `对质命中！${target?.username ?? '敌方'} 将被强制结算一次制约`
-      : `对质落空，${this.players.get(playerId)?.username ?? '指控者'} 未能命中`);
+      ? SYS.accuseHit(target?.username ?? MISC.enemyFallback)
+      : SYS.accuseMiss(this.players.get(playerId)?.username ?? MISC.accuserFallback));
     this.accusation = null;
     this._broadcastState();
     this._enterReveal();
@@ -733,23 +728,23 @@ export class Room {
 
   // 取消指控（交流窗、仅发起者）：票不返还，回到决定窗（重置 15s 与跳过投票）。
   accuseCancel(playerId) {
-    if (this.phase !== 'CHALLENGE') return { error: '当前不是对质阶段' };
+    if (this.phase !== 'CHALLENGE') return { error: ERR.notChallenge };
     const acc = this.accusation;
-    if (!acc || acc.accuserId !== playerId) return { error: '你没有进行中的指控' };
+    if (!acc || acc.accuserId !== playerId) return { error: ERR.noActiveAccuse };
     for (const p of this._roundFarmers()) p.challengeSkip = false;
     this._armChallengeWindow();
-    this._systemChat('指控取消，虚惊一场');
+    this._systemChat(SYS.accuseCancel);
     this._broadcastState();
     return { ok: true };
   }
 
   // 投票跳过对质（决定窗、活跃农民）：全体农民同意跳过（离线自动满足）即揭牌。
   challengeSkip(playerId) {
-    if (this.phase !== 'CHALLENGE') return { error: '当前不是对质阶段' };
-    if (this.accusation) return { error: '指控进行中，无法跳过' };
+    if (this.phase !== 'CHALLENGE') return { error: ERR.notChallenge };
+    if (this.accusation) return { error: ERR.skipBlocked };
     const actor = this.players.get(playerId);
-    if (!actor || factionOf(actor.role) !== 'farmer' || !this._isActive(actor)) return { error: '只有农民阵营可以跳过' };
-    if (!this.roundFarmerIds.includes(playerId)) return { error: '本回合未参与' };
+    if (!actor || factionOf(actor.role) !== 'farmer' || !this._isActive(actor)) return { error: ERR.skipFarmersOnly };
+    if (!this.roundFarmerIds.includes(playerId)) return { error: ERR.notInRound };
     actor.challengeSkip = true;
     this._broadcastState();
     this._checkChallengeSkipGate();
@@ -765,10 +760,10 @@ export class Room {
 
   // 暴食者放弃本窗重掷（§8.4）：所有可重掷暴食者都放弃（或离线自动放弃）即进入结算。
   passReflip(playerId) {
-    if (this.phase !== 'REFLIP') return { error: '当前不是重掷阶段' };
+    if (this.phase !== 'REFLIP') return { error: ERR.notReflip };
     const player = this.players.get(playerId);
-    if (!player || player.role !== 'glutton' || !this._isActive(player)) return { error: '只有暴食者可以操作' };
-    if (!this.roundFarmerIds.includes(playerId)) return { error: '本回合未参与' };
+    if (!player || player.role !== 'glutton' || !this._isActive(player)) return { error: ERR.gluttonOnly };
+    if (!this.roundFarmerIds.includes(playerId)) return { error: ERR.notInRound };
     player.passedReflip = true;
     this._broadcastState();
     this._checkReflipGate();
@@ -790,9 +785,9 @@ export class Room {
   }
 
   confirmReveal(playerId) {
-    if (this.phase !== 'REVEAL') return { error: '当前不是揭牌阶段' };
+    if (this.phase !== 'REVEAL') return { error: ERR.notReveal };
     const player = this.players.get(playerId);
-    if (!player || !this._isActive(player)) return { error: '观战者无需确认' };
+    if (!player || !this._isActive(player)) return { error: ERR.spectatorNoConfirm };
     player.confirmed = true;
     this._broadcastState();
     this._checkGate('confirmed', () => this._enterCoinFlip());
@@ -843,11 +838,11 @@ export class Room {
 
   // 暴食者请求重掷（§8.4）：消耗一次，标记本回合已重掷（决定伙食费是否清零），权威重掷并重播动画。
   requestReflip(playerId) {
-    if (this.phase !== 'REFLIP') return { error: '当前不是重掷阶段' };
+    if (this.phase !== 'REFLIP') return { error: ERR.notReflip };
     const player = this.players.get(playerId);
-    if (!player || player.role !== 'glutton' || !this._isActive(player)) return { error: '只有暴食者可以重掷' };
-    if (!this.roundFarmerIds.includes(playerId)) return { error: '本回合未参与，不能重掷' };
-    if (player.reflipsLeft <= 0) return { error: '重掷次数已用尽' };
+    if (!player || player.role !== 'glutton' || !this._isActive(player)) return { error: ERR.gluttonOnlyReflip };
+    if (!this.roundFarmerIds.includes(playerId)) return { error: ERR.notInRoundReflip };
+    if (player.reflipsLeft <= 0) return { error: ERR.reflipExhausted };
     player.reflipsLeft -= 1;
     player.usedReflipThisRound = true;
     this._flipAndAnimate();
@@ -911,14 +906,14 @@ export class Room {
   }
 
   negotiateTransfer(playerId, toId, kind, amount) {
-    if (this.phase !== 'NEGOTIATE') return { error: '当前不是协商阶段' };
-    if (!Number.isInteger(amount) || amount <= 0) return { error: '转移金额必须是正整数' };
-    if (playerId === toId) return { error: '不能转给自己' };
+    if (this.phase !== 'NEGOTIATE') return { error: ERR.notNegotiate };
+    if (!Number.isInteger(amount) || amount <= 0) return { error: ERR.transferNotPositive };
+    if (playerId === toId) return { error: ERR.transferSelf };
     if (!this.roundFarmerIds.includes(playerId) || !this.roundFarmerIds.includes(toId)) {
-      return { error: '只能在本回合参与的农民之间转移' };
+      return { error: ERR.transferRoundFarmersOnly };
     }
     const pool = kind === 'debt' ? this.allocation.debts : this.allocation.takes;
-    if ((pool[playerId] ?? 0) < amount) return { error: '可转移的数额不足' };
+    if ((pool[playerId] ?? 0) < amount) return { error: ERR.transferInsufficient };
     // 债务可以全部压给某个农民使其破产（任务 7）：不再校验对方余额是否承担得起。
     // 落账时该农民只付出其全部余额（applyAllocation 取 min(债务, 余额)），地主只收到这点钱。
     pool[playerId] -= amount;
@@ -931,18 +926,18 @@ export class Room {
 
   // 对质票转赠（§8.8）：搭在 NEGOTIATE 阶段——农民把票给队友（信任/分歧的杠杆）。与钱/债转移同样重置确认。
   transferTicket(playerId, toId, n) {
-    if (this.phase !== 'NEGOTIATE') return { error: '当前不是协商阶段' };
-    if (!Number.isInteger(n) || n <= 0) return { error: '转赠张数必须是正整数' };
-    if (playerId === toId) return { error: '不能转给自己' };
+    if (this.phase !== 'NEGOTIATE') return { error: ERR.notNegotiate };
+    if (!Number.isInteger(n) || n <= 0) return { error: ERR.ticketNotPositive };
+    if (playerId === toId) return { error: ERR.transferSelf };
     if (!this.roundFarmerIds.includes(playerId) || !this.roundFarmerIds.includes(toId)) {
-      return { error: '只能在本回合参与的农民之间转赠' };
+      return { error: ERR.ticketRoundFarmersOnly };
     }
     const from = this.players.get(playerId);
     const to = this.players.get(toId);
     if (!from || !to || factionOf(from.role) !== 'farmer' || factionOf(to.role) !== 'farmer') {
-      return { error: '只有农民阵营之间可以转赠对质票' };
+      return { error: ERR.ticketFarmersOnly };
     }
-    if ((from.tickets ?? 0) < n) return { error: '对质票不足' };
+    if ((from.tickets ?? 0) < n) return { error: ERR.noTickets };
     from.tickets -= n;
     to.tickets = (to.tickets ?? 0) + n;
     for (const p of this.players.values()) p.negotiateConfirmed = false; // 方案变动，重置确认
@@ -952,8 +947,8 @@ export class Room {
   }
 
   negotiateConfirm(playerId, confirmed) {
-    if (this.phase !== 'NEGOTIATE') return { error: '当前不是协商阶段' };
-    if (!this.roundFarmerIds.includes(playerId)) return { error: '只有本回合参与的农民可以确认' };
+    if (this.phase !== 'NEGOTIATE') return { error: ERR.notNegotiate };
+    if (!this.roundFarmerIds.includes(playerId)) return { error: ERR.confirmRoundFarmersOnly };
     const player = this.players.get(playerId);
     player.negotiateConfirmed = confirmed !== false;
     this._broadcastState();
@@ -1013,7 +1008,7 @@ export class Room {
       }
       if (collectFlows.length > 0 || uncovered > 0) {
         ledger.credit(landlordId, result.collected);
-        steps.push({ id: nextId(), t: 'adjust', source: 'debtCollect', label: '补偿地主', flows: collectFlows, uncovered });
+        steps.push({ id: nextId(), t: 'adjust', source: 'debtCollect', label: STEP_LABEL.debtCollect, flows: collectFlows, uncovered });
       }
     }
 
@@ -1057,7 +1052,7 @@ export class Room {
         steps.push({
           id: nextId(), t: 'adjust',
           source: this._summonGoal ? 'summonPenalty' : 'goalPenalty',
-          label: this._summonGoal ? '传唤双倍罚款上缴国库' : '地主未达标罚金',
+          label: this._summonGoal ? STEP_LABEL.summonPenalty : STEP_LABEL.goalPenalty,
           flows: flowsFromParts(landlordId, parts, recipients),
         });
       }
@@ -1103,13 +1098,13 @@ export class Room {
         if (d > 0) {
           ledger.debit(cap.id, d);
           steps.push({
-            id: nextId(), t: 'adjust', source: 'capitalistPool', label: '盈余入池',
+            id: nextId(), t: 'adjust', source: 'capitalistPool', label: STEP_LABEL.poolSurplus,
             flows: [{ from: { kind: 'pile', id: cap.id }, to: { kind: 'pool', id: cap.id }, amount: d }],
           });
         } else if (d < 0) {
           ledger.credit(cap.id, -d);
           steps.push({
-            id: nextId(), t: 'adjust', source: 'capitalistPool', label: '资金池垫付本金',
+            id: nextId(), t: 'adjust', source: 'capitalistPool', label: STEP_LABEL.poolCover,
             flows: [{ from: { kind: 'pool', id: cap.id }, to: { kind: 'pile', id: cap.id }, amount: -d }],
           });
         }
@@ -1117,7 +1112,7 @@ export class Room {
           steps.push({
             id: nextId(), t: 'adjust',
             source: this._summonTax ? 'summonTax' : 'capitalistTax',
-            label: this._summonTax ? '传唤双倍税' : '税收',
+            label: this._summonTax ? STEP_LABEL.summonTax : STEP_LABEL.capitalistTax,
             flows: [{ from: { kind: 'pool', id: cap.id }, to: { kind: 'void' }, amount: capitalistTax }],
           });
         }
@@ -1135,7 +1130,7 @@ export class Room {
             wageFlows.push({ from: { kind: 'void' }, to: { kind: 'pile', id }, amount });
           }
         }
-        if (wageFlows.length > 0) steps.push({ id: nextId(), t: 'adjust', source: 'wage', label: '发工资', flows: wageFlows });
+        if (wageFlows.length > 0) steps.push({ id: nextId(), t: 'adjust', source: 'wage', label: STEP_LABEL.wage, flows: wageFlows });
       }
       // 暴食者饭账：每回合累积成「饭账」（成本）。农民胜时从余额扣除并清零（允许扣到破产）；
       // 农民负则饭账继续累积——含重掷仍输也不清零（§8.4）。
@@ -1154,7 +1149,7 @@ export class Room {
           p.mealAllowance = 0;
         }
       }
-      if (mealFlows.length > 0) steps.push({ id: nextId(), t: 'adjust', source: 'mealAllowance', label: '结饭账', flows: mealFlows });
+      if (mealFlows.length > 0) steps.push({ id: nextId(), t: 'adjust', source: 'mealAllowance', label: STEP_LABEL.mealAllowance, flows: mealFlows });
     }
 
     // === 入账时刻重定义（§3.8）：手上支出此刻入账（钱可视地离开手）；堆上的钱等拿取才入账。===
@@ -1223,11 +1218,11 @@ export class Room {
 
   // 玩家从桌面拿取自己的钱堆：此刻余额才入账（拿取前 viewFor 的余额 = 手上现钱）。
   takePayout(playerId) {
-    if (this.phase !== 'FINALIZE' || !this.payout) return { error: '当前不是拿取阶段' };
+    if (this.phase !== 'FINALIZE' || !this.payout) return { error: ERR.notTakePhase };
     const player = this.players.get(playerId);
-    if (!player) return { error: '不在房间中' };
-    if (!this.payout.eligible.includes(playerId)) return { error: '没有可拿取的钱' };
-    if (this.payout.taken.has(playerId)) return { error: '已经拿过了' };
+    if (!player) return { error: ERR.notInRoom };
+    if (!this.payout.eligible.includes(playerId)) return { error: ERR.nothingToTake };
+    if (this.payout.taken.has(playerId)) return { error: ERR.alreadyTaken };
     this._bookTake(playerId);
     this._touch();
     this._broadcastState();
@@ -1339,25 +1334,25 @@ export class Room {
 
   // 破产播报（UI 精简⑨）：破产不再走底部结算面板，改为聊天区一条系统消息。
   _announceBankrupt(player) {
-    const role = ROLE_LABEL[player.role] ?? '玩家';
-    this._systemChat(`${player.username}（${role}）已破产`);
+    const role = ROLE_LABEL[player.role] ?? MISC.playerFallback;
+    this._systemChat(SYS.bankrupt(player.username, role));
   }
 
   chat(playerId, channel, text) {
     const player = this.players.get(playerId);
     // 清洗：控制字符（含换行——绕过客户端单行输入的 WS 直发）压成空格，再裁 200
     const message = (text ?? '').toString().replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 200);
-    if (!player || !message) return { error: '消息无效' };
+    if (!player || !message) return { error: ERR.chatInvalid };
     // 简易滑动窗口限流：10s 内最多 8 条（拦恶意刷屏的 WS 直发；正常对喷够用）
     const nowTs = Date.now();
     player._chatTs = (player._chatTs ?? []).filter(t => nowTs - t < 10000);
-    if (player._chatTs.length >= 8) return { error: '发言太快了，稍等片刻' };
+    if (player._chatTs.length >= 8) return { error: ERR.chatTooFast };
     player._chatTs.push(nowTs);
     // 观战者（破产/降级）发言一律强制进观战频道：其有上帝视角，绝不能向活跃玩家泄露余额/暗注。
     if (player.bankrupt || player.spectator) channel = 'spectator';
-    else if (channel === 'spectator') return { error: '只有观战者可以使用观战频道' };
-    if (!this.config.channels.includes(channel)) return { error: '频道不存在' };
-    if (channel === 'farmer' && factionOf(player.role) !== 'farmer') return { error: '只有农民阵营可以使用农民频道' };
+    else if (channel === 'spectator') return { error: ERR.chatSpectateOnly };
+    if (!this.config.channels.includes(channel)) return { error: ERR.chatNoChannel };
+    if (channel === 'farmer' && factionOf(player.role) !== 'farmer') return { error: ERR.chatFarmersOnly };
     const entry = { channel, from: playerId, name: player.username, text: message, ts: Date.now() };
     this.chatLog.push(entry);
     if (this.chatLog.length > 200) this.chatLog.shift();
@@ -1385,7 +1380,7 @@ export class Room {
   // 头部朝向中继（任务⑦）：高频瞬态数据，不进全量 state——夹紧后只转发给其他在线玩家。
   setLook(playerId, yaw, pitch) {
     const player = this.players.get(playerId);
-    if (!player) return { error: '不在房间中' };
+    if (!player) return { error: ERR.notInRoom };
     const clamp = (v, lim) => (Number.isFinite(v) ? Math.max(-lim, Math.min(lim, v)) : 0);
     const payload = { type: 'look', id: playerId, yaw: clamp(yaw, 1.2), pitch: clamp(pitch, 0.8) };
     for (const p of this.players.values()) {

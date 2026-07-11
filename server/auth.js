@@ -3,6 +3,7 @@
 
 import crypto from 'crypto';
 import { loadJson, saveJson } from './storage.js';
+import { ERR } from './text.js';
 
 const USERS_FILE = 'users.json';
 
@@ -21,9 +22,9 @@ function hashPassword(password, salt) {
 
 export function register(username, password) {
   const name = (username ?? '').trim();
-  if (!name || name.length > 16) return { error: '用户名需为 1-16 个字符' };
-  if (!password || password.length < 4) return { error: '密码至少 4 位' };
-  if (users.has(name)) return { error: '用户名已被注册' };
+  if (!name || name.length > 16) return { error: ERR.usernameLen };
+  if (!password || password.length < 4) return { error: ERR.passwordLen };
+  if (users.has(name)) return { error: ERR.usernameTaken };
   const salt = crypto.randomBytes(16).toString('hex');
   users.set(name, { salt, hash: hashPassword(password, salt), createdAt: Date.now() });
   persistUsers();
@@ -35,7 +36,7 @@ export function login(username, password) {
   const name = (username ?? '').trim();
   const record = users.get(name);
   if (!record || record.hash !== hashPassword(password ?? '', record.salt)) {
-    return { error: '用户名或密码错误' };
+    return { error: ERR.badCredentials };
   }
   const oldToken = userTokens.get(name);
   if (oldToken) sessions.delete(oldToken);

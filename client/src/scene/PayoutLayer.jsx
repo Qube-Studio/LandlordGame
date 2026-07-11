@@ -21,6 +21,7 @@ import PromptFloat, { pushFloat } from './PromptFloat';
 import KeyCap from '../assets/pixelfont/KeyCap';
 import PixelText from '../assets/pixelfont/PixelText';
 import { P } from '../assets/palette';
+import { T } from '../text';
 
 const REDUCED = typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 const SPEED = REDUCED ? 0.03 : 1;             // 减少动态：飞行近乎瞬时（终态一致）
@@ -479,7 +480,7 @@ function CountdownText({ deadline }) {
     const id = setInterval(() => setLeft(Math.max(0, Math.ceil((deadline - Date.now()) / 1000))), 500);
     return () => clearInterval(id);
   }, [deadline]);
-  return <PixelText size={2} color="var(--ink-dim)">{`${left}s 后自动生效`}</PixelText>;
+  return <PixelText size={2} color="var(--ink-dim)">{T.payout3d.autoEffect(left)}</PixelText>;
 }
 
 // ---------------------------------------------------------------------------
@@ -859,16 +860,16 @@ export default function PayoutLayer({ players, seats, spots, playerId, rot }) {
         return (
           <Html key={`nc-${pid}`} position={[s.x, stackTopY(n) + 0.5, s.z]} center distanceFactor={6.5} zIndexRange={[26, 0]}>
             <div className="felt-float">
-              <div className="pushable" onPointerDown={pushFloat}><PixelText size={2} color="var(--ok)">已确认</PixelText></div>
+              <div className="pushable" onPointerDown={pushFloat}><PixelText size={2} color="var(--ok)">{T.payout3d.confirmed}</PixelText></div>
             </div>
           </Html>
         );
       })}
       {negoIdle && mySpot && (
         <PromptFloat spot={mySpot} nw>
-          <PixelText size={2} color="#fff">{iConfirmed ? '已确认 · 等待其他农民' : '拖钱牌/债务牌/对质票到队友圈'}</PixelText>
+          <PixelText size={2} color="#fff">{iConfirmed ? T.payout3d.confirmedWaiting : T.payout3d.dragHint}</PixelText>
           <div className={`clickable prompt-line ${spaceHeld ? 'pressed' : ''}`} onClick={() => send({ type: 'negotiate_confirm', confirmed: !iConfirmed })}>
-            <PixelText size={2} color="var(--px-gold)">{iConfirmed ? '撤销确认' : '确认分配'}</PixelText>
+            <PixelText size={2} color="var(--px-gold)">{iConfirmed ? T.payout3d.undoConfirm : T.payout3d.confirmAlloc}</PixelText>
             <KeyCap color="var(--px-gold)" />
           </div>
           {alloc.deadline && <CountdownText deadline={alloc.deadline} />}
@@ -880,7 +881,7 @@ export default function PayoutLayer({ players, seats, spots, playerId, rot }) {
       {canTake && mySpot && (
         <Html position={promptAnchor(mySpot.x, mySpot.z)} center distanceFactor={5} zIndexRange={[30, 0]}>
           <div className="money-3d-amount take-float prompt-line" onClick={() => useGameStore.getState().takePayout()}>
-            <PixelText size={2} color={P.gold}>拿取</PixelText>
+            <PixelText size={2} color={P.gold}>{T.payout3d.take}</PixelText>
             <KeyCap k="F" color={P.gold} />
           </div>
         </Html>

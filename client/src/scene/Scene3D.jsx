@@ -26,6 +26,7 @@ import { setProjector } from './projection';
 import { expressionFor } from './expression';
 import { P } from '../assets/palette';
 import { tex } from '../assets/texlib';
+import { T } from '../text';
 
 const PAYOUT_PHASES = ['SETTLE', 'NEGOTIATE', 'FINALIZE'];
 
@@ -1084,7 +1085,7 @@ export default function Scene3D() {
         <SceneContents look={look} freeCam={freeCam} />
       </Canvas>
       {DEV && (
-        <div className="dev-hud">测试模式 · B 补满玩家 · V 切换操控角色 · K 自由相机({freeCam ? '开' : '关'})</div>
+        <div className="dev-hud">{T.dev.hud(freeCam)}</div>
       )}
     </div>
   );

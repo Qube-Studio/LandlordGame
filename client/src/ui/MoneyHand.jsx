@@ -9,6 +9,7 @@ import { useGameStore } from '../store/gameStore';
 import { getArt } from '../assets/registry';
 import CandleMark from '../assets/pixelfont/CandleMark';
 import { decompose, splitNote, sumNotes, SPLITS, insStackStyle } from '../game/notes';
+import { T } from '../text';
 
 const MoneyNote = getArt('moneyNote');
 const Icon = getArt('icon');
@@ -158,7 +159,7 @@ export default function MoneyHand() {
           <span>已选 <b className="gold">{total}</b>（可下注 {bounds.min} ~ {effMax}{premium > 0 ? `，已投保 ${premium}` : ''}）</span>
         )}
         <button className="btn primary" disabled={!canConfirm} onClick={confirm}>
-          {bounds.forceAllIn ? `全押 ${me.balance}` : '确认下注'} <span className="keycap">空格</span>
+          {bounds.forceAllIn ? T.hand2d.allInBtn(me.balance) : T.hand2d.confirmBet} <span className="keycap">{T.common.keySpace}</span>
         </button>
       </div>
       <div className="hand-row" data-hand-anchor>
@@ -173,17 +174,17 @@ export default function MoneyHand() {
               onDragOver={(e) => { e.preventDefault(); if (!slotHover) setSlotHover(true); }}
               onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setSlotHover(false); }}
               onDrop={(e) => { e.preventDefault(); moveToSlot(e.dataTransfer.getData('text/plain')); setSlotHover(false); setDragNote(null); }}
-              title={`把手牌拖进来投保（保费先扣，输则免阵营 2× 债务；上限 ${maxPledge}）`}
+              title={T.hand2d.pledgeTitle(maxPledge)}
             >
               <div className="ins-slot-notes">
                 {slot.map((n, i) => (
                   <button key={n.id} className="ins-slot-note" data-slot-note="1" data-value={n.value}
                     style={insStackStyle(i, slot.length)}
-                    onClick={() => moveFromSlot(n.id)} title="点击取回">
+                    onClick={() => moveFromSlot(n.id)} title={T.hand2d.takeBack}>
                     <MoneyNote value={n.value} width={62} />
                   </button>
                 ))}
-                {slot.length === 0 && <span className="ins-slot-hint">拖牌入槽</span>}
+                {slot.length === 0 && <span className="ins-slot-hint">{T.hand2d.dropHint}</span>}
               </div>
             </div>
           </div>
@@ -206,17 +207,17 @@ export default function MoneyHand() {
                 onPointerUp={cancelPress}
                 onPointerLeave={cancelPress}
                 onClick={() => toggleSelect(n)}
-                title={SPLITS[n.value] ? '点击选择，长按拆分' : '点击选择'}
+                title={SPLITS[n.value] ? T.hand2d.noteTitleSplit : T.hand2d.noteTitle}
               >
                 <MoneyNote value={n.value} width={62} />
               </button>
             );
           })}
-          {notes.length === 0 && <span className="dim">没有可支配的钱</span>}
+          {notes.length === 0 && <span className="dim">{T.hand2d.empty}</span>}
         </div>
         {reservedNotes.length > 0 && (
-          <div className="reserved-zone" title={`必须留下的最小出资额 ${bounds.minStake}，不可下注`}>
-            <span className="reserved-label"><Icon name="lock" size={13} /> 保留金</span>
+          <div className="reserved-zone" title={T.hand2d.reservedTitle(bounds.minStake)}>
+            <span className="reserved-label"><Icon name="lock" size={13} /> {T.hand2d.reserve}</span>
             <div className="reserved-notes">
               {reservedNotes.map(n => (
                 <span key={n.id} className="hand-note locked">

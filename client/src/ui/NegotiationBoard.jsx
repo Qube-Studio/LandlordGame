@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useGameStore } from '../store/gameStore';
 import { getArt } from '../assets/registry';
 import { decompose, splitNote, SPLITS } from '../game/notes';
+import { T } from '../text';
 
 const MoneyNote = getArt('moneyNote');
 
@@ -18,7 +19,7 @@ function Countdown({ deadline }) {
     const t = setInterval(() => setLeft(Math.max(0, Math.ceil((deadline - Date.now()) / 1000))), 1000);
     return () => clearInterval(t);
   }, [deadline]);
-  return <span className="dim">超时自动生效：{left}s</span>;
+  return <span className="dim">{T.nego2d.countdown(left)}</span>;
 }
 
 // 我自己那列的钱/债务牌：本地可长按拆分（纯表现），拖到队友列转移该面额。
@@ -45,7 +46,7 @@ function MyNotes({ amount, kind, canAct }) {
     }, LONG_PRESS_MS);
   };
 
-  if (amount === 0 && notes.length === 0) return <span className="dim">无</span>;
+  if (amount === 0 && notes.length === 0) return <span className="dim">{T.nego2d.empty}</span>;
 
   return notes.map(n => (
     <span
@@ -61,7 +62,7 @@ function MyNotes({ amount, kind, canAct }) {
         e.dataTransfer.setData('text/plain', JSON.stringify({ kind, value: n.value }));
       }}
       onDragEnd={clearTimers}
-      title={canAct ? (SPLITS[n.value] ? '拖到队友列转移；长按拆分成小面额' : '拖到队友列转移') : undefined}
+      title={canAct ? (SPLITS[n.value] ? T.nego2d.dragSplitTitle : T.nego2d.dragTitle) : undefined}
     >
       <MoneyNote value={n.value} debt={kind === 'debt'} width={42} />
     </span>
@@ -74,7 +75,7 @@ export default function NegotiationBoard() {
   const send = useGameStore(s => s.send);
 
   const alloc = state.allocation;
-  if (!alloc) return <p className="dim">农民正在协商分配…</p>;
+  if (!alloc) return <p className="dim">{T.nego2d.negotiating}</p>;
 
   const farmers = state.players.filter(p => state.roundFarmerIds.includes(p.id));
   const canAct = state.roundFarmerIds.includes(playerId) && !state.me?.spectator;
@@ -94,7 +95,7 @@ export default function NegotiationBoard() {
   return (
     <div className="negotiation-board">
       <div className="nego-head">
-        <span>把自己的钱或债务拖给队友（长按拆分成小面额），全部农民确认后生效</span>
+        <span>{T.nego2d.headHint}</span>
         {alloc.deadline && <Countdown deadline={alloc.deadline} />}
       </div>
       <div className="nego-columns">
@@ -111,25 +112,25 @@ export default function NegotiationBoard() {
               onDrop={onDropTo(f.id)}
             >
               <div className="nego-col-head">
-                <b>{f.name}{mine ? '（我）' : ''}</b>
-                <span className={confirmed ? 'ok' : 'dim'}>{confirmed ? '已确认' : '协商中'}</span>
+                <b>{f.name}{mine ? T.nego2d.meSuffix : ''}</b>
+                <span className={confirmed ? 'ok' : 'dim'}>{confirmed ? T.nego2d.confirmed : T.nego2d.pending}</span>
               </div>
               <div className="nego-amounts">
-                <span className="gold">得 {take}</span>
-                <span className={debt > 0 ? 'danger' : 'dim'}>债 {debt}</span>
+                <span className="gold">{T.nego2d.take(take)}</span>
+                <span className={debt > 0 ? 'danger' : 'dim'}>{T.nego2d.debt(debt)}</span>
               </div>
               <div className="nego-notes">
                 {mine ? (
                   <>
                     <MyNotes key={`take-${take}`} amount={take} kind="take" canAct={canAct} />
                     <MyNotes key={`debt-${debt}`} amount={debt} kind="debt" canAct={canAct} />
-                    {take === 0 && debt === 0 && <span className="dim">无</span>}
+                    {take === 0 && debt === 0 && <span className="dim">{T.nego2d.empty}</span>}
                   </>
                 ) : (
                   <>
                     {decompose(take).map(n => <span key={n.id} className="nego-note"><MoneyNote value={n.value} width={42} /></span>)}
                     {decompose(debt).map(n => <span key={n.id} className="nego-note"><MoneyNote value={n.value} debt width={42} /></span>)}
-                    {take === 0 && debt === 0 && <span className="dim">无</span>}
+                    {take === 0 && debt === 0 && <span className="dim">{T.nego2d.empty}</span>}
                   </>
                 )}
               </div>
@@ -142,7 +143,7 @@ export default function NegotiationBoard() {
           className={`btn wide ${iConfirmed ? 'ghost' : 'primary'}`}
           onClick={() => send({ type: 'negotiate_confirm', confirmed: !iConfirmed })}
         >
-          {iConfirmed ? '撤销确认' : '确认当前分配'}
+          {iConfirmed ? T.nego2d.undoConfirm : T.nego2d.confirm}
         </button>
       )}
     </div>

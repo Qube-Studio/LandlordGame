@@ -2,6 +2,7 @@
 
 import { create } from 'zustand';
 import { api } from '../api';
+import { T } from '../text';
 
 const TOKEN_KEY = 'llg_token';
 const NAME_KEY = 'llg_username';
@@ -40,7 +41,7 @@ export const useAuthStore = create((set) => ({
 
   // 本地测试：游客一键进入（随机账号自动注册并登录）。仅在 DEV 构建里暴露入口。
   async guestLogin() {
-    const name = '游客' + Math.random().toString(36).slice(2, 6);
+    const name = T.net.guestName + Math.random().toString(36).slice(2, 6);
     const pw = 'guestpass';
     const ok = await useAuthStore.getState().register(name, pw);
     if (!ok) await useAuthStore.getState().login(name, pw);

@@ -4,10 +4,11 @@ import { useAuthStore } from '../store/authStore';
 import { useGameStore } from '../store/gameStore';
 import { getArt } from '../assets/registry';
 import PixelText from '../assets/pixelfont/PixelText';
+import { T } from '../text';
 
 const Icon = getArt('icon');
 
-const MODE_LABEL = { quick: '快速', classic: '经典', competitive: '竞技' };
+const MODE_LABEL = T.lobby.modeLabels;
 
 export default function LobbyScreen() {
   const username = useAuthStore(s => s.username);
@@ -38,7 +39,7 @@ export default function LobbyScreen() {
 
   const createRoom = async (mode) => {
     try {
-      const { roomId } = await api.createRoom(roomName.trim() || `${username}的房间`, mode);
+      const { roomId } = await api.createRoom(roomName.trim() || T.lobby.defaultRoomName(username), mode);
       joinRoom(roomId);
     } catch (err) {
       showToast(err.message);
@@ -50,13 +51,13 @@ export default function LobbyScreen() {
       <header className="lobby-header">
         <h1><PixelText size={4} color="var(--px-gold)">F.A.T.E.</PixelText></h1>
         <div className="lobby-header-right">
-          <span className="online-chip"><Icon name="users" size={15} /> 在线 {online.count}</span>
+          <span className="online-chip"><Icon name="users" size={15} /> {T.lobby.online(online.count)}</span>
           <span className="dim">{username}</span>
-          <button className="btn ghost small" onClick={logout}><Icon name="exit" size={15} /> 退出登录</button>
+          <button className="btn ghost small" onClick={logout}><Icon name="exit" size={15} /> {T.lobby.logout}</button>
         </div>
       </header>
 
-      {!connected && <div className="conn-banner">正在连接服务器…</div>}
+      {!connected && <div className="conn-banner">{T.common.connecting}</div>}
 
       <section className="mode-row">
         {modes.map(m => (
@@ -64,9 +65,9 @@ export default function LobbyScreen() {
             <h3>{m.label}</h3>
             <p className="dim">{m.description}</p>
             {m.available ? (
-              <button className="btn primary" disabled={!connected} onClick={() => createRoom(m.id)}>创建房间</button>
+              <button className="btn primary" disabled={!connected} onClick={() => createRoom(m.id)}>{T.lobby.createRoom}</button>
             ) : (
-              <button className="btn ghost" disabled>开发中</button>
+              <button className="btn ghost" disabled>{T.lobby.wip}</button>
             )}
           </div>
         ))}
@@ -74,26 +75,26 @@ export default function LobbyScreen() {
 
       <section className="lobby-actions">
         <label className="field inline">
-          <span>房间名</span>
-          <input value={roomName} onChange={e => setRoomName(e.target.value)} placeholder={`${username}的房间`} maxLength={20} />
+          <span>{T.lobby.roomName}</span>
+          <input value={roomName} onChange={e => setRoomName(e.target.value)} placeholder={T.lobby.defaultRoomName(username)} maxLength={20} />
         </label>
         <div className="join-by-id">
-          <input value={joinId} onChange={e => setJoinId(e.target.value.toUpperCase())} placeholder="输入房间号加入" maxLength={6} />
-          <button className="btn" disabled={!connected || !joinId.trim()} onClick={() => joinRoom(joinId)}>加入</button>
+          <input value={joinId} onChange={e => setJoinId(e.target.value.toUpperCase())} placeholder={T.lobby.joinPh} maxLength={6} />
+          <button className="btn" disabled={!connected || !joinId.trim()} onClick={() => joinRoom(joinId)}>{T.lobby.join}</button>
         </div>
       </section>
 
       <section className="room-list panel">
-        <h3>房间列表</h3>
-        {rooms.length === 0 && <p className="dim">暂时没有房间，创建一个吧。</p>}
+        <h3>{T.lobby.roomList}</h3>
+        {rooms.length === 0 && <p className="dim">{T.lobby.empty}</p>}
         {rooms.map(r => (
           <div key={r.roomId} className="room-row">
             <span className="room-id">{r.roomId}</span>
             <span className="room-name">{r.name}</span>
             <span className="dim">{MODE_LABEL[r.mode] ?? r.mode}</span>
-            <span className="dim">{r.phase === 'LOBBY' ? '等待中' : '游戏中'}</span>
+            <span className="dim">{r.phase === 'LOBBY' ? T.lobby.waiting : T.lobby.playing}</span>
             <span className="dim">{r.playerCount}/{r.maxPlayers}</span>
-            <button className="btn small" disabled={!connected} onClick={() => joinRoom(r.roomId)}>进入</button>
+            <button className="btn small" disabled={!connected} onClick={() => joinRoom(r.roomId)}>{T.lobby.enter}</button>
           </div>
         ))}
       </section>

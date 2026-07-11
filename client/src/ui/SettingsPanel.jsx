@@ -8,6 +8,7 @@ import { useEffect } from 'react';
 import { useSettingsStore } from '../store/settingsStore';
 import { useGameStore } from '../store/gameStore';
 import PixelText from '../assets/pixelfont/PixelText';
+import { T } from '../text';
 import './settings.css';
 
 // 像素齿轮（内联小 SVG，fill 走 currentColor，不动 assets/svg）
@@ -28,16 +29,16 @@ function GearIcon({ size = 15 }) {
 }
 
 const SCALE_OPTIONS = [
-  { value: 'auto', label: '自动' },
-  { value: 'low', label: '低' },
-  { value: 'medium', label: '中' },
-  { value: 'high', label: '高' },
+  { value: 'auto', label: T.settings.scaleAuto },
+  { value: 'low', label: T.settings.scaleLow },
+  { value: 'medium', label: T.settings.scaleMid },
+  { value: 'high', label: T.settings.scaleHigh },
 ];
 
 const TOGGLES = [
-  { key: 'shadows', label: '阴影' },
-  { key: 'postfx', label: '光影特效', note: '泛光/暗角' },
-  { key: 'lightAnim', label: '动态光效', note: '炉火/吊灯' },
+  { key: 'shadows', label: T.settings.shadows },
+  { key: 'postfx', label: T.settings.postfx, note: T.settings.postfxNote },
+  { key: 'lightAnim', label: T.settings.lightAnim, note: T.settings.lightAnimNote },
 ];
 
 // bare = 无底化按钮（3D 输入模式/PC）：半透明纯符号；面板本体不变。
@@ -63,16 +64,16 @@ export default function SettingsPanel({ bare = false }) {
   }, [open, setPanel]);
 
   const copyId = async () => {
-    try { await navigator.clipboard.writeText(state.roomId); showToast('房间号已复制', 'ok'); }
-    catch { showToast(`房间号：${state.roomId}`, 'ok'); }
+    try { await navigator.clipboard.writeText(state.roomId); showToast(T.settings.copied, 'ok'); }
+    catch { showToast(T.settings.copyFallback(state.roomId), 'ok'); }
   };
 
   return (
     <div className="settings-root">
       <button
         className={bare ? 'hud-icon-btn' : 'btn small settings-gear'}
-        title="设置"
-        aria-label="设置"
+        title={T.settings.title}
+        aria-label={T.settings.title}
         aria-expanded={open}
         onClick={() => togglePanel('settings')}
       ><GearIcon /></button>
@@ -80,23 +81,23 @@ export default function SettingsPanel({ bare = false }) {
       {open && (
         <div className="goal-hud hud-card settings-panel">
           <div className="goal-line hud-card-title">
-            <PixelText size={2} color="var(--px-gold)">设置</PixelText>
+            <PixelText size={2} color="var(--px-gold)">{T.settings.title}</PixelText>
           </div>
 
           {state?.roomId && (
             <div className="settings-row">
               <span className="settings-label">
                 <PixelText size={2}>{state.roomName}</PixelText>
-                <PixelText size={2} color="var(--ink-dim)">{`房间号 ${state.roomId}`}</PixelText>
+                <PixelText size={2} color="var(--ink-dim)">{T.settings.roomId(state.roomId)}</PixelText>
               </span>
-              <button className="btn small" onClick={copyId}>复制</button>
+              <button className="btn small" onClick={copyId}>{T.settings.copy}</button>
             </div>
           )}
 
           <div className="settings-row">
             <span className="settings-label">
-              <PixelText size={2}>渲染分辨率</PixelText>
-              <PixelText size={2} color="var(--ink-dim)">卡顿请调低</PixelText>
+              <PixelText size={2}>{T.settings.renderScale}</PixelText>
+              <PixelText size={2} color="var(--ink-dim)">{T.settings.renderScaleNote}</PixelText>
             </span>
             <span className="settings-seg">
               {SCALE_OPTIONS.map(o => (
@@ -118,7 +119,7 @@ export default function SettingsPanel({ bare = false }) {
               <button
                 className={`btn small settings-toggle ${settings[t.key] ? 'primary' : ''}`}
                 onClick={() => setSetting(t.key, !settings[t.key])}
-              >{settings[t.key] ? '开' : '关'}</button>
+              >{settings[t.key] ? T.common.on : T.common.off}</button>
             </div>
           ))}
         </div>

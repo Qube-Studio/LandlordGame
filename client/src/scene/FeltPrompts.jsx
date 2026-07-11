@@ -10,6 +10,7 @@ import PromptFloat from './PromptFloat';
 import { factionOf, ROLE_LABEL } from '../game/roles';
 import PixelText from '../assets/pixelfont/PixelText';
 import KeyCap from '../assets/pixelfont/KeyCap';
+import { T } from '../text';
 
 // 浮字倒计时（读服务端 deadline 绝对毫秒，每 0.5s 刷新）：对质决定窗/交流窗复用。
 function FloatCountdown({ deadline }) {
@@ -18,7 +19,7 @@ function FloatCountdown({ deadline }) {
     const t = setInterval(() => setLeft(Math.max(0, Math.ceil((deadline - Date.now()) / 1000))), 500);
     return () => clearInterval(t);
   }, [deadline]);
-  return <div className="prompt-line"><PixelText size={2} color="var(--ink-dim)">{`还剩 ${left}s`}</PixelText></div>;
+  return <div className="prompt-line"><PixelText size={2} color="var(--ink-dim)">{T.felt.countdown(left)}</PixelText></div>;
 }
 
 // 对质选择器（§8.8）：「敌注 [> / <] 己方总注」——上下叠一个大于/小于，点选敌注比己方阵营总注多(>)/少(<)。
@@ -41,18 +42,18 @@ function ChallengePick({ total, deadline, pendingDir = null, interactive = false
   return (
     <div className="challenge-pick">
       <div className="cp-ineq">
-        <PixelText size={2} color="var(--danger)">敌注</PixelText>
+        <PixelText size={2} color="var(--danger)">{T.felt.enemyBet}</PixelText>
         <div className="cp-ops">
           {op('more', '>')}
           {op('less', '<')}
         </div>
-        <PixelText size={2} color="var(--ink-dim)">己方总注</PixelText>
-        <PixelText size={2} color="var(--px-gold)">{`¥${total ?? '?'}`}</PixelText>
+        <PixelText size={2} color="var(--ink-dim)">{T.felt.factionTotal}</PixelText>
+        <PixelText size={2} color="var(--px-gold)">{T.felt.totalMoney(total)}</PixelText>
       </div>
-      {interactive && pendingDir && <div className="prompt-line"><PixelText size={2} color="var(--ink-dim)">再点一次确认</PixelText></div>}
+      {interactive && pendingDir && <div className="prompt-line"><PixelText size={2} color="var(--ink-dim)">{T.felt.confirmAgain}</PixelText></div>}
       {deadline && <FloatCountdown deadline={deadline} />}
-      {waitFor && <div className="prompt-line"><PixelText size={2} color="var(--ink-dim)">{`等待 ${waitFor.name}（${ROLE_LABEL[waitFor.role] ?? '?'}）操作`}</PixelText></div>}
-      {interactive && onCancel && <div className="prompt-line clickable" onClick={onCancel}><PixelText size={2} color="var(--ink-dim)">取消（票不退）</PixelText></div>}
+      {waitFor && <div className="prompt-line"><PixelText size={2} color="var(--ink-dim)">{T.felt.waitFor(waitFor.name, ROLE_LABEL[waitFor.role])}</PixelText></div>}
+      {interactive && onCancel && <div className="prompt-line clickable" onClick={onCancel}><PixelText size={2} color="var(--ink-dim)">{T.felt.cancelNoRefund}</PixelText></div>}
     </div>
   );
 }
@@ -75,33 +76,33 @@ export default function FeltPrompts({ mySpot, players, spots, playerId }) {
     const hasRole = !!me.role;
     // 空格/点击「准备」：未选角不发 lobby_ready，改发去重系统提示（refresh 每次重置显示计时，无金框——反馈⑦）
     const onReady = () => {
-      if (!hasRole) { localSys('未选择角色', { key: 'norole', refresh: true }); return; }
+      if (!hasRole) { localSys(T.common.noRoleYet, { key: 'norole', refresh: true }); return; }
       send({ type: 'lobby_ready', ready: !ready });
     };
     lines = [
       // 已准备附身份（反馈④）、不再跟空格键帽（刚才「准备！」已提示过——反馈二轮②）；
       // 未选角把主行压暗且设 quiet（默认光标、无悬停/按下/受击态——反馈⑦）
-      { text: ready ? `已准备（${ROLE_LABEL[me.role]}）` : '准备！', k: ready ? undefined : 'space', color: ready ? 'var(--ok)' : hasRole ? 'var(--px-gold)' : 'var(--ink-dim)', onClick: onReady, quiet: !hasRole },
-      { text: hasRole ? '改选角色' : '选择角色', k: 'R', color: hasRole ? 'var(--ink-dim)' : 'var(--px-gold)', onClick: () => togglePanel('roles') },
+      { text: ready ? T.felt.readyWithRole(ROLE_LABEL[me.role]) : T.felt.ready, k: ready ? undefined : 'space', color: ready ? 'var(--ok)' : hasRole ? 'var(--px-gold)' : 'var(--ink-dim)', onClick: onReady, quiet: !hasRole },
+      { text: hasRole ? T.felt.changeRole : T.felt.chooseRole, k: 'R', color: hasRole ? 'var(--ink-dim)' : 'var(--px-gold)', onClick: () => togglePanel('roles') },
     ];
     // 房主已准备：主浮字滑西北让位，东北浮现「开始游戏 [S]」（仅房主已准备可开局，见 useGameKeys）
     if (me.isHost && ready) {
-      secondary = [{ text: '开始游戏', k: 'S', color: 'var(--px-gold)', onClick: () => send({ type: 'start_game' }) }];
+      secondary = [{ text: T.felt.startGame, k: 'S', color: 'var(--px-gold)', onClick: () => send({ type: 'start_game' }) }];
     }
   } else if (state.phase === 'DISCUSSION') {
     // 短喘息（反馈②）：纯过场，到点自动进下注，玩家无需任何操作（无跳过入口）。
-    lines = [{ text: '下一回合…', color: 'var(--ink-dim)' }];
+    lines = [{ text: T.felt.nextRound, color: 'var(--ink-dim)' }];
   } else if (state.phase === 'BETTING') {
     // 已下注等待他人：浮字保持显示金额（验收修订③；自己钱堆的 ¥ 标签此时让位，Scene3D 侧隐藏）。
     // 飞牌在途不抢戏，落定后浮现；下注操作中（bet==null）浮字由 HandLayer 负责。
     const flying = betFlight && betFlight.round === state.round;
-    if (me.bet != null && !flying) lines = [{ text: `已下注 ¥${me.bet}`, color: 'var(--px-gold)' }];
+    if (me.bet != null && !flying) lines = [{ text: T.felt.betPlaced(me.bet), color: 'var(--px-gold)' }];
     // 检察官·传唤（§8.9）：东北副浮字（主浮字区归 HandLayer）——下注前可传，费用随次数 150% 递增。
     if (me.role === 'prosecutor' && !me.spectator) {
       if (me.canSummon) {
-        secondary = [{ text: `传唤（¥${me.summonCost}）`, k: 'C', color: 'var(--px-gold)', onClick: () => send({ type: 'summon' }) }];
+        secondary = [{ text: T.felt.summonBtn(me.summonCost), k: 'C', color: 'var(--px-gold)', onClick: () => send({ type: 'summon' }) }];
       } else if (me.usedSummonThisRound) {
-        secondary = [{ text: '已传唤 · 强制双倍结算', color: 'var(--ok)' }];
+        secondary = [{ text: T.felt.summoned, color: 'var(--ok)' }];
       }
     }
   } else if (state.phase === 'CHALLENGE') {
@@ -119,39 +120,39 @@ export default function FeltPrompts({ mySpot, players, spots, playerId }) {
     } else if (acc) {
       const iAmTarget = acc.targetId === me.id;
       if (iAmTarget) {
-        lines = [{ text: '你正被指控！', color: 'var(--danger)' }, { deadline: dl }];
+        lines = [{ text: T.felt.beingAccused, color: 'var(--danger)' }, { deadline: dl }];
       } else if (factionOf(me.role) === 'farmer') {
         // 队友：同步观看发起者的选择器（只读，含预选态）+「等待 名（身份）操作」+ 倒计时。
         const accuser = state.players.find(p => p.id === acc.accuserId);
         custom = <ChallengePick total={total} deadline={dl} pendingDir={acc.pendingDir ?? null} waitFor={accuser} />;
       } else {
-        lines = [{ text: '农民正在指控你…', color: 'var(--ink-dim)' }, { deadline: dl }];
+        lines = [{ text: T.felt.accusingYou, color: 'var(--ink-dim)' }, { deadline: dl }];
       }
     } else if (factionOf(me.role) === 'farmer') {
       // 决定窗：指控敌方 [Z] / 跳过（跳过后显示已跳 N/M）+ 阵营总注 + 倒计时。
       const farmers = state.players.filter(p => state.roundFarmerIds?.includes(p.id) && factionOf(p.role) === 'farmer');
       const skipped = farmers.filter(p => p.challengeSkip).length;
       lines = [
-        { text: `阵营总注 ¥${total ?? '?'}`, color: 'var(--ink-dim)' },
+        { text: T.felt.factionTotalLine(total), color: 'var(--ink-dim)' },
         me.canAccuse
-          ? { text: '指控敌方', k: 'Z', color: 'var(--px-gold)', onClick: () => send({ type: 'accuse', targetId: ch?.targetId }) }
-          : { text: me.usedSummonThisRound ? '已传唤 · 不可对质' : '对质票不足', color: 'var(--ink-dim)' }, // 无 quiet：纯信息行要能戳着玩（受击推板）
+          ? { text: T.felt.accuseEnemy, k: 'Z', color: 'var(--px-gold)', onClick: () => send({ type: 'accuse', targetId: ch?.targetId }) }
+          : { text: me.usedSummonThisRound ? T.felt.summonedNoAccuse : T.felt.notEnoughTickets, color: 'var(--ink-dim)' }, // 无 quiet：纯信息行要能戳着玩（受击推板）
         me.challengeSkip
-          ? { text: `已跳过 ${skipped}/${farmers.length}`, color: 'var(--ok)' }
-          : { text: '跳过', color: 'var(--ink-dim)', onClick: () => send({ type: 'challenge_skip' }) },
+          ? { text: T.felt.skippedCount(skipped, farmers.length), color: 'var(--ok)' }
+          : { text: T.common.skip, color: 'var(--ink-dim)', onClick: () => send({ type: 'challenge_skip' }) },
         { deadline: dl },
       ];
     } else {
-      lines = [{ text: '农民正在决定是否对质你…', color: 'var(--ink-dim)' }, { deadline: dl }];
+      lines = [{ text: T.felt.decidingAccuse, color: 'var(--ink-dim)' }, { deadline: dl }];
     }
   } else if (state.phase === 'REVEAL') {
     const confirmed = state.players.filter(p => p.confirmed).length;
     const active = state.players.filter(p => factionOf(p.role) && !p.bankrupt).length;
     lines = me.confirmed
-      ? [{ text: `已确认 ${confirmed}/${active}`, color: 'var(--ok)' }] // 验收修订④：确认后只留计数
+      ? [{ text: T.felt.confirmedCount(confirmed, active), color: 'var(--ok)' }] // 验收修订④：确认后只留计数
       : [
-        { text: '看清了，掷硬币！', k: 'space', color: 'var(--px-gold)', onClick: () => send({ type: 'confirm_reveal' }) },
-        { text: `已确认 ${confirmed}/${active}`, color: 'var(--ink-dim)' },
+        { text: T.felt.revealGo, k: 'space', color: 'var(--px-gold)', onClick: () => send({ type: 'confirm_reveal' }) },
+        { text: T.felt.confirmedCount(confirmed, active), color: 'var(--ink-dim)' },
       ];
   }
   // 大厅里别的已准备玩家：在他们各自圈上显示绿字「已准备（身份）」（反馈②④）。用 local 姿态各自独立。
@@ -189,7 +190,7 @@ export default function FeltPrompts({ mySpot, players, spots, playerId }) {
       )}
       {others.map(({ p, spot }) => (
         <PromptFloat key={p.id} spot={spot} local>
-          <div className="prompt-line"><PixelText size={2} color="var(--ok)">{`已准备（${ROLE_LABEL[p.role]}）`}</PixelText></div>
+          <div className="prompt-line"><PixelText size={2} color="var(--ok)">{T.felt.readyWithRole(ROLE_LABEL[p.role])}</PixelText></div>
         </PromptFloat>
       ))}
     </>

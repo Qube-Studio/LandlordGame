@@ -9,6 +9,7 @@ import CandleMark from '../assets/pixelfont/CandleMark';
 import { coinFaceTexture } from '../scene/textures';
 import { EVENT_TEXT } from '../game/settleText';
 import { P, shade } from '../assets/palette';
+import { T } from '../text';
 
 // 硬币面小图标：直接取 3D 硬币的同一张画布（单一真源），只算一次。
 let COIN_URLS = null;
@@ -43,14 +44,14 @@ function Row({ h, players, myId, myRole, open, onToggle, showBalances }) {
       <button className="ledger-row" onClick={onToggle}>
         <span className="ledger-round"><PixelText size={2} color="var(--c-wood-900)">{`R${h.round}`}</PixelText></span>
         <img className="ledger-coin" src={coinUrls()[heads ? 'heads' : 'tails']} alt="" draggable={false} />
-        <span className="ledger-side"><PixelText size={2} color={heads ? 'var(--c-wood-900)' : OK_INK}>{heads ? '地主胜' : '农民胜'}</PixelText></span>
-        <span className="ledger-pot"><PixelText size={2} color="var(--c-parch-ink)">{`彩池 ¥${h.pot ?? 0}`}</PixelText></span>
+        <span className="ledger-side"><PixelText size={2} color={heads ? 'var(--c-wood-900)' : OK_INK}>{heads ? T.ledger.landlordWin : T.ledger.farmersWin}</PixelText></span>
+        <span className="ledger-pot"><PixelText size={2} color="var(--c-parch-ink)">{T.ledger.pot(h.pot ?? 0)}</PixelText></span>
         <span className="ledger-my">
-          {my != null && <PixelText size={2} color={my >= 0 ? OK_INK : 'var(--c-wax)'}>{`我 ${my >= 0 ? `+${my}` : my}`}</PixelText>}
+          {my != null && <PixelText size={2} color={my >= 0 ? OK_INK : 'var(--c-wax)'}>{T.ledger.my(my)}</PixelText>}
         </span>
         <span className="ledger-tags">
-          {h.landlordPenalty > 0 && <span className="ledger-tag danger">罚</span>}
-          {h.newlyBankrupt?.length > 0 && <span className="ledger-tag danger">破产</span>}
+          {h.landlordPenalty > 0 && <span className="ledger-tag danger">{T.ledger.tagPenalty}</span>}
+          {h.newlyBankrupt?.length > 0 && <span className="ledger-tag danger">{T.ledger.tagBankrupt}</span>}
         </span>
       </button>
       {open && (
@@ -74,13 +75,13 @@ function Row({ h, players, myId, myRole, open, onToggle, showBalances }) {
             : <p className="ledger-line ok">地主达成目标 <CandleMark />{h.landlordGoalValue}</p>)}
           {h.debtWaiver > 0 && <p className="ledger-line ok">投资人担保免除了 <CandleMark />{h.debtWaiver} 债务</p>}
           {h.wagePaid && Object.keys(h.wagePaid).length > 0 && (
-            <p className="ledger-line ok">发工资：{Object.entries(h.wagePaid).map(([id, v]) => `${nameOf(id)} +${v}`).join('、')}</p>
+            <p className="ledger-line ok">{T.ledger.wagePrefix + Object.entries(h.wagePaid).map(([id, v]) => T.ledger.wageItem(nameOf(id), v)).join('、')}</p>
           )}
           {h.allowanceCharged && Object.keys(h.allowanceCharged).length > 0 && (
-            <p className="ledger-line danger">扣饭账：{Object.entries(h.allowanceCharged).map(([id, v]) => `${nameOf(id)} −${v}`).join('、')}</p>
+            <p className="ledger-line danger">{T.ledger.allowancePrefix + Object.entries(h.allowanceCharged).map(([id, v]) => T.ledger.allowanceItem(nameOf(id), v)).join('、')}</p>
           )}
           {h.uncovered > 0 && <p className="ledger-line dim">仍有 <CandleMark />{h.uncovered} 缺口无人能补</p>}
-          {h.newlyBankrupt?.length > 0 && <p className="ledger-line danger">{h.newlyBankrupt.map(nameOf).join('、')} 破产了</p>}
+          {h.newlyBankrupt?.length > 0 && <p className="ledger-line danger">{T.ledger.bankrupt(h.newlyBankrupt.map(nameOf).join('、'))}</p>}
           {showBalances && h.balancesAfter && (
             <div className="settle-detail">
               {Object.entries(h.balancesAfter).map(([id, b]) => <span key={id}>{nameOf(id)}：<CandleMark />{b}</span>)}
@@ -114,16 +115,16 @@ export default function LedgerBook() {
   return (
     <div className="drawer ledger">
       <div className="drawer-title">
-        <PixelText size={2} color="var(--c-wood-900)">{`酒馆账本 · 已记 ${history.length} 轮`}</PixelText>
+        <PixelText size={2} color="var(--c-wood-900)">{T.ledger.title(history.length)}</PixelText>
         <div className="drawer-title-right">
           {!showBalances && history.length > 0 && (
-            <span className="drawer-hint"><PixelText size={2} color="var(--c-wood-900)">他人余额保密</PixelText></span>
+            <span className="drawer-hint"><PixelText size={2} color="var(--c-wood-900)">{T.ledger.privacy}</PixelText></span>
           )}
         </div>
       </div>
       <div className="drawer-body ledger-body">
         {rows.length === 0
-          ? <div className="ledger-empty"><PixelText size={2} color="var(--c-parch-ink)">还没有账——第一轮结算后,这里会记下每一笔。</PixelText></div>
+          ? <div className="ledger-empty"><PixelText size={2} color="var(--c-parch-ink)">{T.ledger.empty}</PixelText></div>
           : rows.map(h => (
             <Row
               key={h.round} h={h} players={state.players} myId={playerId} myRole={myRole}

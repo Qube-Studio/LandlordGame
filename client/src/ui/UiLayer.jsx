@@ -21,63 +21,58 @@ import { EVENT_TEXT } from '../game/settleText';
 import { ROLE_LABEL, ROLE_GLYPH, factionOf, isFarmerSide, isLandlordSide } from '../game/roles';
 import { IS_3D_INPUT, IS_TOUCH } from '../game/inputMode';
 import { TICKET_GRID, TICKET_COLS, TICKET_ROWS, TICKET_INK, ticketCellColor } from '../assets/ticketArt';
+import { T } from '../text';
 
 const Icon = getArt('icon');
 
 const PHASE_META = {
-  LOBBY: { label: '准备大厅', hint: '在招募令墙上选择角色（R 呼出/收起），准备/开始按空格' },
-  DISCUSSION: { label: '战术讨论', hint: '农民可密谈；短暂喘息后自动进入下注' },
+  LOBBY: { label: T.phase.LOBBY.label, hint: T.phase.LOBBY.hint },
+  DISCUSSION: { label: T.phase.DISCUSSION.label, hint: T.phase.DISCUSSION.hint },
   BETTING: {
-    label: '下注中',
-    hint: IS_3D_INPUT
-      ? '点/拖/横扫捋牌下注，捋起的叠拖回怀里可散回（手牌长按拆分，圈内钱堆长按整堆拿起），空格确认'
-      : '选钱牌组成下注额（长按拆分），空格确认',
+    label: T.phase.BETTING.label,
+    hint: IS_3D_INPUT ? T.phase.BETTING.hint3d : T.phase.BETTING.hint2d,
   },
   CHALLENGE: {
-    label: '对质窗',
-    hint: IS_3D_INPUT
-      ? '农民可花 2 票指控敌方暗注「比阵营总注多/少」：悬停敌人按 Z 或用下方面板，猜对逼其多结算一次制约'
-      : '农民可花 2 票指控敌方暗注「比阵营总注多/少」，猜对逼其多结算一次制约',
+    label: T.phase.CHALLENGE.label,
+    hint: IS_3D_INPUT ? T.phase.CHALLENGE.hint3d : T.phase.CHALLENGE.hint2d,
   },
-  REVEAL: { label: '揭牌', hint: '各家下注已公开，空格确认后掷硬币' },
-  COIN_FLIP: { label: '掷硬币', hint: '正面地主阵营胜，反面农民阵营胜' },
-  REFLIP: { label: '重掷决策', hint: '农民输了！暴食者可请求重掷硬币（每局次数=农民人数，每回合限 1 次）' },
-  SETTLE: { label: '系统结算', hint: '桌上的钱聚拢成彩池，按规则分成几份送到各家圈里' },
+  REVEAL: { label: T.phase.REVEAL.label, hint: T.phase.REVEAL.hint },
+  COIN_FLIP: { label: T.phase.COIN_FLIP.label, hint: T.phase.COIN_FLIP.hint },
+  REFLIP: { label: T.phase.REFLIP.label, hint: T.phase.REFLIP.hint },
+  SETTLE: { label: T.phase.SETTLE.label, hint: T.phase.SETTLE.hint },
   NEGOTIATE: {
-    label: '农民协商',
-    hint: IS_3D_INPUT
-      ? '拖动圈里的钱牌/红色债务牌到队友圈重新分配（长按拆分），空格确认'
-      : '农民内部重新分配钱与债务（桌面实时跟着变），空格确认',
+    label: T.phase.NEGOTIATE.label,
+    hint: IS_3D_INPUT ? T.phase.NEGOTIATE.hint3d : T.phase.NEGOTIATE.hint2d,
   },
-  FINALIZE: { label: '正式结算', hint: '钱还在桌上——按 F 拿取自己那份才入账（按 L 翻账本）' },
-  ENDED: { label: '对局结束', hint: '' },
+  FINALIZE: { label: T.phase.FINALIZE.label, hint: T.phase.FINALIZE.hint },
+  ENDED: { label: T.phase.ENDED.label, hint: '' },
 };
 
 function statusOf(p, state) {
-  if (p.bankrupt) return { text: '破产', cls: 'danger' };
-  if (p.spectator) return { text: '观战', cls: 'dim' };
-  if (!p.online) return { text: '离线', cls: 'dim' };
+  if (p.bankrupt) return { text: T.status.bankrupt, cls: 'danger' };
+  if (p.spectator) return { text: T.status.spectator, cls: 'dim' };
+  if (!p.online) return { text: T.status.offline, cls: 'dim' };
   switch (state.phase) {
-    case 'LOBBY': return p.lobbyReady ? { text: '已准备', cls: 'ok' } : { text: '', cls: 'dim' };
-    case 'DISCUSSION': return p.ready ? { text: '已准备', cls: 'ok' } : { text: '讨论中', cls: 'dim' };
-    case 'BETTING': return p.hasBet ? { text: '已下注', cls: 'ok' } : { text: '思考中', cls: 'dim' };
+    case 'LOBBY': return p.lobbyReady ? { text: T.status.ready, cls: 'ok' } : { text: '', cls: 'dim' };
+    case 'DISCUSSION': return p.ready ? { text: T.status.ready, cls: 'ok' } : { text: T.status.discussing, cls: 'dim' };
+    case 'BETTING': return p.hasBet ? { text: T.status.betted, cls: 'ok' } : { text: T.status.thinking, cls: 'dim' };
     case 'CHALLENGE':
-      if (isLandlordSide(p.role)) return { text: '受审', cls: 'dim' };
-      if (p.tickets != null && p.tickets < 2) return { text: '票不足', cls: 'dim' };
-      return p.challengeSkip ? { text: '已跳过', cls: 'ok' } : { text: '对质中', cls: 'dim' };
-    case 'REVEAL': return p.confirmed ? { text: '已确认', cls: 'ok' } : { text: '查看中', cls: 'dim' };
+      if (isLandlordSide(p.role)) return { text: T.status.onTrial, cls: 'dim' };
+      if (p.tickets != null && p.tickets < 2) return { text: T.status.noTickets, cls: 'dim' };
+      return p.challengeSkip ? { text: T.status.skipped, cls: 'ok' } : { text: T.status.accusing, cls: 'dim' };
+    case 'REVEAL': return p.confirmed ? { text: T.status.confirmed, cls: 'ok' } : { text: T.status.viewing, cls: 'dim' };
     case 'NEGOTIATE':
-      if (!isFarmerSide(p.role)) return { text: '等待', cls: 'dim' };
-      return p.negotiateConfirmed ? { text: '已确认', cls: 'ok' } : { text: '协商中', cls: 'dim' };
+      if (!isFarmerSide(p.role)) return { text: T.status.waiting, cls: 'dim' };
+      return p.negotiateConfirmed ? { text: T.status.confirmed, cls: 'ok' } : { text: T.status.negotiating, cls: 'dim' };
     case 'REFLIP':
-      if (p.role === 'glutton') return p.reflipsLeft > 0 ? { text: '可重掷', cls: 'ok' } : { text: '无次数', cls: 'dim' };
-      return { text: '等待', cls: 'dim' };
+      if (p.role === 'glutton') return p.reflipsLeft > 0 ? { text: T.status.canReflip, cls: 'ok' } : { text: T.status.noReflip, cls: 'dim' };
+      return { text: T.status.waiting, cls: 'dim' };
     case 'FINALIZE': {
       const po = state.payout;
       if (!po) return { text: '', cls: 'dim' };
-      if (po.taken?.includes(p.id)) return { text: '已拿取', cls: 'ok' };
-      if (po.eligible?.includes(p.id)) return { text: '待拿取', cls: 'dim' };
-      return { text: '等待', cls: 'dim' };
+      if (po.taken?.includes(p.id)) return { text: T.status.taken, cls: 'ok' };
+      if (po.eligible?.includes(p.id)) return { text: T.status.pendingTake, cls: 'dim' };
+      return { text: T.status.waiting, cls: 'dim' };
     }
     default: return { text: '', cls: 'dim' };
   }
@@ -86,14 +81,14 @@ function statusOf(p, state) {
 // 竞技角色的紧凑技能标签（玩家列）：暴食者剩余重掷/饭账、投资人投保额+生效状态、资本家资金池。
 function skillTag(p, state) {
   if (p.role === 'glutton') {
-    const meal = p.mealAllowance != null ? ` 饭账¥${p.mealAllowance}` : '';
-    return `重${p.reflipsLeft ?? 0}${meal}`;
+    const meal = p.mealAllowance != null ? T.skill.gluttonMeal(p.mealAllowance) : '';
+    return T.skill.glutton(p.reflipsLeft ?? 0, meal);
   }
   if (p.role === 'investor' && p.pledge != null && p.pledge > 0) {
-    const eff = state.coinResult ? (state.coinResult === 'heads' ? ' 生效' : ' 未生效') : '';
-    return `保¥${p.pledge}${eff}`;
+    const eff = state.coinResult ? (state.coinResult === 'heads' ? T.skill.pledgeActive : T.skill.pledgeInactive) : '';
+    return T.skill.investor(p.pledge, eff);
   }
-  if (p.role === 'capitalist' && p.pool != null) return `池¥${p.pool}`;
+  if (p.role === 'capitalist' && p.pool != null) return T.skill.capitalist(p.pool);
   return null;
 }
 
@@ -128,7 +123,7 @@ function useGameKeys() {
         && po.eligible?.includes(playerId) && !po.taken?.includes(playerId);
       if (phase === 'LOBBY') {                   // 阶段六：全员（含房主）空格=切换准备；未选角只提示不发
         if (me?.spectator) return;
-        if (!me?.role) { localSys('未选择角色', { key: 'norole', refresh: true }); return; } // 反馈⑦：refresh 重置计时、无金框
+        if (!me?.role) { localSys(T.common.noRoleYet, { key: 'norole', refresh: true }); return; } // 反馈⑦：refresh 重置计时、无金框
         if (panel === 'roles') { setPanel(null); send({ type: 'lobby_ready', ready: true }); } // 反馈⑥：面板展开时空格=收起并自动准备
         else send({ type: 'lobby_ready', ready: !me?.lobbyReady });
       }
@@ -216,9 +211,9 @@ function useWaitHints() {
   useEffect(() => {
     if (!IS_3D_INPUT || spectator) return;
     if (phase === 'BETTING' && bet != null && !flying) {
-      localSys('已下注，等待其他玩家...', { key: 'wait' });   // 飞牌落定才提示（与圈上浮字同步）
+      localSys(T.hints.betWaiting, { key: 'wait' });   // 飞牌落定才提示（与圈上浮字同步）
     } else if (phase === 'NEGOTIATE' && isLandlordSide(role)) {
-      localSys('等待对方协商...', { key: 'wait' });
+      localSys(T.hints.negotiateWaiting, { key: 'wait' });
     }
   }, [phase, bet, role, spectator, flying, localSys]);
 }
@@ -249,7 +244,7 @@ function TopBar() {
 
   const inGame = !['LOBBY', 'ENDED'].includes(state.phase);
   const exit = () => {
-    if (inGame && !window.confirm('游戏进行中，退出将视为弃局。确定退出？')) return;
+    if (inGame && !window.confirm(T.topbar.exitConfirm)) return;
     leaveRoom();
   };
   return (
@@ -258,8 +253,8 @@ function TopBar() {
         {IS_3D_INPUT && <RulesPanel />}
         <SettingsPanel bare={IS_3D_INPUT} />
         {IS_3D_INPUT
-          ? <button className="hud-icon-btn danger" onClick={exit} title="退出" aria-label="退出"><PxExit size={16} /></button>
-          : <button className="btn small danger-btn" onClick={exit}><Icon name="exit" size={15} /> 退出</button>}
+          ? <button className="hud-icon-btn danger" onClick={exit} title={T.topbar.exit} aria-label={T.topbar.exit}><PxExit size={16} /></button>
+          : <button className="btn small danger-btn" onClick={exit}><Icon name="exit" size={15} /> {T.topbar.exit}</button>}
       </div>
     </div>
   );
@@ -282,7 +277,7 @@ function RoundBanner() {
   if (!show) return null;
   return (
     <div className="round-banner" key={show}>
-      <PixelText size={5} color="var(--px-gold)">{`第 ${show} 回合`}</PixelText>
+      <PixelText size={5} color="var(--px-gold)">{T.banner.round(show)}</PixelText>
     </div>
   );
 }
@@ -304,16 +299,16 @@ function PlayerRail() {
           <div key={p.id} className={`rail-row ${mine ? 'me' : ''} ${p.online ? '' : 'offline'} ${p.bankrupt ? 'gone' : ''}`}>
             <div className="rail-main">
               {/* 左：在线灯(绿=在线/灰=离线) 中：名字 右：单字身份章(加粗汉字,按阵营上色)。状态放展开详情。 */}
-              <span className={`rail-online ${p.online ? '' : 'off'}`} title={p.online ? '在线' : '离线'} />
+              <span className={`rail-online ${p.online ? '' : 'off'}`} title={p.online ? T.rail.online : T.rail.offline} />
               <span className="rail-name"><PixelText size={2}>{`${p.name}${p.isHost ? ' ♔' : ''}`}</PixelText></span>
               {p.role
                 ? <span className={`rail-role-glyph pixel-cjk ${factionOf(p.role) ?? 'none'}`} title={ROLE_LABEL[p.role]}>{ROLE_GLYPH[p.role] ?? '?'}</span>
-                : (lobby && <PixelText size={2} color="var(--ink-dim)">未选</PixelText>)}
+                : (lobby && <PixelText size={2} color="var(--ink-dim)">{T.rail.noRole}</PixelText>)}
             </div>
             <div className="rail-detail">
               <div className="rail-line2">
-                <PixelText size={2} color="var(--ink-dim)">{ROLE_LABEL[p.role] ?? '未选'}</PixelText>
-                <PixelText size={2} color="var(--px-gold)">{p.balance != null ? `¥${p.balance}` : '¥??'}</PixelText>
+                <PixelText size={2} color="var(--ink-dim)">{ROLE_LABEL[p.role] ?? T.rail.noRole}</PixelText>
+                <PixelText size={2} color="var(--px-gold)">{p.balance != null ? T.rail.balance(p.balance) : T.rail.balanceHidden}</PixelText>
               </div>
               {tag && <div className="rail-line2"><PixelText size={2} color="var(--ink-dim)">{tag}</PixelText></div>}
               {/* 阶段状态(思考中/讨论中/已下注…)——原在线行删掉,在线已由主行左侧的灯表示 */}
@@ -457,7 +452,7 @@ function BalanceHud() {
   return (
     <div className={`balance-hud ${low ? 'low' : ''}`}>
       <div className="bh-value" style={style}>
-        <PixelText size={8} color={candleColor}>¥</PixelText>
+        <PixelText size={8} color={candleColor}>{T.fmt.currency}</PixelText>
         <PixelText size={9} color={numColor}>{String(display)}</PixelText>
       </div>
     </div>
@@ -543,11 +538,11 @@ function GoalHud() {
   const la = state.lastAccusation;
   const summoned = state.lastSummon?.targetId === g.landlordId;
   const forced = !!(la?.correct && la.targetId === g.landlordId) || summoned;
-  const forcedTag = summoned ? ['被传唤：', '⚠强制双倍结算', 'var(--danger)'] : ['被对质：', '⚠强制结算', 'var(--danger)'];
+  const forcedTag = summoned ? [T.hud.goal.summonedTag, T.hud.goal.summonedWarn, 'var(--danger)'] : [T.hud.goal.accusedTag, T.hud.goal.accusedWarn, 'var(--danger)'];
   // 农民视角（服务端剥离了 goal 值）：不泄露目标额，只显示「X回合后结算」倒计时（§8.8）。
   // 进度条沿用原样式（外环 quest-ring + 进度不可知的暗斜纹 track）；卡片 goal-fixed 定宽=条长、被命中换行不拉长。
   if (g.goal == null) {
-    const pairs = [['地主目标：', due ? '本回合结算' : `${g.roundsLeft}回合后结算`, 'var(--px-gold)']];
+    const pairs = [[T.hud.goal.farmerLabel, due ? T.hud.goal.dueNow : T.hud.goal.dueIn(g.roundsLeft), 'var(--px-gold)']];
     if (forced) pairs.push(forcedTag);
     const glow = due ? 'due' : '';
     return (
@@ -569,9 +564,9 @@ function GoalHud() {
     : null;
   const glow = due ? `due ${cur == null ? '' : met ? 'met' : 'miss'}` : '';
   // 地主本人看「目标」，观战看「地主目标」
-  const label = state.me?.id === g.landlordId ? '目标：' : '地主目标：';
+  const label = state.me?.id === g.landlordId ? T.hud.goal.selfLabel : T.hud.goal.spectatorLabel;
   const pairs = [[label, cur != null ? `${cur}/${g.goal}` : String(g.goal), met ? 'var(--ok)' : 'var(--px-gold)']];
-  if (penalty != null) pairs.push(['罚款：', penalty, 'var(--danger)']);
+  if (penalty != null) pairs.push([T.hud.goal.penalty, penalty, 'var(--danger)']);
   if (forced) pairs.push(forcedTag);
   return (
     <div className={`goal-hud hud-card quest-card goal-fixed ${forced ? 'forced-hit' : ''}`}>
@@ -598,15 +593,15 @@ function CapitalistHud() {
   const pool = Math.max(0, c.pool);
   const tax = c.taxNext ?? 0;
   const rtn = Math.max(0, c.taxRoundsToNext ?? 0);        // 距下次征税回合数（0=本回合征）
-  const taxLabel = rtn <= 0 ? '本回合征税：' : `征税(${rtn}回合后)：`;
+  const taxLabel = rtn <= 0 ? T.hud.capitalist.taxNow : T.hud.capitalist.taxIn(rtn);
   // 左区分子固定用开局个人资金（下注中 balance 暂时下探，占比不该跟着抖）
   const personal = c.personalInitial ?? c.personal ?? 0;
   // 被对质命中（§8.8）/被传唤（§8.9）：制约卡告警，持续到 FINALIZE 强制扣税落地。
   const la = state.lastAccusation;
   const summoned = state.lastSummon?.targetId === c.id;
   const forced = !!(la?.correct && la.targetId === c.id) || summoned;
-  const pairs = [['担保资金：', pool], [taxLabel, tax, 'var(--danger)']];
-  if (forced) pairs.push(summoned ? ['被传唤：', '⚠强制双倍税', 'var(--danger)'] : ['被对质：', '⚠强制扣税', 'var(--danger)']);
+  const pairs = [[T.hud.capitalist.pool, pool], [taxLabel, tax, 'var(--danger)']];
+  if (forced) pairs.push(summoned ? [T.hud.capitalist.summonedTag, T.hud.capitalist.summonedWarn, 'var(--danger)'] : [T.hud.capitalist.accusedTag, T.hud.capitalist.accusedWarn, 'var(--danger)']);
   return (
     <div className={`goal-hud hud-card quest-card ${forced ? 'forced-hit' : ''}`}>
       <QuestLine bump={bump} pairs={pairs} />
@@ -628,7 +623,7 @@ function WageHud() {
   const due = w.roundsToNext <= 0;
   return (
     <div className="goal-hud hud-card quest-card">
-      <QuestLine bump={bump} pairs={[['工资：', `+${w.amount}`, 'var(--ok)']]} />
+      <QuestLine bump={bump} pairs={[[T.hud.wage.label, T.hud.wage.amount(w.amount), 'var(--ok)']]} />
       <div className={`quest-wrap noring ${due ? 'due met' : ''}`}>
         <QuestTrack ratio={w.interval > 0 ? 1 - w.roundsToNext / w.interval : 1} />
       </div>
@@ -649,8 +644,8 @@ function GluttonHud() {
   // 重掷条满格基准 = 本局重掷总数（=农民人数，服务端 reflipsMax 直发；老存档回落到当前剩余）。
   const total = Math.max(1, me.reflipsMax ?? me.reflipsLeft ?? 1);
   const left = Math.max(0, me.reflipsLeft ?? 0);
-  const pairs = [['伙食费：', meal, meal > 0 ? 'var(--danger)' : 'var(--px-gold)']];
-  pairs.push(left > 0 ? ['可重掷：', `${left}/${total}`] : ['不可重掷', '']);
+  const pairs = [[T.hud.glutton.meal, meal, meal > 0 ? 'var(--danger)' : 'var(--px-gold)']];
+  pairs.push(left > 0 ? [T.hud.glutton.reflips, T.hud.glutton.reflipCount(left, total)] : [T.hud.glutton.noReflip, '']);
   return (
     <div className="goal-hud hud-card quest-card">
       <QuestLine bump={bump} pairs={pairs} />
@@ -728,21 +723,21 @@ function LobbyPanel() {
   if (IS_3D_INPUT) return null;
   const ready = !!me?.lobbyReady;
   const onReady = () => {
-    if (!me?.role) { localSys('未选择角色', { key: 'norole', refresh: true }); return; }
+    if (!me?.role) { localSys(T.common.noRoleYet, { key: 'norole', refresh: true }); return; }
     send({ type: 'lobby_ready', ready: !ready });
   };
   return (
     <div className="phase-panel">
       <div className="role-pick">
         <button className="btn" onClick={() => togglePanel('roles')}>
-          {me?.role ? `我的角色：${ROLE_LABEL[me.role]}（改选 R）` : '选择角色 (R)'}
+          {me?.role ? T.lobbyPanel.myRole(ROLE_LABEL[me.role]) : T.lobbyPanel.chooseRole}
         </button>
       </div>
       {/* 阶段六：全员（含房主）先准备；房主已准备后才出现「开始游戏 S」 */}
       <button className={`btn wide ${ready ? '' : 'primary'}`} onClick={onReady}>
-        {ready ? '取消准备' : '准备'} <span className="keycap">空格</span>
+        {ready ? T.lobbyPanel.unready : T.lobbyPanel.ready} <span className="keycap">{T.common.keySpace}</span>
       </button>
-      {me?.isHost && ready && <button className="btn primary wide" onClick={() => send({ type: 'start_game' })}>开始游戏 <span className="keycap">S</span></button>}
+      {me?.isHost && ready && <button className="btn primary wide" onClick={() => send({ type: 'start_game' })}>{T.lobbyPanel.start} <span className="keycap">S</span></button>}
     </div>
   );
 }
@@ -751,15 +746,15 @@ function LobbyPanel() {
 function DiscussionPanel() {
   const state = useGameStore(s => s.state); const me = state.me;
   if (IS_3D_INPUT) return null;
-  if (me?.spectator) return <div className="phase-panel"><p className="dim">正在观战。</p></div>;
-  return <div className="phase-panel"><p className="dim">下一回合即将开始…</p></div>;
+  if (me?.spectator) return <div className="phase-panel"><p className="dim">{T.discussionPanel.spectating}</p></div>;
+  return <div className="phase-panel"><p className="dim">{T.discussionPanel.nextRound}</p></div>;
 }
 function BettingPanel() {
   const state = useGameStore(s => s.state); const me = state.me;
   // 3D 模式底部无面板（阶段五①）：下注在场景里做，已下注等待改走聊天系统提示（useWaitHints）
   if (IS_3D_INPUT) return null;
-  if (me?.spectator || !factionOf(me?.role)) return <div className="phase-panel"><p className="dim">观战中：等待玩家下注…</p></div>;
-  if (me.bet != null) return <div className="phase-panel"><p className="ok">已下注，等待其他玩家…</p></div>;
+  if (me?.spectator || !factionOf(me?.role)) return <div className="phase-panel"><p className="dim">{T.bettingPanel.spectating}</p></div>;
+  if (me.bet != null) return <div className="phase-panel"><p className="ok">{T.bettingPanel.waiting}</p></div>;
   return <MoneyHand key={`${state.round}-${me.balance}`} />;
 }
 // REVEAL：3D 模式确认提示在圈上（FeltPrompts），面板退役
@@ -770,9 +765,9 @@ function RevealPanel() {
   const activeCount = state.players.filter(p => factionOf(p.role) && !p.bankrupt).length;
   return (
     <div className="phase-panel">
-      <p className="dim">已确认 {confirmedCount}/{activeCount}</p>
-      {me?.spectator ? null : me?.confirmed ? <p className="ok">已确认，等待其他玩家…</p>
-        : <button className="btn primary wide" onClick={() => send({ type: 'confirm_reveal' })}>看清了，掷硬币！ <span className="keycap">空格</span></button>}
+      <p className="dim">{T.revealPanel.confirmed(confirmedCount, activeCount)}</p>
+      {me?.spectator ? null : me?.confirmed ? <p className="ok">{T.revealPanel.confirmedWaiting}</p>
+        : <button className="btn primary wide" onClick={() => send({ type: 'confirm_reveal' })}>{T.revealPanel.go} <span className="keycap">{T.common.keySpace}</span></button>}
     </div>
   );
 }
@@ -782,20 +777,20 @@ function ReflipPanel() {
   const canReflip = isGlutton && (me.reflipsLeft ?? 0) > 0 && !me.passedReflip;
   return (
     <div className="phase-panel">
-      <p className="danger">正面朝上，农民阵营输了！</p>
+      <p className="danger">{T.reflipPanel.farmersLost}</p>
       {!isGlutton ? (
-        <p className="dim">等待暴食者决定是否重掷…</p>
+        <p className="dim">{T.reflipPanel.waiting}</p>
       ) : me.passedReflip ? (
-        <p className="dim">已放弃重掷，等待其他暴食者…</p>
+        <p className="dim">{T.reflipPanel.passed}</p>
       ) : canReflip ? (
         <div className="role-pick">
-          <button className="btn primary" onClick={() => send({ type: 'request_reflip' })}>重掷（剩 {me.reflipsLeft}） <span className="keycap">⟲</span></button>
-          <button className="btn" onClick={() => send({ type: 'pass_reflip' })}>不重掷</button>
+          <button className="btn primary" onClick={() => send({ type: 'request_reflip' })}>{T.reflipPanel.reflip(me.reflipsLeft)} <span className="keycap">⟲</span></button>
+          <button className="btn" onClick={() => send({ type: 'pass_reflip' })}>{T.reflipPanel.pass}</button>
         </div>
       ) : (
-        <p className="dim">重掷次数已用尽</p>
+        <p className="dim">{T.reflipPanel.exhausted}</p>
       )}
-      <p className="dim">重掷仅消耗 1 次机会，不影响饭账（饭账于农民胜时结清）</p>
+      <p className="dim">{T.reflipPanel.note}</p>
     </div>
   );
 }
@@ -808,7 +803,7 @@ function ChallengePanel() {
   const me = state.me;
   if (IS_3D_INPUT) return null; // 3D 模式：对质全走桌面浮字（FeltPrompts），底部面板退役（仅 ?input=2d 保留）
   if (!ch) return null;
-  const nameOf = id => state.players.find(p => p.id === id)?.name ?? '敌方';
+  const nameOf = id => state.players.find(p => p.id === id)?.name ?? T.challengePanel.enemyFallback;
   const deadline = ch.deadline;
 
   // 我是发起者（交流窗）：选 多/少 或 取消
@@ -817,11 +812,11 @@ function ChallengePanel() {
       <div className="phase-panel challenge-panel">
         <p className="danger">你已指控 {nameOf(me.myAccusation.targetId)}！赌他的暗注比农民阵营总注（<b className="gold">{ch.factionTotal}</b>）——</p>
         <div className="role-pick">
-          <button className="btn primary" onClick={() => send({ type: 'accuse_resolve', dir: 'more' })}>更多</button>
-          <button className="btn primary" onClick={() => send({ type: 'accuse_resolve', dir: 'less' })}>更少</button>
-          <button className="btn ghost" onClick={() => send({ type: 'accuse_cancel' })}>取消（票不退）</button>
+          <button className="btn primary" onClick={() => send({ type: 'accuse_resolve', dir: 'more' })}>{T.challengePanel.more}</button>
+          <button className="btn primary" onClick={() => send({ type: 'accuse_resolve', dir: 'less' })}>{T.challengePanel.less}</button>
+          <button className="btn ghost" onClick={() => send({ type: 'accuse_cancel' })}>{T.challengePanel.cancel}</button>
         </div>
-        {deadline && <Countdown deadline={deadline} suffix="后自动取消" />}
+        {deadline && <Countdown deadline={deadline} suffix={T.challengePanel.autoCancelSuffix} />}
       </div>
     );
   }
@@ -831,8 +826,8 @@ function ChallengePanel() {
     const iAmTarget = ch.accusation.targetId === playerId;
     return (
       <div className="phase-panel challenge-panel">
-        <p className={iAmTarget ? 'danger' : 'dim'}>{iAmTarget ? `你正被 ${who} 指控！` : `${who} 正在指控 ${nameOf(ch.accusation.targetId)}…`}</p>
-        {deadline && <Countdown deadline={deadline} suffix="内落定" />}
+        <p className={iAmTarget ? 'danger' : 'dim'}>{iAmTarget ? T.challengePanel.targetOfAccuse(who) : T.challengePanel.watching(who, nameOf(ch.accusation.targetId))}</p>
+        {deadline && <Countdown deadline={deadline} suffix={T.challengePanel.resolveSuffix} />}
       </div>
     );
   }
@@ -842,8 +837,8 @@ function ChallengePanel() {
   if (isLandlordSide(me?.role) && !me?.spectator) {
     return (
       <div className="phase-panel challenge-panel">
-        <p className="dim">农民正在决定是否对质你…</p>
-        {deadline && <Countdown deadline={deadline} suffix="后自动揭牌" />}
+        <p className="dim">{T.challengePanel.decidingYou}</p>
+        {deadline && <Countdown deadline={deadline} suffix={T.challengePanel.autoRevealSuffix} />}
       </div>
     );
   }
@@ -851,8 +846,8 @@ function ChallengePanel() {
   if (!isFarmer) {
     return (
       <div className="phase-panel challenge-panel">
-        <p className="dim">对质窗：等待农民决定…（已跳过 {skipped}/{farmers.length}）</p>
-        {deadline && <Countdown deadline={deadline} suffix="后自动揭牌" />}
+        <p className="dim">{T.challengePanel.waitingFarmers(skipped, farmers.length)}</p>
+        {deadline && <Countdown deadline={deadline} suffix={T.challengePanel.autoRevealSuffix} />}
       </div>
     );
   }
@@ -861,20 +856,20 @@ function ChallengePanel() {
     <div className="phase-panel challenge-panel">
       <p className="dim">
         暗注仍藏面额。农民阵营总注 <b className="gold">{ch.factionTotal}</b>。
-        {canAccuse ? '花 2 票指控敌方暗注比它多/少——猜对逼其多结算一次制约。'
-          : me?.usedSummonThisRound ? '你本回合已传唤，不能再发起对质。' : '你的票不足 2，无法发起指控。'}
+        {canAccuse ? T.challengePanel.canAccuse
+          : me?.usedSummonThisRound ? T.challengePanel.summonedNoAccuse : T.challengePanel.notEnoughTickets}
       </p>
       <div className="role-pick">
         {canAccuse && (
           <button className="btn primary" onClick={() => send({ type: 'accuse', targetId: ch.targetId })}>
-            指控 {nameOf(ch.targetId)}（−2 票）{IS_3D_INPUT && <span className="keycap">Z</span>}
+            {T.challengePanel.accuseBtn(nameOf(ch.targetId))}{IS_3D_INPUT && <span className="keycap">Z</span>}
           </button>
         )}
         <button className={`btn ${me?.challengeSkip ? 'ghost' : ''}`} onClick={() => send({ type: 'challenge_skip' })} disabled={me?.challengeSkip}>
-          {me?.challengeSkip ? `已跳过 ${skipped}/${farmers.length}` : '跳过对质'}
+          {me?.challengeSkip ? T.challengePanel.skippedCount(skipped, farmers.length) : T.challengePanel.skipBtn}
         </button>
       </div>
-      {deadline && <Countdown deadline={deadline} suffix="后自动揭牌" />}
+      {deadline && <Countdown deadline={deadline} suffix={T.challengePanel.autoRevealSuffix} />}
     </div>
   );
 }
@@ -894,11 +889,11 @@ function TicketTransfer() {
   const myTickets = me?.tickets ?? 0;
   return (
     <div className="ticket-transfer hud-card">
-      <span className="tt-label"><PixelText size={2} color="var(--ink-dim)">对质票</PixelText> <PixelText size={2} color="var(--px-gold)">{myTickets}</PixelText></span>
+      <span className="tt-label"><PixelText size={2} color="var(--ink-dim)">{T.challengePanel.ticketLabel}</PixelText> <PixelText size={2} color="var(--px-gold)">{myTickets}</PixelText></span>
       {mates.map(mt => (
         <button key={mt.id} className="btn tiny" disabled={myTickets < 1}
           onClick={() => send({ type: 'transfer_ticket', toId: mt.id, n: 1 })}>
-          给 {mt.name} +1
+          {T.challengePanel.giveTicket(mt.name)}
         </button>
       ))}
     </div>
@@ -927,7 +922,7 @@ function NegotiatePanel() {
   const state = useGameStore(s => s.state); const me = state.me;
   // 3D 模式底部无面板（阶段五①）：协商在桌面上做；地主侧的等待改走聊天系统提示（useWaitHints）
   if (IS_3D_INPUT) return null;
-  if (isLandlordSide(me?.role) && !me?.spectator) return <div className="phase-panel"><p className="dim">农民正在协商分配，请稍候…</p></div>;
+  if (isLandlordSide(me?.role) && !me?.spectator) return <div className="phase-panel"><p className="dim">{T.negotiatePanel.landlordWaiting}</p></div>;
   return <div className="phase-panel"><NegotiationBoard /></div>;
 }
 function FinalizePanel() {
@@ -944,9 +939,9 @@ function FinalizePanel() {
   return (
     <div className="phase-panel">
       {waiting.length > 0 && (
-        <p className="dim">等待 {waiting.map(nameOf).join('、')} 拿取桌上的钱…</p>
+        <p className="dim">{T.finalizePanel.waitingTake(waiting.map(nameOf).join('、'))}</p>
       )}
-      <p className={`delta-big ${myDelta >= 0 ? 'ok' : 'danger'}`}>本回合 {myDelta >= 0 ? `+${myDelta}` : myDelta}</p>
+      <p className={`delta-big ${myDelta >= 0 ? 'ok' : 'danger'}`}>{T.finalizePanel.deltaRound}{myDelta >= 0 ? `+${myDelta}` : myDelta}</p>
       <div className="settle-detail">
         {Object.entries(last.deltas ?? {}).map(([id, d]) => <span key={id} className={d >= 0 ? 'ok' : 'danger'}>{nameOf(id)} {d >= 0 ? `+${d}` : d}</span>)}
       </div>
@@ -957,10 +952,10 @@ function FinalizePanel() {
       )}
       {last.debtWaiver > 0 && <p className="ok">投资人担保免除了 <CandleMark />{last.debtWaiver} 债务</p>}
       {last.wagePaid && Object.keys(last.wagePaid).length > 0 && (
-        <p className="ok">发工资：{Object.entries(last.wagePaid).map(([id, v]) => `${nameOf(id)} +${v}`).join('、')}</p>
+        <p className="ok">{T.finalizePanel.wagePrefix + Object.entries(last.wagePaid).map(([id, v]) => T.finalizePanel.wageItem(nameOf(id), v)).join('、')}</p>
       )}
       {last.allowanceCharged && Object.keys(last.allowanceCharged).length > 0 && (
-        <p className="danger">扣伙食费：{Object.entries(last.allowanceCharged).map(([id, v]) => `${nameOf(id)} −${v}`).join('、')}</p>
+        <p className="danger">{T.finalizePanel.allowancePrefix + Object.entries(last.allowanceCharged).map(([id, v]) => T.finalizePanel.allowanceItem(nameOf(id), v)).join('、')}</p>
       )}
       {last.capitalistPool != null && (
         <p className={last.capitalistPoolDelta >= 0 ? 'ok' : 'danger'}>
@@ -969,7 +964,7 @@ function FinalizePanel() {
         </p>
       )}
       {last.uncovered > 0 && <p className="dim">仍有 <CandleMark />{last.uncovered} 缺口无人能补，地主收不到</p>}
-      {last.newlyBankrupt?.length > 0 && <p className="danger">{last.newlyBankrupt.map(nameOf).join('、')} 破产了！</p>}
+      {last.newlyBankrupt?.length > 0 && <p className="danger">{T.finalizePanel.bankrupt(last.newlyBankrupt.map(nameOf).join('、'))}</p>}
     </div>
   );
 }
@@ -984,8 +979,8 @@ function EndedPanel2D() {
   const iWon = state.winnerSide && ((state.winnerSide === 'farmers') === isFarmerSide(me?.role));
   const landlordSide = state.players.find(p => isLandlordSide(p.role));
   const winLabel = state.winnerSide === 'farmers'
-    ? '🌾 农民阵营胜利！'
-    : `👑 ${ROLE_LABEL[landlordSide?.role] ?? '地主'}胜利！`;
+    ? T.endedPanel.farmersWin
+    : T.endedPanel.landlordWin(ROLE_LABEL[landlordSide?.role] ?? T.victory.landlordFallback);
   return (
     <div className="phase-panel ended-panel">
       <h2 className={iWon ? 'gold' : 'dim'}>{winLabel}</h2>
@@ -993,16 +988,16 @@ function EndedPanel2D() {
         {state.players.map(p => <span key={p.id}>{p.name}：<CandleMark />{p.balance ?? '?'}{p.bankrupt ? '（破产）' : ''}</span>)}
       </div>
       <div className="role-pick">
-        {me?.isHost && <button className="btn primary" onClick={() => send({ type: 'restart_game' })}>再来一局 <span className="keycap">空格</span></button>}
-        <button className="btn" onClick={() => togglePanel('ledger')}>查看账本 <span className="keycap">L</span></button>
-        <button className="btn" onClick={leaveRoom}>离开房间</button>
+        {me?.isHost && <button className="btn primary" onClick={() => send({ type: 'restart_game' })}>{T.endedPanel.again} <span className="keycap">{T.common.keySpace}</span></button>}
+        <button className="btn" onClick={() => togglePanel('ledger')}>{T.endedPanel.ledger} <span className="keycap">L</span></button>
+        <button className="btn" onClick={leaveRoom}>{T.endedPanel.leave}</button>
       </div>
-      {!me?.isHost && <p className="dim">等待房主开启「再来一局」(重选角色重新开局),或自行离开</p>}
+      {!me?.isHost && <p className="dim">{T.endedPanel.waitHost}</p>}
     </div>
   );
 }
 // 掷硬币木板 3D 退役（阶段五①）：硬币本身就是画面主角，无需底部文字
-function CoinFlipPanel() { return IS_3D_INPUT ? null : <div className="phase-panel"><p className="dim coin-hint">掷硬币中…</p></div>; }
+function CoinFlipPanel() { return IS_3D_INPUT ? null : <div className="phase-panel"><p className="dim coin-hint">{T.coinPanel.flipping}</p></div>; }
 function NullPanel() { return null; }
 const PHASE_PANELS = {
   LOBBY: LobbyPanel, DISCUSSION: DiscussionPanel, BETTING: BettingPanel, CHALLENGE: ChallengePanel, REVEAL: RevealPanel,
@@ -1065,7 +1060,7 @@ export default function UiLayer() {
   return (
     <div className="hud">
       <TopBar />
-      {!connected && <div className="hud-disconnect"><PixelText size={2} color="var(--danger)">连接已断开，正在重连…</PixelText></div>}
+      {!connected && <div className="hud-disconnect"><PixelText size={2} color="var(--danger)">{T.net.reconnecting}</PixelText></div>}
       <PhaseCoachmark />
       <RoundBanner />
       <PlayerRail />

@@ -23,6 +23,7 @@ import { grab } from './grab';
 import KeyCap from '../assets/pixelfont/KeyCap';
 import PixelText from '../assets/pixelfont/PixelText';
 import { P } from '../assets/palette';
+import { T } from '../text';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const _fanTarget = new THREE.Vector3();   // 每帧即用即弃的划痕向量（单帧内同步使用，可全组件共享）
@@ -220,7 +221,7 @@ function CarriedStack({ carry, carryRef, ndcRef }) {
       ))}
       {/* 姿态翻转后局部 -y ≈ 世界上方：金额浮字悬在叠上，跟随全程（捋了多少一目了然） */}
       <Html position={[0, -(0.16 + carry.notes.length * (CARD_T + 0.004)), 0]} center distanceFactor={3.2} zIndexRange={[30, 0]}>
-        <div className="felt-float"><PixelText size={2} color="#fff">{`¥${sum}`}</PixelText></div>
+        <div className="felt-float"><PixelText size={2} color="#fff">{T.fmt.money(sum)}</PixelText></div>
       </Html>
     </group>
   );
@@ -686,15 +687,15 @@ export default function HandLayer({ look, rot, mySpot }) {
 
   // 圆圈浮字（白字无背景板）：金额/范围 + 确认行
   const line1 = bounds.forceAllIn
-    ? `资金不足 · 必须全押 ¥${me.balance}`
-    : `已选 ¥${total} · 可下注 ${bounds.min}-${effMax}${premium > 0 ? ` · 投保 ¥${premium}` : ''}`;
+    ? T.hand3d.forceAllIn(me.balance)
+    : T.hand3d.selected(total, bounds.min, effMax, premium);
   const line2 = sent
-    ? '已下注'
+    ? T.hand3d.betted
     : bounds.forceAllIn
-      ? '全押'
+      ? T.hand3d.allIn
       : canConfirm
-        ? '确认下注'
-        : (total < bounds.min ? '点或拖手牌下注' : '超出上限');
+        ? T.hand3d.confirmBet
+        : (total < bounds.min ? T.hand3d.pickHint : T.hand3d.overMax);
   const line2Click = !sent && (bounds.forceAllIn || canConfirm); // 可点行才带空格键帽
 
   return (
@@ -732,7 +733,7 @@ export default function HandLayer({ look, rot, mySpot }) {
         <>
           <MoneyStack notes={reserveNotes} faceUp amount={bounds.minStake} labelColor="var(--ink-dim)" position={[reservePos.x, 0, reservePos.z]} />
           <Html position={[reservePos.x, stackTopY(reserveNotes.length) + 0.3, reservePos.z]} center distanceFactor={5} zIndexRange={[22, 0]}>
-            <div className="felt-float"><PixelText size={2} color="var(--ink-dim)">保留金</PixelText></div>
+            <div className="felt-float"><PixelText size={2} color="var(--ink-dim)">{T.hand3d.reserve}</PixelText></div>
           </Html>
         </>
       )}
@@ -745,7 +746,7 @@ export default function HandLayer({ look, rot, mySpot }) {
             <PledgedCard key={n.id} note={n} i={i} pos={pledgePos} onClick={unpledge} />
           ))}
           <Html position={[pledgePos.x, TABLE_TOP + 0.52 + Math.min(pledged.length, 5) * 0.045, pledgePos.z]} center distanceFactor={6.5} zIndexRange={[22, 0]}>
-            <div className="felt-float"><PixelText size={2} color={premium > 0 ? 'var(--px-gold)' : 'var(--ink-dim)'}>{`投保 ¥${premium}/${maxPledge}`}</PixelText></div>
+            <div className="felt-float"><PixelText size={2} color={premium > 0 ? 'var(--px-gold)' : 'var(--ink-dim)'}>{T.hand3d.pledge(premium, maxPledge)}</PixelText></div>
           </Html>
         </>
       )}

@@ -3,6 +3,7 @@
 
 import { create } from 'zustand';
 import { configureSocket, connectSocket, sendMsg, disconnectSocket } from '../net/socket';
+import { T } from '../text';
 
 export const useGameStore = create((set, get) => ({
   connected: false,
@@ -48,7 +49,7 @@ export const useGameStore = create((set, get) => ({
 
   send(msg) {
     // 断线时发送会静默失败：给用户明确反馈（高频的 look 不弹，避免刷屏）。
-    if (!sendMsg(msg) && msg?.type !== 'look') get().showToast('连接已断开，正在重连…');
+    if (!sendMsg(msg) && msg?.type !== 'look') get().showToast(T.net.reconnecting);
   },
 
   setChatOpen(v) { set({ chatOpen: v }); },
@@ -141,12 +142,12 @@ export const useGameStore = create((set, get) => ({
         set(s => ({ looks: { ...s.looks, [msg.id]: { yaw: msg.yaw, pitch: msg.pitch } } }));
         break;
       case 'kicked':
-        set({ kicked: msg.reason ?? '连接被服务器关闭' });
+        set({ kicked: msg.reason ?? T.net.kicked });
         break;
       case 'error':
         if (msg.code === 'UNAUTHORIZED') {
           // token 失效（常见于服务端重启清空了会话）：提示重新登录，避免无限重连转圈。
-          set({ kicked: '登录已过期，请重新登录' });
+          set({ kicked: T.net.expired });
           return;
         }
         if (get().joining) {
@@ -154,7 +155,7 @@ export const useGameStore = create((set, get) => ({
           sessionStorage.removeItem('llg_room');
           set({ roomId: null, joining: false });
         }
-        get().showToast(msg.message ?? '发生错误');
+        get().showToast(msg.message ?? T.net.error);
         break;
       default:
         break;

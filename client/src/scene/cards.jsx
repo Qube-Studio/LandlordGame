@@ -9,6 +9,7 @@ import * as THREE from 'three';
 import { noteTexture } from './textures';
 import PixelText from '../assets/pixelfont/PixelText';
 import { P, DENOM_COLORS } from '../assets/palette';
+import { T } from '../text';
 
 export const TABLE_TOP = 1.0;
 // 牌厚 0.035（玩家反馈①:更薄的纸钞;手牌扇形交错不穿模）——堆叠步距/标签高度在下方同步收紧
@@ -93,7 +94,7 @@ export function MoneyStack({ notes, faceUp, position, amount = null, labelColor 
       {/* 不显示张数；金额仅在可见时标注（自己的堆始终可见，他人堆揭牌后可见） */}
       {amount != null && (
         <Html position={[0, topY + 0.15, 0]} center distanceFactor={6.5} zIndexRange={[20, 0]}>
-          <div className="money-3d-amount"><PixelText size={2} color={labelColor}>{`¥${amount}`}</PixelText></div>
+          <div className="money-3d-amount"><PixelText size={2} color={labelColor}>{T.fmt.money(amount)}</PixelText></div>
         </Html>
       )}
     </group>

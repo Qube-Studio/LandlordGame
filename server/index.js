@@ -9,6 +9,7 @@ import { Room } from './Room.js';
 import { listModes, getMode } from './modes/index.js';
 import { DEFAULT_CONFIG } from './config.js';
 import * as auth from './auth.js';
+import { ERR } from './text.js';
 
 const TEST_MODE = process.env.LLG_TEST === '1'; // 本地测试开关（任务③）：仅 npm run dev 开启
 
@@ -57,7 +58,7 @@ const rooms = new Map(); // roomId -> Room
 function requireAuth(req, res, next) {
   const token = (req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
   const username = auth.resolveToken(token);
-  if (!username) return res.status(401).json({ error: '未登录或登录已过期' });
+  if (!username) return res.status(401).json({ error: ERR.authExpired });
   req.username = username;
   req.token = token;
   next();
@@ -76,7 +77,7 @@ app.post('/api/auth/login', (req, res) => {
   if (result.error) return res.status(401).json({ error: result.error });
   if (result.kickedSocket) {
     try {
-      result.kickedSocket.send(JSON.stringify({ type: 'kicked', reason: '账号在其他位置登录' }));
+      result.kickedSocket.send(JSON.stringify({ type: 'kicked', reason: ERR.dupLogin }));
       result.kickedSocket.close();
     } catch { /* 旧连接可能已失效 */ }
   }
@@ -104,8 +105,8 @@ app.get('/api/modes', (req, res) => {
 app.post('/api/rooms', requireAuth, (req, res) => {
   const { name, mode, config } = req.body ?? {};
   const modeDef = getMode(mode ?? 'quick');
-  if (!modeDef) return res.status(400).json({ error: '未知的游戏模式' });
-  if (!modeDef.available) return res.status(400).json({ error: `${modeDef.label}尚未开放` });
+  if (!modeDef) return res.status(400).json({ error: ERR.unknownMode });
+  if (!modeDef.available) return res.status(400).json({ error: ERR.modeUnavailable(modeDef.label) });
   const roomId = crypto.randomBytes(3).toString('hex').toUpperCase();
   rooms.set(roomId, new Room(roomId, name, modeDef.id, config ?? {}));
   res.status(201).json({ roomId });
@@ -121,7 +122,7 @@ wss.on('connection', (ws, req) => {
   const url = new URL(req.url, 'http://localhost');
   const username = auth.resolveToken(url.searchParams.get('token'));
   if (!username) {
-    ws.send(JSON.stringify({ type: 'error', message: '未登录', code: 'UNAUTHORIZED' }));
+    ws.send(JSON.stringify({ type: 'error', message: ERR.notLoggedIn, code: 'UNAUTHORIZED' }));
     ws.close();
     return;
   }
@@ -132,7 +133,7 @@ wss.on('connection', (ws, req) => {
   const kicked = auth.bindSocket(username, ws);
   if (kicked) {
     try {
-      kicked.send(JSON.stringify({ type: 'kicked', reason: '账号在其他位置登录' }));
+      kicked.send(JSON.stringify({ type: 'kicked', reason: ERR.dupLogin }));
       kicked.close();
     } catch { /* 旧连接可能已失效 */ }
   }
@@ -144,7 +145,7 @@ wss.on('connection', (ws, req) => {
 
     if (type === 'join_room') {
       const room = rooms.get((msg.roomId ?? '').toUpperCase());
-      if (!room) { send(ws, { type: 'error', message: '房间不存在' }); return; }
+      if (!room) { send(ws, { type: 'error', message: ERR.roomNotFound }); return; }
       const result = room.addPlayer(username, ws);
       if (result.error) { send(ws, { type: 'error', message: result.error }); return; }
       ws.roomId = room.roomId;
@@ -162,7 +163,7 @@ wss.on('connection', (ws, req) => {
     if (type === 'ping') { send(ws, { type: 'pong' }); return; }
 
     const room = rooms.get(ws.roomId);
-    if (!room) { send(ws, { type: 'error', message: '未加入房间' }); return; }
+    if (!room) { send(ws, { type: 'error', message: ERR.noRoomJoined }); return; }
     const pid = ws.playerId;
     let result;
 
@@ -196,11 +197,11 @@ wss.on('connection', (ws, req) => {
         room.setLook(pid, Number(msg.yaw), Number(msg.pitch)); // 任务⑦：高频中继，不回错误
         return;
       case 'dev_fill': // 任务③ 本地测试：补满真实测试玩家
-        if (!TEST_MODE) { send(ws, { type: 'error', message: '测试模式未开启' }); return; }
+        if (!TEST_MODE) { send(ws, { type: 'error', message: ERR.testModeOff }); return; }
         result = room.devFill();
         break;
       case 'dev_act_as': { // 任务③ 本地测试：附身控制某个玩家，单人玩全部角色
-        if (!TEST_MODE) { send(ws, { type: 'error', message: '测试模式未开启' }); return; }
+        if (!TEST_MODE) { send(ws, { type: 'error', message: ERR.testModeOff }); return; }
         const r = room.possess(ws, msg.playerId);
         if (r.error) { send(ws, { type: 'error', message: r.error }); return; }
         ws.playerId = msg.playerId;
@@ -220,10 +221,10 @@ wss.on('connection', (ws, req) => {
       case 'voice_leave':
       case 'voice_signal':
         // 语音联机预留接口（docs/GAME_SPEC.md §2.5）
-        send(ws, { type: 'error', message: '语音功能尚未开放', code: 'NOT_IMPLEMENTED' });
+        send(ws, { type: 'error', message: ERR.voiceNotImplemented, code: 'NOT_IMPLEMENTED' });
         return;
       default:
-        send(ws, { type: 'error', message: `未知消息类型: ${type}` });
+        send(ws, { type: 'error', message: ERR.unknownMsgType(type) });
         return;
     }
     if (result?.error) send(ws, { type: 'error', message: result.error });

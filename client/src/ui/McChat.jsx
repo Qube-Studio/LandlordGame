@@ -28,6 +28,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { useGameStore } from '../store/gameStore';
 import PixelText from '../assets/pixelfont/PixelText';
 import { isFarmerSide, factionOf, ROLE_LABEL } from '../game/roles';
+import { T } from '../text';
 
 const FADE_MS = 3000;        // 普通消息收起态可见时长（活跃时间累计，非墙钟）
 const SYS_FADE_MS = 5000;    // 系统消息更久（破产/等待提示等更需被看到）
@@ -72,7 +73,7 @@ export default function McChat() {
   const factionChannel = canPostFarmer ? 'farmer' : isSpec ? 'spectator' : null;
   const tabIds = ['all', ...(factionChannel ? ['faction'] : []), 'system'];
   const tab = chatTab === 'faction' && !factionChannel ? 'all' : chatTab;
-  const tabLabel = tab === 'system' ? '系统' : tab === 'faction' ? (isSpec ? '观战' : '阵营') : '全部';
+  const tabLabel = tab === 'system' ? T.chat.tabSystem : tab === 'faction' ? (isSpec ? T.chat.tabSpectate : T.chat.tabFaction) : T.chat.tabAll;
   const tabColor = tab === 'system' ? 'var(--ink-faint)' : tab === 'faction' ? 'var(--warn)' : 'var(--ink-dim)';
   const sendChannel = tab === 'faction' ? factionChannel : (isSpec ? 'spectator' : 'public');
   const readonly = tab === 'system';
@@ -340,13 +341,13 @@ export default function McChat() {
             // 着色走 PixelText color prop（其根元素带内联 currentColor，CSS 类着色压不过）。
             // 发送者显示「名字（身份）」；身份按当前花名册实时查（历史消息随角色变化，可接受）。
             const sender = state.players.find(p => p.id === m.from);
-            const shownName = sender?.role ? `${m.name}（${ROLE_LABEL[sender.role]}）` : m.name;
+            const shownName = sender?.role ? T.chat.sender(m.name, ROLE_LABEL[sender.role]) : m.name;
             // 阵营频道：整行橙（名字+正文，无前缀——可见者必为己方）；观战频道保留〔观战〕。
             if (m.channel === 'farmer' || m.channel === 'spectator') {
               const fac = m.channel === 'farmer';
               return (
                 <div key={uk} ref={cb} className="mc-chat-line">
-                  {!fac && <PixelText size={2} className="mc-tag" color="var(--ink-dim)">〔观战〕</PixelText>}
+                  {!fac && <PixelText size={2} className="mc-tag" color="var(--ink-dim)">{T.chat.spectateTag}</PixelText>}
                   <PixelText size={2} className="mc-from" color={fac ? 'var(--warn)' : 'var(--px-gold)'}>{shownName}</PixelText>
                   <PixelText size={2} className="mc-body" wrap color={fac ? 'var(--warn)' : 'var(--ink)'}>{m.text}</PixelText>
                 </div>
@@ -370,7 +371,7 @@ export default function McChat() {
       <form className="mc-chat-input" onSubmit={submit} onMouseDown={() => !open && setOpen(true)}>
         <span
           className="mc-prefix clickable"
-          title="切换频道 (Tab)"
+          title={T.chat.switchChannel}
           onMouseDown={(e) => e.stopPropagation()}
           onClick={(e) => {
             e.preventDefault(); e.stopPropagation();  // 别把焦点吸进输入框/触发展开
@@ -388,7 +389,7 @@ export default function McChat() {
           onKeyDown={onKeyDown}
           onFocus={() => setOpen(true)}
           disabled={readonly}
-          placeholder={readonly ? '无法在该频道发送消息' : ''}
+          placeholder={readonly ? T.chat.readonly : ''}
           maxLength={200}
         />
       </form>
