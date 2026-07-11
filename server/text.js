@@ -150,6 +150,7 @@ export const MODE_TEXT = {
   quick: { label: '快速模式', description: '地主对农民的纯下注对决，破产竞速。' },
   classic: { label: '经典模式', description: '在快速模式基础上加入银行角色：放贷、利息与赦免。（开发中）' },
   competitive: { label: '竞技模式', description: '角色技能制：地主/资本家 对阵 基础农民/投资人/暴食者/检察官，各有专属技能。' },
+  single: { label: '单人模式', description: '指挥你的整支队伍对抗 Boss：角色搭配与技能耦合，专属角色幽灵/幸运儿。（开发中）' },
 };
 
 // ---- 杂项（默认名/兜底词）----

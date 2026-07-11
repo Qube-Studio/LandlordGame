@@ -117,6 +117,24 @@
 
 > 罚款**上缴国库**（进虚空、不分农民）是定稿决策（切断自供血回路），无独立开关——要改分配方式需动 `Room._finalize` 的 `_summonGoal` 分支。模拟基线：国库版（噪声读）地主胜率 −7~−8pp @ nF=2/3、≈0 @ nF=4；真人局验证后的候选旋钮：初始资金 4→6（若烈士体验太苦）、costGrowth（若次数过多/过少）。
 
+## 单人模式（single，§9 · 未实装，参数已入 config）
+
+设计原则：**数值可记、能印在卡面上**；难度=Boss 卡三属性梯度，不靠对称公平。改动先过模拟（scratchpad `single-sim.mjs`）再进 config。
+
+| 键 | 默认 | 说明 |
+|----|------|------|
+| `single.initialBalance.*` | 农民20 / 投资人12 / 暴食者6 / 检察官4 / 幸运儿2 | 单人口径初始资金（多人数值不受影响）。 |
+| `single.wage` | `{interval:2, base:2, perFarmerBonus:1}` | 每 2 回合发 2+(农民数−1)（4 农民=5/人，凭空铸造）。4 农民肥工资是刻意的流派锚点。 |
+| `single.investor.maxPledge` | `6` | 保金上限；只要己方输即减免应付款，**含输掉的注金本身**（对称局=返还）。模拟：把 Boss 胜率 70%→52~59%。 |
+| `single.glutton` | `{allowancePerRound:1, reflips:3}` | 饭账每回合固定扣（无视输赢）；重掷固定 3 次。 |
+| `single.prosecutor.summon` | `{costPerFarmer:2, penaltyMult:2, cooldownPerFarmer:1}` | 监管费=农民数×2 固定不递增；冷却=农民数回合；地主直接损失 2×费（无目标考核）。 |
+| `single.boss.initialBalance` | `65` | Boss 资金；战役分段按关卡覆盖更佳（防止解锁农民越多相对压力越小的倒挂）。 |
+| `single.boss.attrs.*` | easy G2/S1.5 · base G2/S2 · hard G2.5/S1.5 · nightmare G2.5/S2（R 恒 0.8） | **难度旋钮+收敛器+反躺赢器**。龟缩地板胜率 30/22/11/7%，超时率 19/10/9/2.5%。 |
+| `single.ghost.balancePerEnemyFarmer` | `4` | 幽灵资金=敌方农民数×4（动态）；注金严格小于核心注金（`ghostMaxBet`）。模拟：Boss 胜率 +11pp、局长 −7 回合。 |
+| `single.lucky` | `{baseBonus:0.10, pityStep:0.05, pityCap:0.15, lossDrain:1}` | 幸运儿：+10% 己方胜率；敌胜 −1 资金、怜悯 +5%/连败（封顶 +15%、己胜清零）。约 5 回合寿命的概率窗口。 |
+
+> 结构性结论（接受不修）：农民侧押注大小近乎无关（队伍单回合上限=Boss 注金）——表达全在技能搭配，见 §9.4。纯函数在 `logic/settleSingle.js`（对称结算/多地主比例分/幻影彩池/监管/概率/工资），已有单测覆盖。
+
 ## 连接与其它
 
 | 键 | 默认 | 说明 |

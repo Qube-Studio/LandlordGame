@@ -31,6 +31,16 @@ export const MODES = {
     description: MODE_TEXT.competitive.description,
     hooks: {},
   },
+  // 单人模式（GAME_SPEC §9）：玩家操控整队 vs 脚本 Boss；队伍化结算（logic/settleSingle.js）。
+  // 占位直至可玩（队伍化重构完成前不开放创建房间）；无对质系统；资本家暂不加入。
+  single: {
+    id: 'single',
+    label: MODE_TEXT.single.label,
+    available: false,
+    roles: ['landlord', 'farmer', 'investor', 'glutton', 'prosecutor', 'ghost', 'lucky'],
+    description: MODE_TEXT.single.description,
+    hooks: {},
+  },
 };
 
 export function getMode(id) {

@@ -96,6 +96,36 @@ export const DEFAULT_CONFIG = {
     prosecutor: { summon: { costGrowth: 1.5, penaltyMult: 2 } },
     // 地主资金目标沿用顶层相对制（不再单独 schedule 覆盖）——地主/资本家均吃 landlordGoal 相对目标。
   },
+
+  // ===== 单人模式（GAME_SPEC §9，Draft 0.1）=====
+  // 设计哲学：随机性最小、属性可记（数值能印在卡面上）；不追求公平（难度=Boss 卡三属性梯度）；
+  // 技能=对硬币方差的操作原语。角色升级 = per-run config 增量合并（§0.2 扩展点）。
+  single: {
+    initialBalance: { farmer: 20, investor: 12, glutton: 6, prosecutor: 4, lucky: 2 },
+    // 农民工资：每 wage.interval 回合发 wage.base + (农民数−1)×wage.perFarmerBonus（4 农民 → 5/人/2 回合，凭空铸造）。
+    wage: { interval: 2, base: 2, perFarmerBonus: 1 },
+    investor: { maxPledge: 6 },                    // 只要己方输，保金即减免应付款——含输掉的注金本身（对称局=返还）
+    glutton: { allowancePerRound: 1, reflips: 3 }, // 饭账每回合固定扣（无视输赢）；重掷固定 3 次
+    // 检察官·监管：费用固定 农民数×costPerFarmer、不递增；两次监管至少间隔 农民数 回合；
+    // 地主无目标考核，被监管直接损失 penaltyMult×监管费。
+    prosecutor: { summon: { costPerFarmer: 2, penaltyMult: 2, cooldownPerFarmer: 1 } },
+    // Boss（敌方核心）三属性梯度 = 难度旋钮 + 对局收敛器 + 反躺赢器（§9.4 模拟定稿）。
+    // 龟缩地板胜率：easy 30% / base 22% / hard 11% / nightmare 7%。
+    boss: {
+      initialBalance: 65,                          // 战役分段可按关卡覆盖（或改随农民数缩放）
+      attrs: {
+        easy: { greed: 2, squeeze: 1.5, rake: 0.8 },
+        base: { greed: 2, squeeze: 2, rake: 0.8 },
+        hard: { greed: 2.5, squeeze: 1.5, rake: 0.8 },
+        nightmare: { greed: 2.5, squeeze: 2, rake: 0.8 },
+      },
+    },
+    // 幽灵（地主阵营附属位，唯一）：初始 = 敌方农民数×balancePerEnemyFarmer，随队友数动态重算；
+    // 注金严格小于核心注金；分到的钱/债进虚空；永远收回注金；不破产、随核心死。
+    ghost: { balancePerEnemyFarmer: 4 },
+    // 幸运儿：己方胜率 +baseBonus；敌胜自己 −lossDrain、下次额外 +pityStep（连败累计、己胜清零、封顶 pityCap）。
+    lucky: { baseBonus: 0.10, pityStep: 0.05, pityCap: 0.15, lossDrain: 1 },
+  },
 };
 
 // 角色 → 阵营。地主阵营={landlord, capitalist}，农民阵营={farmer, investor, glutton, prosecutor}。

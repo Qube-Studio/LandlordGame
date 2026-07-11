@@ -9,6 +9,10 @@ import { betBounds, settleRound, applyAllocation, allocateDebt } from '../logic/
 import { relativeGoal, goalPenalty, drawGoalInterval } from '../logic/landlordGoal.js';
 import { computeWage, wageDueThisRound, investorWaiver, computeTax, taxInterval, taxDueThisRound, judgeAccusation } from '../logic/competitive.js';
 import { createLedger, buildSettleScript, flowsFromParts } from '../logic/payout.js';
+import {
+  settleSymmetric, splitLandlordSide, phantomReduction, ghostMaxBet, ghostBalance,
+  singleSummonCost, summonCooldownOk, summonPenalty, luckyWinProb, singleWage,
+} from '../logic/settleSingle.js';
 
 let passed = 0;
 const cfg = mergeConfig();
@@ -359,6 +363,68 @@ test('税钟锚点（§8.9 传唤重置）：anchor 缺省=0 行为不变；锚�
   assert.equal(taxDueThisRound(4, 2, 3), false);              // 锚后 1 回合（间隔 2）→ 不征
   assert.equal(taxDueThisRound(5, 2, 3), true);               // 锚后 2 回合 → 征
   assert.equal(taxDueThisRound(7, 2, 3), true);               // 锚后 4 回合 → 征（周期延续）
+});
+
+console.log('single（§9 单人模式纯函数）');
+test('对称结算：胜方按出资比例瓜分败方总注，守恒；全零注退化均分', () => {
+  const r = settleSymmetric({ winnerIds: ['a', 'b'], loserIds: ['c', 'd'], bets: { a: 3, b: 1, c: 5, d: 2 } });
+  assert.equal(r.loserTotal, 7);
+  assert.equal(sumVals(r.takes), 3 + 1 + 7);              // 收回己注 + 败方总注全部分掉
+  assert.ok(r.takes.a - 3 > r.takes.b - 1);               // a 出资多 → 分得多
+  assert.deepEqual(r.losses, { c: 5, d: 2 });
+  const z = settleSymmetric({ winnerIds: ['a', 'b'], loserIds: ['c'], bets: { a: 0, b: 0, c: 4 } });
+  assert.equal(z.takes.a + z.takes.b, 4);                 // 全零注 → 均分（2/2）
+  assert.equal(Math.abs(z.takes.a - z.takes.b) <= 1, true);
+});
+test('多地主侧比例分账：幽灵先收回注金、比例份额进虚空，账目守恒', () => {
+  const r = splitLandlordSide({ income: 30, members: [{ id: 'L', bet: 10 }, { id: 'G', bet: 5, ghost: true }], config: cfg });
+  assert.equal(r.ghostRefund, 5);                          // 幽灵保底收回注金
+  assert.equal(r.shares.G, 5);                             // 幽灵实得 = 注金
+  assert.equal(r.shares.L + r.shares.G + r.voided, 30);    // 守恒：核心 + 幽灵 + 虚空 = 总进账
+  assert.ok(r.voided > 0);                                 // 幽灵的比例份额确实蒸发
+});
+test('幻影彩池：敌方实拿按 幽灵注/彩池 等比缩水，不超过原实拿', () => {
+  const r = phantomReduction({ takes: { a: 10, b: 6 }, ghostBet: 8, pot: 24, config: cfg });
+  assert.equal(r.reductions.a, 3);                         // round(10×8/24)=3
+  assert.equal(r.reductions.b, 2);                         // round(6×8/24)=2
+  assert.equal(r.total, 5);
+  const none = phantomReduction({ takes: { a: 10 }, ghostBet: 0, pot: 24, config: cfg });
+  assert.equal(none.total, 0);
+});
+test('幽灵注金上限：严格小于核心注金，且受自身余额封顶', () => {
+  assert.equal(ghostMaxBet(10, 16), 9);
+  assert.equal(ghostMaxBet(10, 4), 4);
+  assert.equal(ghostMaxBet(1, 16), 0);                     // 核心注 1 → 幽灵只能 0
+  assert.equal(ghostBalance(4, cfg), 16);                  // 敌方 4 农民 → 幽灵资金 16
+});
+test('单人监管：固定费 农民数×2、冷却 农民数 回合、罚 2×费', () => {
+  assert.equal(singleSummonCost(3, cfg), 6);
+  assert.equal(singleSummonCost(4, cfg), 8);
+  assert.equal(summonPenalty(3, cfg), 12);                 // 地主直接损失 2×监管费
+  assert.equal(summonCooldownOk(5, 0, 3, cfg), true);      // 从未监管 → 可用
+  assert.equal(summonCooldownOk(5, 3, 3, cfg), false);     // 间隔 2 < 3 → 冷却中
+  assert.equal(summonCooldownOk(6, 3, 3, cfg), true);      // 间隔 3 ≥ 3 → 可用
+});
+test('幸运儿概率：+10% 基础、怜悯 +5%/连败封顶 +15%、敌我抵消、夹逼 [0.05,0.95]', () => {
+  assert.equal(luckyWinProb({ mine: true }, cfg), 0.6);
+  assert.equal(luckyWinProb({ mine: true, myPityLosses: 2 }, cfg), 0.7);   // 0.5+0.10+0.10
+  assert.equal(luckyWinProb({ mine: true, myPityLosses: 9 }, cfg), 0.75);  // 怜悯封顶 +0.15
+  assert.equal(luckyWinProb({ mine: true, enemy: true }, cfg), 0.5);       // 互相抵消
+  assert.equal(luckyWinProb({ enemy: true, enemyPityLosses: 9 }, cfg), 0.25);
+  assert.equal(luckyWinProb({}, cfg), 0.5);
+});
+test('单人工资：每 2 回合发 2+(农民数−1)，非发薪回合为 0', () => {
+  assert.equal(singleWage(4, 2, cfg), 5);                  // 4 农民 → 5/人
+  assert.equal(singleWage(1, 2, cfg), 2);
+  assert.equal(singleWage(4, 3, cfg), 0);                  // 非间隔回合
+  assert.equal(singleWage(4, 0, cfg), 0);                  // round≥1 守卫
+});
+test('单人初始资金/Boss 梯度参数在 config.single 中且可记', () => {
+  assert.deepEqual(cfg.single.initialBalance, { farmer: 20, investor: 12, glutton: 6, prosecutor: 4, lucky: 2 });
+  assert.equal(cfg.single.boss.initialBalance, 65);
+  assert.deepEqual(cfg.single.boss.attrs.base, { greed: 2, squeeze: 2, rake: 0.8 });
+  assert.equal(cfg.single.investor.maxPledge, 6);
+  assert.equal(cfg.single.glutton.reflips, 3);
 });
 
 console.log(`\n全部通过：${passed} 项 ✅`);
