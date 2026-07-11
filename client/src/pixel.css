@@ -1649,3 +1649,69 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .hud-left-stack.quest .goal-hud.hud-card.forced-hit { animation: none; }
 }
+
+
+/* ============================================================
+   单人模式（§9.6）：大厅组队面板 + 席位切换指挥条
+   ============================================================ */
+.single-setup {
+  max-width: 720px; margin: 14px auto 0; padding: 14px 18px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.ss-hint { margin: 0; }
+.ss-seats { display: flex; gap: 10px; justify-content: center; }
+.ss-seat {
+  width: 120px; padding: 10px 6px 8px;
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  background-color: var(--c-parchment);
+  background-image: var(--tex-parchment);
+  border: 2px solid var(--c-wood-950);
+  box-shadow: inset 0 0 0 1px rgba(58, 42, 24, 0.25), 0 3px 0 rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+}
+.ss-seat.empty { filter: grayscale(0.4) brightness(0.85); }
+.ss-seat:hover { transform: translateY(-2px); }
+.ss-bust { width: 64px; height: 80px; image-rendering: pixelated; }
+.ss-empty-mark { width: 64px; height: 80px; display: flex; align-items: center; justify-content: center; font-size: 34px; color: var(--ink-dim); }
+.ss-bosses { display: flex; gap: 10px; justify-content: center; }
+.ss-boss {
+  flex: 1; max-width: 200px; padding: 10px;
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  background: rgba(10, 11, 15, 0.55);
+  border: 2px solid var(--c-wood-950);
+  cursor: pointer;
+}
+.ss-boss.picked { border-color: var(--px-gold); box-shadow: 0 0 10px rgba(232, 194, 90, 0.3); }
+.ss-boss-desc { font-family: var(--font-cjk); font-size: 12px; }
+.ss-ghost { display: flex; align-items: center; gap: 8px; justify-content: center; font-family: var(--font-cjk); font-size: 13px; }
+.ss-actions { display: flex; gap: 10px; justify-content: center; }
+
+/* 席位条：左下竖排（单机聊天隐藏后腾出的位置）——不得占用底部中央手牌扇区 */
+.seat-bar {
+  position: absolute; left: 12px; bottom: 44px;
+  display: flex; flex-direction: column-reverse; align-items: flex-start; gap: 8px;
+  z-index: 40; pointer-events: auto;
+}
+.seat-chip {
+  position: relative;
+  display: flex; flex-direction: row; align-items: center; gap: 8px;
+  padding: 5px 10px 5px 6px;
+  background-color: var(--c-wood-700);
+  background-image: var(--tex-wood);
+  border: 2px solid var(--c-wood-950);
+  box-shadow: inset 2px 2px 0 var(--px-bevel-l), inset -2px -2px 0 var(--px-bevel-d), 0 3px 0 rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+}
+.seat-chip.current { border-color: var(--px-gold); box-shadow: inset 0 0 0 1px rgba(232, 194, 90, 0.4), 0 0 10px rgba(232, 194, 90, 0.35), 0 3px 0 rgba(0, 0, 0, 0.4); cursor: default; }
+.seat-chip.dead { filter: grayscale(0.8) brightness(0.7); cursor: not-allowed; }
+.seat-chip:not(.current):not(.dead):hover { transform: translateY(-2px); }
+.seat-bust { width: 30px; height: 38px; image-rendering: pixelated; }
+.seat-tag {
+  position: absolute; top: 50%; right: -6px; transform: translate(100%, -50%);
+  padding: 1px 5px; white-space: nowrap;
+  background: var(--c-wax); border: 1px solid rgba(0, 0, 0, 0.4);
+}
+.seat-tag.done { background: #2c5a2e; }
+.seat-tag.cur { background: var(--c-brass); }
+.seat-tag.dead { background: #444; }
+.seat-hint { align-self: flex-start; margin: 0 0 2px 4px; }

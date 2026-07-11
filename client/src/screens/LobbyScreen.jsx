@@ -4,6 +4,7 @@ import { useAuthStore } from '../store/authStore';
 import { useGameStore } from '../store/gameStore';
 import { getArt } from '../assets/registry';
 import PixelText from '../assets/pixelfont/PixelText';
+import SingleSetup from '../ui/SingleSetup';
 import { T } from '../text';
 
 const Icon = getArt('icon');
@@ -22,6 +23,7 @@ export default function LobbyScreen() {
   const [online, setOnline] = useState({ count: 0, users: [] });
   const [roomName, setRoomName] = useState('');
   const [joinId, setJoinId] = useState('');
+  const [singleOpen, setSingleOpen] = useState(false); // 单人模式组队面板（§9.6，不走房间 API）
 
   useEffect(() => {
     let alive = true;
@@ -61,10 +63,13 @@ export default function LobbyScreen() {
 
       <section className="mode-row">
         {modes.map(m => (
-          <div key={m.id} className={`mode-card panel ${m.available ? '' : 'disabled'}`}>
+          <div key={m.id} className={`mode-card panel ${m.available || m.id === 'single' ? '' : 'disabled'}`}>
             <h3>{m.label}</h3>
             <p className="dim">{m.description}</p>
-            {m.available ? (
+            {m.id === 'single' ? (
+              // 单人模式不走房间 API：点开组队面板 → single_start（§9.6）
+              <button className="btn primary" disabled={!connected} onClick={() => setSingleOpen(v => !v)}>{T.single.start}</button>
+            ) : m.available ? (
               <button className="btn primary" disabled={!connected} onClick={() => createRoom(m.id)}>{T.lobby.createRoom}</button>
             ) : (
               <button className="btn ghost" disabled>{T.lobby.wip}</button>
@@ -72,6 +77,8 @@ export default function LobbyScreen() {
           </div>
         ))}
       </section>
+
+      {singleOpen && <SingleSetup onClose={() => setSingleOpen(false)} />}
 
       <section className="lobby-actions">
         <label className="field inline">

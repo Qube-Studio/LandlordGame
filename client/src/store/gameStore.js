@@ -41,8 +41,14 @@ export const useGameStore = create((set, get) => ({
     sendMsg({ type: 'join_room', roomId: id });
   },
 
+  // 单人模式（§9.6）：会话随连接活，不占房间系统——不写 sessionStorage（断线即回大厅，无重连恢复）。
+  startSingle({ teamRoles, persona, ghost }) {
+    set({ roomId: 'SINGLE', joining: true });
+    sendMsg({ type: 'single_start', teamRoles, persona, ghost });
+  },
+
   leaveRoom() {
-    sendMsg({ type: 'leave_room' });
+    sendMsg({ type: get().roomId === 'SINGLE' ? 'single_quit' : 'leave_room' });
     sessionStorage.removeItem('llg_room');
     set({ roomId: null, playerId: null, state: null, chat: [], chatTab: 'all', chatFlash: 0, joining: false, insuranceDrops: [], betFlight: null, myStack: null, looks: {}, panel: null, balanceFreeze: null });
   },
@@ -114,6 +120,11 @@ export const useGameStore = create((set, get) => ({
   _onOpen() {
     set({ connected: true });
     const { roomId } = get();
+    if (roomId === 'SINGLE') {
+      // 单人会话随连接死（服务端无恢复），断线重连=回大厅（v1 取舍：单机局短，重开成本低）。
+      set({ roomId: null, playerId: null, state: null, joining: false });
+      return;
+    }
     if (roomId) {
       set({ joining: true });
       sendMsg({ type: 'join_room', roomId });
@@ -130,9 +141,14 @@ export const useGameStore = create((set, get) => ({
         // 初次加入 / 测试模式附身切换都会收到 joined：重置下注瞬态，避免自己的桌面堆叠残留上一身份的牌。
         set({ playerId: msg.playerId, state: msg.state, chat: msg.chatHistory ?? [], joining: false, betFlight: null, myStack: null });
         break;
-      case 'state':
-        set({ state: msg.state });
+      case 'state': {
+        // 单人模式席位切换（§9.6）：me 随 single.seatId 换人 → playerId（3D 场景锚点）必须跟着走，
+        // 并清掉上一席位的下注瞬态（myStack/betFlight），否则手牌/桌面堆锚错座位。
+        const sid = msg.state?.single?.seatId;
+        if (sid && sid !== get().playerId) set({ state: msg.state, playerId: sid, betFlight: null, myStack: null });
+        else set({ state: msg.state });
         break;
+      }
       case 'chat':
         // 上限 300：恶意刷屏（即便被服务端限流）也不能无限撑大内存/渲染列表
         set(s => ({ chat: [...s.chat, msg].slice(-300) }));

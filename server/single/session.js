@@ -11,6 +11,13 @@ import { singleSummonCost, summonCooldownOk } from '../logic/settleSingle.js';
 import { ROLE_LABEL, SINGLE, MISC } from '../text.js';
 
 const PHASE_MAP = { COMMAND: 'BETTING', REFLIP: 'REFLIP', ALLOCATE: 'NEGOTIATE', ENDED: 'ENDED' };
+
+// 金额 → 张数（贪心 10/5/2/1，与 Room.noteCount 同式）：切席后队友已下注的牌堆靠它渲染。
+function noteCount(amount) {
+  let n = 0, r = amount;
+  for (const v of [10, 5, 2, 1]) { n += Math.floor(r / v); r %= v; }
+  return Math.max(1, n);
+}
 // 本层接管的意图（index.js 在 ws 挂着单机会话时优先路由这些）。
 export const SINGLE_INTENTS = new Set([
   'single_seat', 'single_quit', 'place_bet', 'summon',
@@ -103,8 +110,9 @@ export class SingleSession {
       ...t.seats.map((s, i) => ({
         id: s.id, name: SINGLE.seatName(ROLE_LABEL[s.role] ?? s.role, i + 1), role: s.role, seat: i,
         online: true, isHost: s.id === t.seats[0].id, lobbyReady: true, ready: true,
-        hasBet: t.bets[s.id] != null, betCount: null,
-        bet: betting ? null : (t.bets[s.id] ?? null),
+        hasBet: t.bets[s.id] != null,
+        betCount: t.bets[s.id] != null ? noteCount(t.bets[s.id]) : 0,
+        bet: betting ? (t.bets[s.id] ?? null) : (t.bets[s.id] ?? null),
         balance: s.balance,                              // 单人无隐私：全队余额可见
         bankrupt: s.dead, spectator: false, confirmed: true,
         negotiateConfirmed: false, emote: null,

@@ -9,7 +9,10 @@ export const ROLE_GLYPH = T.roles.glyph;
 export const ROLE_DESC = T.roles.desc;
 export const ROLE_SHEET = T.roles.sheet;
 
-const FACTION = { landlord: 'landlord', capitalist: 'landlord', farmer: 'farmer', investor: 'farmer', glutton: 'farmer', prosecutor: 'farmer' };
+const FACTION = {
+  landlord: 'landlord', capitalist: 'landlord', ghost: 'landlord',
+  farmer: 'farmer', investor: 'farmer', glutton: 'farmer', prosecutor: 'farmer', lucky: 'farmer',
+};
 export const factionOf = (role) => FACTION[role] ?? null;
 export const isLandlordSide = (role) => factionOf(role) === 'landlord';
 export const isFarmerSide = (role) => factionOf(role) === 'farmer';

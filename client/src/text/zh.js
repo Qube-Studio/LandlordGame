@@ -548,12 +548,14 @@ const roles = {
   label: {
     landlord: '地主', capitalist: '资本家',
     farmer: '农民', investor: '投资人', glutton: '暴食者', prosecutor: '检察官',
+    lucky: '幸运儿', ghost: '幽灵',           // 单人模式专属（§9）
     bank: '银行', none: '未选',
   },
   // 单字身份章（玩家栏用）。多为角色名首字，暴食者取「食」而非「暴」。
   glyph: {
     landlord: '地', capitalist: '资',
     farmer: '农', investor: '投', glutton: '食', prosecutor: '检',
+    lucky: '运', ghost: '幽',
   },
   // 角色一句话说明（选角时展示）。
   desc: {
@@ -563,6 +565,8 @@ const roles = {
     investor: '下注时投保 n（拖牌入槽），输则免阵营 2n 债务（保费先扣）',
     glutton: '每回合攒饭账（农民胜时扣除），输可重掷硬币（每局次数=农民人数）',
     prosecutor: '清廉的政府官员，消耗资金使纳税人接受严厉监管',
+    lucky: '己方胜率 +10%；每逢败局自己 −1、下次再 +5%（约 5 回合的概率窗口）',
+    ghost: '幻影注金：膨胀己方目标、分到的钱和债凭空消失，永远收回注金',
   },
   // 招募令角色手册：intro = 简介段落；advanced = 高级信息表 [栏目, 值]。
   sheet: {
@@ -668,6 +672,27 @@ const payoutSteps = {
   capitalistTax: '税收',
 };
 
+// ---- 单人模式（§9.6，席位切换指挥 v1）----
+const single = {
+  start: '单人开局',
+  setupTitle: '组建你的队伍',
+  setupHint: '点击席位循环切换角色；至少 1 人',
+  emptySeat: '空位',
+  bossTitle: '选择对手',
+  ghostToggle: '幽灵随行（Boss 侧幻影注金）',
+  begin: '开局',
+  cancel: '取消',
+  seatCurrent: '操控中',
+  seatDone: '已下注',
+  seatDead: '破产',
+  switchHint: 'Tab 切换席位',
+  personas: {
+    steward: { name: '账房先生', desc: '稳健收租 · 基准难度' },
+    gambler: { name: '亡命赌徒', desc: '背水一战 · 越输越凶' },
+    miser: { name: '铁公鸡', desc: '小注磨人 · 盘剥狠辣' },
+  },
+};
+
 // ---- 开发/测试专用（仅 import.meta.env.DEV 可见）----
 const dev = {
   hud: (freeCamOn) => `测试模式 · B 补满玩家 · V 切换操控角色 · K 自由相机(${freeCamOn ? common.on : common.off})`,
@@ -680,5 +705,5 @@ export default {
   challengePanel, settlePanel, negotiatePanel, finalizePanel, endedPanel, coinPanel,
   chat, ledger, roleWall, guide, nego2d, hand2d, settings, rules,
   victory, viewport, dock, login, lobby, game, app, net,
-  roles, settleEvents, payoutSteps, dev,
+  roles, settleEvents, payoutSteps, single, dev,
 };
