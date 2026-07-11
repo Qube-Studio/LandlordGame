@@ -104,7 +104,7 @@ export const DEFAULT_CONFIG = {
     initialBalance: { farmer: 20, investor: 12, glutton: 6, prosecutor: 4, lucky: 2 },
     // 农民工资：每 wage.interval 回合发 wage.base + (农民数−1)×wage.perFarmerBonus（4 农民 → 5/人/2 回合，凭空铸造）。
     wage: { interval: 2, base: 2, perFarmerBonus: 1 },
-    investor: { maxPledge: 6 },                    // 只要己方输，保金即减免应付款——含输掉的注金本身（对称局=返还）
+    investor: { maxPledge: 6, waiverMultiplier: 1 }, // 只要己方输，保金×倍率即减免应付款——含输掉的注金本身（对称局=返还）；倍率待实测（多人是 2×）
     glutton: { allowancePerRound: 1, reflips: 3 }, // 饭账每回合固定扣（无视输赢）；重掷固定 3 次
     // 检察官·监管：费用固定 农民数×costPerFarmer、不递增；两次监管至少间隔 农民数 回合；
     // 地主无目标考核，被监管直接损失 penaltyMult×监管费。
