@@ -153,6 +153,20 @@ export const MODE_TEXT = {
   single: { label: '单人模式', description: '指挥你的整支队伍对抗 Boss：角色搭配与技能耦合，专属角色幽灵/幸运儿。（开发中）' },
 };
 
+// ---- 单人模式（§9）：席位名 / Boss 人格名 / 会话错误 ----
+export const SINGLE = {
+  seatName: (roleLabel, idx) => `${roleLabel}·${idx}号`,   // 玩家队席位显示名
+  bossLabel: {                                              // Boss 人格卡面名（意图电报 v1=人格明牌）
+    steward: '账房先生',
+    gambler: '亡命赌徒',
+    miser: '铁公鸡',
+  },
+  roomName: '单人牌局',
+  errNoSession: '没有进行中的单人牌局',
+  errBadSeat: '席位无效',
+  errBadTeam: '队伍配置无效（1-4 个单人模式角色）',
+};
+
 // ---- 杂项（默认名/兜底词）----
 export const MISC = {
   defaultRoomName: '未命名房间',

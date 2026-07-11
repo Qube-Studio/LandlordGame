@@ -162,6 +162,18 @@ export class SingleTable {
     return this._book(this._pendingSettle);
   }
 
+  // ALLOCATE 增量转移（协商拖拽的服务端形态）：把 n 点收益/债务从 fromId 挪给 toId（守恒天然成立）。
+  transferAllocation(fromId, toId, kind, n) {
+    if (this.phase !== 'ALLOCATE') return { error: '当前不是分账阶段' };
+    if (fromId === toId || !this._seat(fromId) || !this._seat(toId)) return { error: '席位无效' };
+    const key = kind === 'debt' ? 'debts' : 'takes';
+    const a = this._pendingSettle.allocation[key];
+    if (!Number.isInteger(n) || n < 1 || (a[fromId] ?? 0) < n) return { error: '可转移的数额不足' };
+    a[fromId] -= n;
+    a[toId] = (a[toId] ?? 0) + n;
+    return { ok: true };
+  }
+
   // ---------- 内部：结算一枚硬币结果 ----------
   _settle(teamWin) {
     const alive = this._aliveSeats();

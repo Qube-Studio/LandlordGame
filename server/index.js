@@ -9,7 +9,8 @@ import { Room } from './Room.js';
 import { listModes, getMode } from './modes/index.js';
 import { DEFAULT_CONFIG } from './config.js';
 import * as auth from './auth.js';
-import { ERR } from './text.js';
+import { ERR, SINGLE } from './text.js';
+import { SingleSession, SINGLE_INTENTS } from './single/session.js';
 
 const TEST_MODE = process.env.LLG_TEST === '1'; // 本地测试开关（任务③）：仅 npm run dev 开启
 
@@ -161,6 +162,31 @@ wss.on('connection', (ws, req) => {
 
     // 应用级保活：客户端用它做活性自检（见 client/src/net/socket.js）。无需房间。
     if (type === 'ping') { send(ws, { type: 'pong' }); return; }
+
+    // ---------- 单人模式（§9.6）：会话随连接活，不占房间系统 ----------
+    if (type === 'single_start') {
+      ws.singleSession?.destroy();
+      try {
+        ws.singleSession = new SingleSession({
+          teamRoles: msg.teamRoles, persona: msg.persona, ghost: !!msg.ghost,
+          configOverrides: msg.config ?? {},
+          send: (m) => send(ws, m),
+        });
+      } catch {
+        send(ws, { type: 'error', message: SINGLE.errBadTeam });
+        return;
+      }
+      send(ws, { type: 'joined', playerId: ws.singleSession.seatId, state: ws.singleSession.view(), chatHistory: [] });
+      return;
+    }
+    if (ws.singleSession) {
+      if (type === 'single_quit') { ws.singleSession.destroy(); ws.singleSession = null; return; }
+      if (SINGLE_INTENTS.has(type)) {
+        const r = ws.singleSession.handle(type, msg);
+        if (r?.error) send(ws, { type: 'error', message: r.error });
+        return;
+      }
+    }
 
     const room = rooms.get(ws.roomId);
     if (!room) { send(ws, { type: 'error', message: ERR.noRoomJoined }); return; }

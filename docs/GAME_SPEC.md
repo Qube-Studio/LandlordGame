@@ -539,3 +539,10 @@ competitive: {
 - 参数全走 `config.single`（工资/饭账/重掷/监管费与冷却/幸运儿概率/幽灵系数），角色升级 = per-run config 增量合并（§0.2 扩展点白嫖）。
 - 模式注册 `modes/index.js`：`single`（`available: false` 占位直至可玩）。文案：`text/zh.js` 未来加 `rolesSingle` 命名空间（单人角色手册与多人数值分叉）。
 - 模拟脚本：scratchpad `single-sim.mjs`（真实 settleRound + 各角色外挂，4000 局/格）——参数改动先过模拟再进 config。
+
+### 9.6 接线与交互 v1（席位切换指挥）
+
+- **会话层** `server/single/session.js`：`SingleSession` 把 `SingleTable.view()` 适配成**与多人 `viewFor()` 同形的 state**——现有客户端（Scene3D/HandLayer/PayoutLayer/UiLayer）零结构改动即可渲染。相位映射：`COMMAND→BETTING`、`REFLIP→REFLIP`、`ALLOCATE→NEGOTIATE`、`ENDED→ENDED`；席位=players（Boss 挂 landlord 位）；`me`=当前操控席位。
+- **WS 协议**：`single_start {teamRoles, persona, ghost}` 在连接上开一局（无房间概念，会话随连接活）；`single_seat {seatId}` 切换操控席位（≈测试模式 possess 的产品化）；其余**复用既有消息名**（`place_bet`/`summon`/`request_reflip`/`pass_reflip`/`negotiate_transfer`/`negotiate_confirm`），index.js 在 ws 挂着单机会话时优先路由给它。全部席位下注即自动 resolve（同多人 `_checkAllBet`）。
+- **交互 v1 = 席位切换指挥**：玩家用现有单座交互逐席位操作（HandLayer 拖牌下注、PayoutLayer 协商拖拽分账），切席入口沿用「V 切换操控角色」的心智；同时操控/阵型摆放（真·指挥官视角）留给 v2。
+- Boss 意图电报 v1 = 人格明牌（卡面名 + attrs 档位可见）；出注金额仍暗、张数照多人惯例可见。
