@@ -1700,23 +1700,27 @@ body {
    颜色随背景变化。用 difference 混合 + 浅灰源色(#dcdcdc)复刻:反相强度打 86%,柔和不刺眼。
    情境变形：指向可交互目标（可附身队友）时十字变**像素块拼的斜方形**（同一混合,同一观感）。
    未锁定时显示上锁提示。 */
+/* ⚠ mix-blend-mode 必须挂在 .walk-crosshair 本体上：带 z-index 的定位元素自成层叠上下文，
+   若把混合挂在 ::before/::after 上，它们只会和父元素（透明）混合——反色对画布完全失效，
+   渲染成纯灰色块（四轮反馈抓出的真 bug）。挂本体=整个准心与其下方的 WebGL 画布做 difference。 */
 .walk-crosshair {
   position: absolute; left: 50%; top: 50%; width: 14px; height: 14px;
   transform: translate(-50%, -50%);
   pointer-events: none; z-index: 35;
+  mix-blend-mode: difference;
 }
 .walk-crosshair::before {
   content: ''; position: absolute; left: 6px; top: 0; width: 2px; height: 14px;
-  background: #dcdcdc; mix-blend-mode: difference;
+  background: #dcdcdc;
 }
 .walk-crosshair::after {
   content: ''; position: absolute; top: 6px; left: 0; width: 14px; height: 2px;
-  background: #dcdcdc; mix-blend-mode: difference;
+  background: #dcdcdc;
 }
 /* 斜方形=12 个 2px 像素块的菱形描边（box-shadow 逐块摆,无平滑斜线,像素美学） */
 .walk-crosshair.aim::before {
   left: 6px; top: 0; width: 2px; height: 2px;
-  background: #dcdcdc; mix-blend-mode: difference;
+  background: #dcdcdc;
   box-shadow:
     -2px 2px #dcdcdc, 2px 2px #dcdcdc,
     -4px 4px #dcdcdc, 4px 4px #dcdcdc,

@@ -213,6 +213,7 @@ function SingleRig({ mode, seat, look, shakeRef }) {
   const { camera, gl } = useThree();
   const pos = useRef(new THREE.Vector3(0, WALK_EYE, 6.8));
   const vel = useRef({ x: 0, z: 0 });   // 走动惯性速度（xz 平面）
+  const smSpeed = useRef(0);            // 平滑速度（喂步伐颠簸,撞墙时步伐渐停不急停）
   const eyeY = useRef(WALK_EYE);        // 眼高缓动（起身 1.98→2.35 不跳）
   const yaw = useRef(0);          // 朝向:yaw=0 面向 -z(桌心);fwd=(-sinYaw,0,-cosYaw)
   const pitch = useRef(-0.16);
@@ -364,6 +365,7 @@ function SingleRig({ mode, seat, look, shakeRef }) {
       yaw.current = Math.atan2(-_walkDir.x, -_walkDir.z);
       pitch.current = Math.asin(THREE.MathUtils.clamp(_walkDir.y, -1, 1));
       vel.current.x = 0; vel.current.z = 0;
+      smSpeed.current = 0;
       roll.current = 0;
       eyeY.current = camera.position.y;
       return;
@@ -383,16 +385,28 @@ function SingleRig({ mode, seat, look, shakeRef }) {
     const kAcc = 1 - Math.exp(-(f || r ? 9 : 6.5) * dt);
     vel.current.x += (tx - vel.current.x) * kAcc;
     vel.current.z += (tz - vel.current.z) * kAcc;
-    // 位移后夹墙;**被夹住的轴速度清零**——顶着墙/桌沿推时步伐相位不再空转
-    // （否则原地不动却一直上下晃,像撞墙抽搐;沿墙滑动的分量保留,颠簸只随真实移动）
-    const nx = pos.current.x + vel.current.x * dt;
-    const nz = pos.current.z + vel.current.z * dt;
-    pos.current.x = nx; pos.current.z = nz;
+    // 位移后碰撞解算（软响应,用户四轮反馈"撞墙太生硬"）:
+    // ① 推出软化——不一帧弹出,按 ~20/s 的速率分几帧推出（残余穿深 ≤ 一帧位移,不可察觉）;
+    // ② 速度只吸收**法向分量**,切向保留——斜着撞墙顺滑滑开,正面撞墙是"被墙接住"而非急刹;
+    // ③ 步伐颠簸吃平滑速度（smSpeed）,撞墙时渐停,不再原地空转抽搐。
+    const px = pos.current.x + vel.current.x * dt;
+    const pz = pos.current.z + vel.current.z * dt;
+    pos.current.x = px; pos.current.z = pz;
     clampWalk(pos.current);
-    if (pos.current.x !== nx) vel.current.x = 0;
-    if (pos.current.z !== nz) vel.current.z = 0;
-    // 步伐:速度驱动相位;竖向双频颠簸 + 沿相机右向的横摆（幅度温和,用户二轮反馈调低）
-    const speed = Math.hypot(vel.current.x, vel.current.z);
+    const cxn = pos.current.x - px, czn = pos.current.z - pz;   // 完整推出向量（=碰撞法向）
+    const cl = Math.hypot(cxn, czn);
+    if (cl > 1e-6) {
+      const soft = Math.min(1, 20 * dt);
+      pos.current.x = px + cxn * soft;
+      pos.current.z = pz + czn * soft;
+      const nnx = cxn / cl, nnz = czn / cl;
+      const vn = vel.current.x * nnx + vel.current.z * nnz;
+      if (vn < 0) { vel.current.x -= nnx * vn; vel.current.z -= nnz * vn; }
+    }
+    // 步伐:平滑速度驱动相位;竖向双频颠簸 + 沿相机右向的横摆（幅度温和,用户二轮反馈调低）
+    const rawSpeed = Math.hypot(vel.current.x, vel.current.z);
+    smSpeed.current += (rawSpeed - smSpeed.current) * Math.min(1, 9 * dt);
+    const speed = smSpeed.current;
     const sf = Math.min(1, speed / WALK_SPEED);
     bob.current += speed * dt * 3.1;
     const bobY = Math.sin(bob.current * 2) * 0.017 * sf;
