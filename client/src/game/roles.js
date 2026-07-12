@@ -8,6 +8,8 @@ export const ROLE_LABEL = T.roles.label;
 export const ROLE_GLYPH = T.roles.glyph;
 export const ROLE_DESC = T.roles.desc;
 export const ROLE_SHEET = T.roles.sheet;
+// 单人模式手册覆盖（§9.2 口径）：查表优先取单人版,缺项回落多人 sheet（如 lucky 本就单人专属）。
+export const ROLE_SHEET_SINGLE = T.roles.sheetSingle;
 
 const FACTION = {
   landlord: 'landlord', capitalist: 'landlord', ghost: 'landlord',

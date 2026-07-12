@@ -27,6 +27,7 @@ function VictoryStage() {
   const myRole = useGameStore(s => s.state.me?.role);
   const spectator = useGameStore(s => !!s.state.me?.spectator);
   const isHost = useGameStore(s => !!s.state.me?.isHost);
+  const single = useGameStore(s => s.state.mode === 'single');
   const send = useGameStore(s => s.send);
   const endedReturnAt = useGameStore(s => s.state.endedReturnAt);
   const panelOpen = useGameStore(s => s.panel != null);
@@ -77,7 +78,10 @@ function VictoryStage() {
         <div className={`victory-controls${panelOpen ? ' dimmed' : ''}`}>
           {isHost
             ? (
-              <button className="btn primary victory-next" onClick={() => send({ type: 'restart_game' })}>
+              <button
+                className="btn primary victory-next"
+                onClick={() => (single ? useGameStore.getState().startSingle() : send({ type: 'restart_game' }))}
+              >
                 {T.victory.again}{!IS_TOUCH && <span className="keycap">{T.common.keySpace}</span>}
               </button>
             )

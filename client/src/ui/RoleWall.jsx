@@ -8,7 +8,7 @@ import { useGameStore } from '../store/gameStore';
 import PixelText from '../assets/pixelfont/PixelText';
 import { bustUrl } from '../scene/bustSnapshot';
 import {
-  ROLE_LABEL, ROLE_SHEET, factionOf,
+  ROLE_LABEL, ROLE_SHEET, ROLE_SHEET_SINGLE, factionOf,
   LANDLORD_SIDE_ROLES, FARMER_SIDE_ROLES,
 } from '../game/roles';
 import { parseRuns } from '../game/richtext';
@@ -32,8 +32,9 @@ function selectability(role, state, me, readonly) {
 
 // 角色手册正文（浮窗/触屏详情卡/单人组队期 3D 面板共用）：简介段落 + 高级信息表。
 // export 供 Scene3D 的组队期瞄准面板复用（§9.6 交互 v3——面板写在 3D 空间,不退出指针锁）。
-export function RoleDetailBody({ role, advanced }) {
-  const sheet = ROLE_SHEET[role];
+// single=true 时数值走单人口径（ROLE_SHEET_SINGLE 优先,缺项回落多人 sheet）。
+export function RoleDetailBody({ role, advanced, single = false }) {
+  const sheet = (single ? ROLE_SHEET_SINGLE[role] : null) ?? ROLE_SHEET[role];
   return (
     <>
       <div className="role-detail-head">

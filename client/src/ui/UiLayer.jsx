@@ -133,7 +133,11 @@ function useGameKeys() {
       else if (phase === 'NEGOTIATE' && state.roundFarmerIds?.includes(playerId)) {
         send({ type: 'negotiate_confirm', confirmed: !me?.negotiateConfirmed });
       } else if (phase === 'FINALIZE' && canTake) useGameStore.getState().takePayout(); // 冻结余额显示→飞行落地才跳数
-      else if (phase === 'ENDED' && me?.isHost) send({ type: 'restart_game' });
+      // 单人终局：再来一局 = 重开单机会话（回组队期）;restart_game 是房间协议,单机路由表不认
+      else if (phase === 'ENDED' && me?.isHost) {
+        if (state.mode === 'single') useGameStore.getState().startSingle();
+        else send({ type: 'restart_game' });
+      }
     };
     const onKey = (e) => {
       if (typingNow() || chatOpen) return;      // 输入/聊天聚焦时，游戏快捷键让位

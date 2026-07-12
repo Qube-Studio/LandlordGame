@@ -1041,7 +1041,7 @@ function SetupSheet3D({ players }) {
   return (
     <Html position={[seat.x, 1.9, seat.z + toward]} center distanceFactor={7} zIndexRange={[29, 0]}>
       <div className="role-detail sheet3d">
-        <RoleDetailBody role={p.role} advanced />
+        <RoleDetailBody role={p.role} advanced single />
       </div>
     </Html>
   );
