@@ -1694,3 +1694,24 @@ body {
 }
 .seat-chip.begin:disabled { filter: grayscale(0.7) brightness(0.7); cursor: not-allowed; }
 .seat-chip.begin:not(:disabled):hover { filter: brightness(1.12); transform: translateY(-2px); }
+
+/* 走动模式（MC 心智）：中央准心（difference 混合,深浅背景都可读）+ 未锁定时的上锁提示 */
+.walk-crosshair {
+  position: absolute; left: 50%; top: 50%; width: 14px; height: 14px;
+  transform: translate(-50%, -50%);
+  pointer-events: none; z-index: 35;
+}
+.walk-crosshair::before {
+  content: ''; position: absolute; left: 6px; top: 0; width: 2px; height: 14px;
+  background: #fff; mix-blend-mode: difference;
+}
+.walk-crosshair::after {
+  content: ''; position: absolute; top: 6px; left: 0; width: 14px; height: 2px;
+  background: #fff; mix-blend-mode: difference;
+}
+.walk-lock-hint {
+  position: absolute; left: 50%; top: 55%; transform: translateX(-50%);
+  pointer-events: none; z-index: 35;
+  font-family: var(--font-cjk); font-size: 14px; color: rgba(255, 255, 255, 0.75);
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.6);
+}

@@ -24,6 +24,7 @@ export const useGameStore = create((set, get) => ({
   looks: {},         // 其他玩家头部朝向（任务⑦，高频瞬态，不走全量 state）：{ playerId: {yaw, pitch} }
   panel: null,       // 桌沿抽屉（HUD 2.0）：当前升起的面板 'roles' | 'ledger' | null（收起）
   singleCam: 'walk', // 单人相机（§9.6 交互 v2）：'walk' 全局走动 | 'seat' 附身当前席位（纯表现状态）
+  walkLocked: false, // 走动模式指针锁（MC 心智）：锁定=鼠标直接转视角+中央准心；ESC 释放后可点 UI
 
   connect(token) {
     connectSocket(token);
@@ -49,6 +50,7 @@ export const useGameStore = create((set, get) => ({
     sendMsg({ type: 'single_start' });
   },
   setSingleCam(v) { set(s => (s.singleCam === v ? {} : { singleCam: v })); },
+  setWalkLocked(v) { set(s => (s.walkLocked === v ? {} : { walkLocked: v })); },
 
   leaveRoom() {
     sendMsg({ type: get().roomId === 'SINGLE' ? 'single_quit' : 'leave_room' });

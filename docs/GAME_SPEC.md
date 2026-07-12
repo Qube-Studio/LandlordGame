@@ -546,6 +546,6 @@ competitive: {
 - **组队期（SINGLE_SETUP 相位）**：`single_start`（无参）先进组队期——4 个席位槽 `single_role {slot, role|null}` 循环选角、`single_ghost {on}` 切幽灵、`single_begin` 才构造 SingleTable 开打。**槽位=桌边固定座位**（players[].seat 保留组队所选槽，Boss 恒 seat 4）。测试/脚本仍可 `single_start {teamRoles}` 直启跳过组队期。
 - **WS 协议**：`single_seat {seatId}` 切换操控席位；其余**复用既有消息名**（`place_bet`/`summon`/`request_reflip`/`pass_reflip`/`negotiate_transfer`/`negotiate_confirm`），index.js 在 ws 挂着单机会话时优先路由给它（`look`/`chat`/`emote` 静默吞掉）。全部席位下注即自动 resolve（同多人 `_checkAllBet`）。
 - **场景 = 单人专属长桌**（不复用多人环桌）：毡面 8.6×4.0，玩家队 4 槽沿 +z 长边一字排开、Boss 独坐 −z 对面，两阵营对坐；场景不随席位旋转（rot=0）。桌两端麻绳立柱隔离带把 Boss 半场拦起来（走动边界的可见理由）。
-- **相机双态**（客户端 `singleCam`，纯表现）：**walk 全局走动**（WASD 平移 + 左键拖动转视角，夹在己方半场，桌椅有碰撞箱）↔ **seat 附身席位**（沿用多人落座第一人称手感）。切换：点席位芯片/点队友模型/Tab=附身，X/起身按钮=回走动；两态同一套阻尼收敛，起身/落座无跳变。下注等桌面交互在附身态进行（HandLayer 只在附身时挂载）。
+- **相机双态**（客户端 `singleCam`，纯表现）：**walk 全局走动（MC 心智）**——指针锁定：点击画布锁鼠标、移动鼠标直接转视角（中央准心），ESC 释放后鼠标可点 UI；WASD 平移带惯性（加速/摩擦滑停），行走步伐颠簸 + 横移侧倾（Teardown 手感）；夹在己方半场，桌椅有碰撞箱；触屏退化为拖动转视角。↔ **seat 附身席位**（沿用多人落座第一人称手感）。切换：点席位芯片/Tab=附身，走动锁定中**准心对准队友点击**=附身（未锁定也可直接点模型），X/起身按钮=回走动；两态同一套阻尼收敛，起身/落座无跳变。下注等桌面交互在附身态进行（HandLayer 只在附身时挂载）。**坑**：点模型附身只开放给走动态——落座时 r3f 射线会穿透手牌命中身后队友，点牌会被误判成切席。
 - **左下角席位列**（SeatBar）双态：组队期=槽位选角+幽灵开关+开局按钮；对局期=附身/切席/起身 + 已下注/破产状态标。
 - **Boss**：现阶段只有一个（`bosses/basic.js` BOSS，attrs=base 档、押 35%），不做人格三选——玩法优先（用户裁决 2026-07-12）；难度档位表留在 `config.single.boss.attrs` 供战役梯度。出注金额仍暗、张数照多人惯例可见。

@@ -686,7 +686,8 @@ const single = {
   seatDead: '破产',
   standUp: '起身 [X]',
   switchHint: 'TAB 切席 · X 起身走动',
-  walkHint: 'WASD 走动 · 拖动转视角 · TAB/点队友附身',
+  walkHint: 'WASD 走动 · 准心点队友附身 · ESC 放开鼠标',
+  lockHint: '点击画面 · 锁定视角',
 };
 
 // ---- 开发/测试专用（仅 import.meta.env.DEV 可见）----

@@ -149,22 +149,28 @@ function CameraRig({ look, shakeRef, camZ = 3.0 }) {
 // 单人相机（§9.6 交互 v2）：两种模式，同一套阻尼收敛做自然过渡。
 // - seat（附身席位）：沿用落座第一人称手感——绝对鼠标环视 + 注视桌心 + 破产微震；
 //   相机每帧向「席位眼位」收敛，从走动位切过来就是一段柔和飞入。
-// - walk（全局走动）：WASD 平移 + 左键在 3D 画布上拖动转视角（增量，同触屏心智）；
-//   位置夹在己方半场（阵营线有隔离带可视化），桌+椅一个碰撞箱。
+// - walk（全局走动，MC 心智）：**指针锁定**——点击画布锁鼠标，移动鼠标直接转视角（中央准心），
+//   ESC 释放后鼠标可点 UI；WASD 平移带**惯性**（加速/摩擦），行走时步伐颠簸 + 横移侧倾（Teardown 手感）。
+//   准心点队友 = 附身。位置夹在己方半场（阵营线有隔离带可视化），桌+椅一个碰撞箱。
 //   落座期间持续把行走位/朝向同步到当前相机 → 「起身」瞬间无跳变。
-const WALK_EYE = 2.35, WALK_SPEED = 3.4;
+const WALK_EYE = 2.35, WALK_SPEED = 3.6;
 const WALK_BOUND = { x: 10.6, zMin: 1.15, zMax: 10.6 };
 const _walkDir = new THREE.Vector3();
+const _aim = new THREE.Vector3();
 function clampWalk(p) {
   p.x = THREE.MathUtils.clamp(p.x, -WALK_BOUND.x, WALK_BOUND.x);
   p.z = THREE.MathUtils.clamp(p.z, WALK_BOUND.zMin, WALK_BOUND.zMax);
   if (Math.abs(p.x) < 5.2 && p.z < 3.5) p.z = 3.5;   // 长桌+座椅碰撞箱
 }
 function SingleRig({ mode, seat, look, shakeRef }) {
-  const { camera } = useThree();
+  const { camera, gl } = useThree();
   const pos = useRef(new THREE.Vector3(0, WALK_EYE, 6.8));
+  const vel = useRef({ x: 0, z: 0 });   // 走动惯性速度（xz 平面）
+  const eyeY = useRef(WALK_EYE);        // 眼高缓动（起身 1.98→2.35 不跳）
   const yaw = useRef(0);          // 朝向:yaw=0 面向 -z(桌心);fwd=(-sinYaw,0,-cosYaw)
   const pitch = useRef(-0.16);
+  const roll = useRef(0);         // 步伐/横移侧倾
+  const bob = useRef(0);          // 步伐相位
   const keys = useRef({});
   const target = useRef(new THREE.Vector3(0, LOOK_Y, 0));
 
@@ -187,11 +193,89 @@ function SingleRig({ mode, seat, look, shakeRef }) {
     };
   }, []);
 
-  // 左键拖动转视角（仅走动模式;只在 3D 画布上起手;抓着牌/钱时让位——grab.active,碰撞铁律）。
-  // 监听器只挂一次,模式经 ref 读活值（carry.js 铁律③:effect 依赖 mode 会在切换瞬间打断进行中的拖动）。
+  // 模式经 ref 读活值（carry.js 铁律③:监听器只挂一次,effect 依赖 mode 会在切换瞬间打断进行中的手势）。
   const modeRef = useRef(mode);
   useEffect(() => { modeRef.current = mode; }, [mode]);
+
+  // 指针锁定（桌面走动,MC 心智）:锁定=鼠标增量直接转视角;点击空画布上锁(区分点击与协商拖钱——
+  // 松手时未发生 grab 且位移小才算"点击");锁定中点按=准心附身队友;附身/卸载时释放锁。
   useEffect(() => {
+    if (IS_TOUCH) return undefined;
+    const canvas = gl.domElement;
+    const requestLock = () => { try { canvas.requestPointerLock?.()?.catch?.(() => {}); } catch { /* 忽略被浏览器拒绝 */ } };
+    const isLocked = () => document.pointerLockElement === canvas;
+    const onLockChange = () => { useGameStore.getState().setWalkLocked(isLocked()); };
+    const onMove = (e) => {
+      if (!isLocked() || modeRef.current !== 'walk') return;
+      yaw.current -= e.movementX * 0.0026;
+      pitch.current = THREE.MathUtils.clamp(pitch.current - e.movementY * 0.0022, -0.85, 0.6);
+    };
+    // 未锁定:mousedown 记起点,mouseup 位移小且没抓过东西 → 上锁（协商期拖钱不误锁）
+    const down = { x: 0, y: 0, valid: false };
+    const onDown = (e) => {
+      if (modeRef.current !== 'walk') { down.valid = false; return; }
+      if (isLocked()) {
+        // 锁定中点按:准心 ±0.14rad 锥内最近的活队友 → 附身（解析式,不走 raycaster）
+        const st = useGameStore.getState();
+        const fwd = camera.getWorldDirection(_walkDir);
+        let best = null;
+        for (const p of st.state?.players ?? []) {
+          if (p.id === 'L' || p.bankrupt) continue;
+          const s = SINGLE_TEAM_SEATS[p.seat];
+          if (!s) continue;
+          _aim.set(s.x - camera.position.x, 1.15 - camera.position.y, s.z - camera.position.z);
+          if (_aim.length() > 10) continue;
+          const ang = _aim.normalize().angleTo(fwd);
+          if (ang < 0.14 && (!best || ang < best.ang)) best = { id: p.id, ang };
+        }
+        if (best) {
+          if (best.id !== st.playerId) st.send({ type: 'single_seat', seatId: best.id });
+          st.setSingleCam('seat');
+        }
+        down.valid = false;
+        return;
+      }
+      down.x = e.clientX; down.y = e.clientY;
+      down.valid = e.target === canvas;                 // 只认裸画布(HTML 浮字/HUD 不上锁)
+    };
+    const onUp = (e) => {
+      if (!down.valid || modeRef.current !== 'walk' || isLocked()) return;
+      down.valid = false;
+      if (grab.active) return;                          // 这一按是拖钱/拖票,不是"点击画面"
+      if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > 6) return;
+      requestLock();
+    };
+    document.addEventListener('pointerlockchange', onLockChange);
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mousedown', onDown);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      document.removeEventListener('pointerlockchange', onLockChange);
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mousedown', onDown);
+      window.removeEventListener('mouseup', onUp);
+      if (isLocked()) document.exitPointerLock();
+      useGameStore.getState().setWalkLocked(false);
+    };
+  }, [gl, camera]);
+
+  // 进走动自动上锁（X/Tab 起身属于用户手势激活窗内,一般成功;组队期除外——选角要用鼠标）;
+  // 附身时释放锁。失败无妨:点击画面随时可锁。
+  useEffect(() => {
+    if (IS_TOUCH) return;
+    const canvas = gl.domElement;
+    if (mode === 'walk') {
+      if (useGameStore.getState().state?.phase !== 'SINGLE_SETUP') {
+        try { canvas.requestPointerLock?.()?.catch?.(() => {}); } catch { /* 忽略 */ }
+      }
+    } else if (document.pointerLockElement === canvas) {
+      document.exitPointerLock();
+    }
+  }, [mode, gl]);
+
+  // 触屏兜底:拖动增量转视角（无指针锁可用;抓着牌/钱时让位——grab.active,碰撞铁律）。
+  useEffect(() => {
+    if (!IS_TOUCH) return undefined;
     const drag = { on: false, x: 0, y: 0 };
     const down = (e) => {
       if (modeRef.current !== 'walk') return;
@@ -240,29 +324,46 @@ function SingleRig({ mode, seat, look, shakeRef }) {
       camera.getWorldDirection(_walkDir);
       yaw.current = Math.atan2(-_walkDir.x, -_walkDir.z);
       pitch.current = Math.asin(THREE.MathUtils.clamp(_walkDir.y, -1, 1));
+      vel.current.x = 0; vel.current.z = 0;
+      roll.current = 0;
+      eyeY.current = camera.position.y;
       return;
     }
-    // 走动:WASD 相对朝向平移
+    // 走动（Teardown 手感）:WASD 目标速度 + 指数趋近惯性(加速快/滑停慢) + 步伐颠簸 + 横移侧倾
+    const dt = Math.min(delta, 0.05);         // 掉帧限步,惯性不炸
     const k = keys.current;
     const f = (k.KeyW ? 1 : 0) - (k.KeyS ? 1 : 0);
     const r = (k.KeyD ? 1 : 0) - (k.KeyA ? 1 : 0);
+    const sy = Math.sin(yaw.current), cy = Math.cos(yaw.current);
+    let tx = 0, tz = 0;
     if (f || r) {
-      const sy = Math.sin(yaw.current), cy = Math.cos(yaw.current);
       const n = f && r ? Math.SQRT1_2 : 1;    // 斜向不加速
-      pos.current.x += (-sy * f + cy * r) * n * WALK_SPEED * delta;
-      pos.current.z += (-cy * f - sy * r) * n * WALK_SPEED * delta;
-      clampWalk(pos.current);
+      tx = (-sy * f + cy * r) * n * WALK_SPEED;
+      tz = (-cy * f - sy * r) * n * WALK_SPEED;
     }
-    camera.position.x += (pos.current.x - camera.position.x) * 0.16;
-    camera.position.y += (WALK_EYE - camera.position.y) * 0.10;
-    camera.position.z += (pos.current.z - camera.position.z) * 0.16;
-    const cp = Math.cos(pitch.current);
-    target.current.set(
-      camera.position.x - Math.sin(yaw.current) * cp * 4,
-      camera.position.y + Math.sin(pitch.current) * 4,
-      camera.position.z - Math.cos(yaw.current) * cp * 4,
+    const kAcc = 1 - Math.exp(-(f || r ? 9 : 6.5) * dt);
+    vel.current.x += (tx - vel.current.x) * kAcc;
+    vel.current.z += (tz - vel.current.z) * kAcc;
+    pos.current.x += vel.current.x * dt;
+    pos.current.z += vel.current.z * dt;
+    clampWalk(pos.current);
+    // 步伐:速度驱动相位;竖向双频颠簸 + 沿相机右向的横摆
+    const speed = Math.hypot(vel.current.x, vel.current.z);
+    const sf = Math.min(1, speed / WALK_SPEED);
+    bob.current += speed * dt * 3.1;
+    const bobY = Math.sin(bob.current * 2) * 0.03 * sf;
+    const bobS = Math.sin(bob.current) * 0.022 * sf;
+    // 侧倾:横移压肩 + 步伐微滚(平滑趋近,松键自动回正)
+    const rollTarget = -r * 0.022 * sf + Math.sin(bob.current) * 0.01 * sf;
+    roll.current += (rollTarget - roll.current) * Math.min(1, 10 * dt);
+    eyeY.current += (WALK_EYE - eyeY.current) * Math.min(1, 6 * dt);
+    camera.position.set(
+      pos.current.x + cy * bobS,
+      eyeY.current + bobY,
+      pos.current.z - sy * bobS,
     );
-    camera.lookAt(target.current);
+    camera.rotation.order = 'YXZ';
+    camera.rotation.set(pitch.current, yaw.current, roll.current);
   });
   return null;
 }
@@ -1110,13 +1211,19 @@ function SceneContents({ look, freeCam = false }) {
           if (p.id === playerId && !freeCam && (!single || possessed)) return null;
           const seat = seats[i];
           const ry = Math.atan2(-seat.x, -seat.z);
-          const clickable = single && p.id !== 'L' && !p.bankrupt && !setup;
+          // 点角色附身只开放给**走动视角**：落座下注时 r3f 射线会穿透手牌命中身后的队友,
+          // 点牌会被误判成切席（E2E 抓出的真 bug）——落座时切席走 Tab/席位芯片/起身后准心。
+          const clickable = single && p.id !== 'L' && !p.bankrupt && !setup && !possessed;
           return (
             <group
               key={p.id}
               position={[seat.x, 0, seat.z]}
               rotation={[0, ry, 0]}
-              onClick={clickable ? (e) => { if (e.delta < 6) { e.stopPropagation(); possess(p.id); } } : undefined}
+              onClick={clickable ? (e) => {
+                // 指针锁定中 r3f 射线用的是锁前的过期指针位置——准心附身由 SingleRig 负责,这里让位
+                if (document.pointerLockElement) return;
+                if (e.delta < 6) { e.stopPropagation(); possess(p.id); }
+              } : undefined}
             >
               <MinecraftPlayer
                 player={p}
@@ -1213,6 +1320,9 @@ function SceneContents({ look, freeCam = false }) {
 export default function Scene3D() {
   const look = useRef({ x: 0, y: 0 });
   const [freeCam, setFreeCam] = useState(false);
+  // 单人走动模式的 2D 罩层:锁定=中央准心;未锁=「点击画面锁定视角」提示（MC 心智,§9.6 交互 v2）
+  const singleWalk = useGameStore(s => !!s.state?.single && s.singleCam === 'walk');
+  const walkLocked = useGameStore(s => s.walkLocked);
   // 渲染分辨率档位(反馈①):auto=像素预算自适应;low/medium/high 固定 dpr。R3F 对 dpr 热应用。
   const renderScale = useSettingsStore(s => s.renderScale);
   const dpr = renderScale === 'low' ? 0.75
@@ -1293,6 +1403,11 @@ export default function Scene3D() {
       >
         <SceneContents look={look} freeCam={freeCam} />
       </Canvas>
+      {singleWalk && !IS_TOUCH && (
+        walkLocked
+          ? <div className="walk-crosshair" />
+          : <div className="walk-lock-hint">{T.single.lockHint}</div>
+      )}
       {DEV && (
         <div className="dev-hud">{T.dev.hud(freeCam)}</div>
       )}
