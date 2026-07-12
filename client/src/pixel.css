@@ -1717,19 +1717,14 @@ body {
   content: ''; position: absolute; top: 6px; left: 0; width: 14px; height: 2px;
   background: #dcdcdc;
 }
-/* 斜方形=12 个 2px 像素块的菱形描边（box-shadow 逐块摆,无平滑斜线,像素美学） */
+/* 可交互变化（用户选定方案 A）：**中空张开十字**——四臂各留外侧 4px、中心 6px 镂空,
+   FPS 通用的"可交互"语言;结构与常态十字同源,硬停渐变抠空,像素味不丢,反色随包裹层生效 */
 .walk-crosshair.aim::before {
-  left: 6px; top: 0; width: 2px; height: 2px;
-  background: #dcdcdc;
-  box-shadow:
-    -2px 2px #dcdcdc, 2px 2px #dcdcdc,
-    -4px 4px #dcdcdc, 4px 4px #dcdcdc,
-    -6px 6px #dcdcdc, 6px 6px #dcdcdc,
-    -4px 8px #dcdcdc, 4px 8px #dcdcdc,
-    -2px 10px #dcdcdc, 2px 10px #dcdcdc,
-    0 12px #dcdcdc;
+  background: linear-gradient(180deg, #dcdcdc 0 4px, transparent 4px 10px, #dcdcdc 10px 14px);
 }
-.walk-crosshair.aim::after { display: none; }
+.walk-crosshair.aim::after {
+  background: linear-gradient(90deg, #dcdcdc 0 4px, transparent 4px 10px, #dcdcdc 10px 14px);
+}
 .walk-lock-hint {
   position: absolute; left: 50%; top: 55%; transform: translateX(-50%);
   pointer-events: none; z-index: 35;
