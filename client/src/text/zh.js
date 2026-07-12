@@ -686,8 +686,10 @@ const single = {
   seatDead: '破产',
   standUp: '起身 [X]',
   switchHint: 'TAB 切席 · X 起身走动',
-  walkHint: 'WASD 走动 · 准心点队友附身 · ESC 放开鼠标',
-  lockHint: '点击画面 · 锁定视角',
+  walkHint: '准心指圈 左键+1 右键-1 · SHIFT+左键全押 · 空格开掷 · 按住CTRL放开鼠标',
+  flip: '开掷',
+  betHint: '左键+1 · 右键-1',
+  pledgeTag: (n) => `保金 ${n}`,
 };
 
 // ---- 开发/测试专用（仅 import.meta.env.DEV 可见）----

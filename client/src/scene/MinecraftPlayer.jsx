@@ -76,7 +76,7 @@ export function HeadProp({ role }) {
   return obj ? <primitive object={obj} /> : null;
 }
 
-export default function MinecraftPlayer({ player, expression, seed = 0, look = null, seated = false }) {
+export default function MinecraftPlayer({ player, expression, seed = 0, look = null, seated = false, label = null }) {
   const root = useRef();
   const lArm = useRef();
   const rArm = useRef();
@@ -172,10 +172,11 @@ export default function MinecraftPlayer({ player, expression, seed = 0, look = n
       </group>
 
       {/* 头顶名牌(distanceFactor 6:第一人称落座相机视距变近,10 档会糊满半屏)。
-          我的世界式纯文字:只有玩家名、无背景板——角色由头饰表达,破产由灰皮歪身表达。 */}
+          我的世界式纯文字、无背景板——角色由头饰表达,破产由灰皮歪身表达。
+          label 覆盖内容:单人模式只挂剩余资金(¥=蜡烛字形),不显示名字（§9.6 交互 v3） */}
       <Html position={[0, 2.35, 0]} center distanceFactor={6} zIndexRange={[30, 0]}>
         <div className={`mc-nameplate ${player.online ? '' : 'offline'}`}>
-          <PixelText size={2} color="#fff">{player.name}</PixelText>
+          <PixelText size={2} color={label != null ? 'var(--px-gold)' : '#fff'}>{label ?? player.name}</PixelText>
         </div>
       </Html>
     </group>

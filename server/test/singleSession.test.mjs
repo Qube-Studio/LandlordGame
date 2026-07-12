@@ -159,4 +159,45 @@ await test('空队伍不许开局', () => {
   assert.ok(s.handle('single_begin', {}).error);
 });
 
+await test('暂存注（交互 v3）：默认最小注 → ±1/全押/保金 → 开掷落账 → 下回合继承并夹紧', async () => {
+  const { s, last } = mkSession({ teamRoles: ['farmer', 'investor'], rng: seq(0.0) });
+  let v = s.view();
+  // 初始暂存=保底 1,全员 hasBet（钱堆常驻）
+  assert.deepEqual(v.players.slice(0, 2).map(p => p.bet), [1, 1]);
+  assert.ok(v.players[0].hasBet && v.players[1].hasBet);
+  // ±1：+3 −1 → 3;下压不破保底
+  for (let i = 0; i < 3; i++) s.handle('single_bet_adjust', { seatId: 's0', delta: 1 });
+  s.handle('single_bet_adjust', { seatId: 's0', delta: -1 });
+  for (let i = 0; i < 9; i++) s.handle('single_bet_adjust', { seatId: 's0', delta: -1 });
+  v = last();
+  assert.equal(v.players[0].bet, 1);                          // 压不破 1
+  for (let i = 0; i < 4; i++) s.handle('single_bet_adjust', { seatId: 's0', delta: 1 });
+  // 全押：s0 注=余额 20
+  assert.equal(s.handle('single_bet_allin', { seatId: 's0' }).ok, true);
+  v = last();
+  assert.equal(v.players[0].bet, 20);
+  // 投资人保金：+2 → 注上限被挤占
+  assert.equal(s.handle('single_pledge_adjust', { seatId: 's1', delta: 1 }).ok, true);
+  assert.equal(s.handle('single_pledge_adjust', { seatId: 's1', delta: 1 }).ok, true);
+  v = last();
+  assert.equal(v.players[1].pledge, 2);
+  assert.ok(s.handle('single_pledge_adjust', { seatId: 's0', delta: 1 }).error); // 农民不可投保
+  // 开掷 → 演出锁 → 队胜(0.0)
+  assert.equal(s.handle('single_flip', {}).ok, true);
+  v = last();
+  assert.equal(v.phase, 'COIN_FLIP');
+  await sleep(40);
+  // 协商确认 → 回合 2：暂存继承上回合注法（s0 全押 20 超新余额则夹紧;不够则尽量）
+  if (last().phase === 'NEGOTIATE') s.handle('negotiate_confirm', {});
+  v = last();
+  assert.equal(v.phase, 'BETTING');
+  assert.equal(v.round, 2);
+  const s0 = v.players.find(p => p.id === 's0');
+  const s0bal = s0.balance;
+  assert.ok(s0.bet >= 1 && s0.bet <= s0bal, `继承注 ${s0.bet} 应在 [1, ${s0bal}]`);
+  assert.equal(s0.bet, Math.min(20, s0bal));                  // 继承 20,不够则尽量
+  const s1 = v.players.find(p => p.id === 's1');
+  assert.equal(s1.pledge, 0);                                 // 保金不继承
+});
+
 console.log(`\n全部通过：${passed} 项 ✅`);

@@ -1064,7 +1064,8 @@ export default function UiLayer() {
       {!connected && <div className="hud-disconnect"><PixelText size={2} color="var(--danger)">{T.net.reconnecting}</PixelText></div>}
       <PhaseCoachmark />
       <RoundBanner />
-      <PlayerRail />
+      {/* 单人（§9.6 交互 v3）：右上玩家栏退役——资金挂模型头顶,状态看席位列 */}
+      {state.mode !== 'single' && <PlayerRail />}
       {/* 机制 HUD（HUD 精简⑮）：左上角 3A 任务追踪风纵列——首行阶段名，下接各机制卡；
           去底板、细金线分隔、文字投影（样式见 pixel.css 末尾 quest 段）；右下角只留自己的资金蜡烛 */}
       <div className={`hud-left-stack quest ${hudCls('l')}`}>

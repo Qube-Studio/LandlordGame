@@ -20,7 +20,6 @@ export default function SeatBar() {
   const setup = state.single?.setup ?? null;
   const seats = state.players.filter(p => p.id !== 'L');
   const currentId = state.single?.seatId;
-  const betting = state.phase === 'BETTING';
 
   // Tab 附身/循环切席、X 起身（输入框聚焦让路；组队期无席可切）
   useEffect(() => {
@@ -28,6 +27,12 @@ export default function SeatBar() {
       const el = document.activeElement;
       if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) return;
       if ((e.key === 'x' || e.key === 'X') && !setup) { setSingleCam('walk'); return; }
+      // 空格=开掷（交互 v3:全员暂存注就绪即可掷,与准心点中央圈等价）
+      if (e.key === ' ' && !setup && useGameStore.getState().state?.phase === 'BETTING') {
+        e.preventDefault();
+        send({ type: 'single_flip' });
+        return;
+      }
       if (e.key !== 'Tab' || setup) return;
       e.preventDefault();
       const alive = seats.filter(s => !s.bankrupt);
@@ -82,7 +87,8 @@ export default function SeatBar() {
       {seats.map(p => {
         const current = p.id === currentId;
         const seated = current && singleCam === 'seat';
-        const tag = p.bankrupt ? T.single.seatDead : current ? T.single.seatCurrent : (betting && p.hasBet ? T.single.seatDone : null);
+        // 交互 v3:暂存注常驻,人人 hasBet——「已下注」标失去意义,只留 破产/操控中
+        const tag = p.bankrupt ? T.single.seatDead : current ? T.single.seatCurrent : null;
         return (
           <button
             key={p.id}

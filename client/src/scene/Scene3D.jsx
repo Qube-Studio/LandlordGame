@@ -4,7 +4,7 @@
 /* eslint-disable react-hooks/immutability */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { OrbitControls, ContactShadows } from '@react-three/drei';
+import { OrbitControls, ContactShadows, Html } from '@react-three/drei';
 import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import { useGameStore } from '../store/gameStore';
@@ -16,6 +16,7 @@ import { grab } from './grab';
 import { setFeltBounds } from './carry';
 import Tickets3D from './Tickets3D';
 import MinecraftPlayer from './MinecraftPlayer';
+import PixelText from '../assets/pixelfont/PixelText';
 import Coin from './Coin';
 import PayoutLayer from './PayoutLayer';
 import HandLayer from './HandLayer';
@@ -194,7 +195,7 @@ function clampWalk(p) {
   p.z = THREE.MathUtils.clamp(p.z, WALK_BOUND.zMin, WALK_BOUND.zMax);
 }
 // 准心指向的可附身队友（解析式:±0.14rad 锥内取角度最近的活席位;不走 raycaster——
-// 指针锁定时 r3f 的指针位置是过期的）。点击附身与准心变形（十字→45°方形）共用。
+// 指针锁定时 r3f 的指针位置是过期的）。
 function aimTeammateId(camera, players) {
   const fwd = camera.getWorldDirection(_walkDir);
   let best = null;
@@ -208,6 +209,27 @@ function aimTeammateId(camera, players) {
     if (ang < 0.14 && (!best || ang < best.ang)) best = { id: p.id, ang };
   }
   return best?.id ?? null;
+}
+// 准心可交互目标（§9.6 交互 v3）：下注期优先毡面圈（视线∩桌面,圈半径内）,其次队友身体（附身）。
+// 返回 'coin'（中央圈=开掷）| 'circle:<seatId>'（下注圈=±1/全押）| 'seat:<seatId>'（附身）| null。
+function aimTargetOf(camera, state) {
+  const players = state?.players ?? [];
+  const fwd = camera.getWorldDirection(_walkDir);
+  if (state?.phase === 'BETTING' && fwd.y < -0.04) {
+    const t = (TABLE_TOP - camera.position.y) / fwd.y;
+    if (t > 0 && t < 16) {
+      const ix = camera.position.x + fwd.x * t;
+      const iz = camera.position.z + fwd.z * t;
+      if (Math.hypot(ix, iz) < 0.62) return 'coin';
+      for (const p of players) {
+        if (p.id === 'L' || p.bankrupt) continue;
+        const spot = singleSpotOf(SINGLE_TEAM_SEATS[p.seat] ?? SINGLE_TEAM_SEATS[0]);
+        if (Math.hypot(ix - spot.x, iz - spot.z) < 0.55) return `circle:${p.id}`;
+      }
+    }
+  }
+  const id = aimTeammateId(camera, players);
+  return id ? `seat:${id}` : null;
 }
 function SingleRig({ mode, seat, look, shakeRef }) {
   const { camera, gl } = useThree();
@@ -245,73 +267,105 @@ function SingleRig({ mode, seat, look, shakeRef }) {
   const modeRef = useRef(mode);
   useEffect(() => { modeRef.current = mode; }, [mode]);
 
-  // 指针锁定（桌面走动,MC 心智）:锁定=鼠标增量直接转视角;点击空画布上锁(区分点击与协商拖钱——
-  // 松手时未发生 grab 且位移小才算"点击");锁定中点按=准心附身队友;附身/卸载时释放锁。
+  const syncLockRef = useRef(() => {});   // 锁同步函数经 ref 暴露给模式/相位 effect（大 effect 只挂一次）
+  // 指针锁管理（§9.6 交互 v3,全程锁定）:
+  // - 应锁条件:走动模式 && 相位 ∈ {BETTING, COIN_FLIP}（协商拖钱/重掷面板/组队选角/终局要自由鼠标,自动放开）
+  // - **按住 CTRL** 临时放开鼠标,松开自动回锁（用户裁决:ESC 不作为放开手段）
+  // - ESC 被浏览器强制退锁无法拦截 → 下一个输入手势（任意按键/点画布）**静默回锁**,无提示文案
+  // - 锁定中点按走准心路由:中央圈=开掷、下注圈=左+1/右−1/Shift全押/Alt保金、队友身体=附身
   useEffect(() => {
     if (IS_TOUCH) return undefined;
     const canvas = gl.domElement;
+    const ctrl = { held: false };
     const requestLock = () => { try { canvas.requestPointerLock?.()?.catch?.(() => {}); } catch { /* 忽略被浏览器拒绝 */ } };
     const isLocked = () => document.pointerLockElement === canvas;
-    const onLockChange = () => { useGameStore.getState().setWalkLocked(isLocked()); };
+    const shouldLock = () => {
+      if (modeRef.current !== 'walk' || ctrl.held) return false;
+      const ph = useGameStore.getState().state?.phase;
+      return ph === 'BETTING' || ph === 'COIN_FLIP';
+    };
+    const sync = () => {
+      if (shouldLock()) { if (!isLocked()) requestLock(); }
+      else if (isLocked()) document.exitPointerLock();
+    };
+    syncLockRef.current = sync;
+    // 首帧跳变防护:锁定建立后的第一个 mousemove 可能携带「锁前光标到画布中心」的整段位移
+    // （Chrome 指针锁历史 bug,headless 下必现）——吞掉首帧,并对 >200px 的尖峰钳制。
+    const spike = { skip: false };
+    const onLockChange = () => {
+      if (isLocked()) spike.skip = true;
+      useGameStore.getState().setWalkLocked(isLocked());
+    };
     const onMove = (e) => {
       if (!isLocked() || modeRef.current !== 'walk') return;
+      if (spike.skip) { spike.skip = false; return; }
+      if (Math.abs(e.movementX) > 200 || Math.abs(e.movementY) > 200) return;
       yaw.current -= e.movementX * 0.0026;
       pitch.current = THREE.MathUtils.clamp(pitch.current - e.movementY * 0.0022, -0.85, 0.6);
     };
-    // 未锁定:mousedown 记起点,mouseup 位移小且没抓过东西 → 上锁（协商期拖钱不误锁）
-    const down = { x: 0, y: 0, valid: false };
+    const onKeyDown = (e) => {
+      if (e.key === 'Control') { ctrl.held = true; if (isLocked()) document.exitPointerLock(); return; }
+      const el = document.activeElement;
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) return;
+      if (!isLocked()) sync();                          // ESC 退锁后的静默回锁:任意按键即回
+    };
+    const onKeyUp = (e) => { if (e.key === 'Control') { ctrl.held = false; sync(); } };
     const onDown = (e) => {
-      if (modeRef.current !== 'walk') { down.valid = false; return; }
-      if (isLocked()) {
-        // 锁定中点按:准心指向的队友 → 附身（组队期还没有可附身的席位,不判定）
-        const st = useGameStore.getState();
-        if (st.state?.phase !== 'SINGLE_SETUP') {
-          const id = aimTeammateId(camera, st.state?.players);
-          if (id) {
-            if (id !== st.playerId) st.send({ type: 'single_seat', seatId: id });
-            st.setSingleCam('seat');
-          }
+      if (modeRef.current !== 'walk') return;
+      if (!isLocked()) { if (e.target === canvas) sync(); return; }   // 点画布=回锁（无提示）
+      // 锁定中:准心路由
+      const st = useGameStore.getState();
+      if (st.state?.phase === 'SINGLE_SETUP') return;
+      const tgt = aimTargetOf(camera, st.state);
+      if (!tgt) return;
+      const [kind, id] = tgt.split(':');
+      if (e.button === 2 && kind === 'circle') {
+        st.send(e.altKey
+          ? { type: 'single_pledge_adjust', seatId: id, delta: -1 }
+          : { type: 'single_bet_adjust', seatId: id, delta: -1 });
+      } else if (e.button === 0) {
+        if (kind === 'coin') st.send({ type: 'single_flip' });
+        else if (kind === 'circle') {
+          if (e.shiftKey) st.send({ type: 'single_bet_allin', seatId: id });
+          else if (e.altKey) st.send({ type: 'single_pledge_adjust', seatId: id, delta: 1 });
+          else st.send({ type: 'single_bet_adjust', seatId: id, delta: 1 });
+        } else if (kind === 'seat') {
+          if (id !== st.playerId) st.send({ type: 'single_seat', seatId: id });
+          st.setSingleCam('seat');
         }
-        down.valid = false;
-        return;
       }
-      down.x = e.clientX; down.y = e.clientY;
-      down.valid = e.target === canvas;                 // 只认裸画布(HTML 浮字/HUD 不上锁)
     };
-    const onUp = (e) => {
-      if (!down.valid || modeRef.current !== 'walk' || isLocked()) return;
-      down.valid = false;
-      if (grab.active) return;                          // 这一按是拖钱/拖票,不是"点击画面"
-      if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > 6) return;
-      requestLock();
-    };
+    const onCtx = (e) => { if (document.pointerLockElement) e.preventDefault(); };  // 锁定中右键=收注,不出菜单
     document.addEventListener('pointerlockchange', onLockChange);
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mousedown', onDown);
-    window.addEventListener('mouseup', onUp);
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    window.addEventListener('contextmenu', onCtx);
     return () => {
       document.removeEventListener('pointerlockchange', onLockChange);
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mousedown', onDown);
-      window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+      window.removeEventListener('contextmenu', onCtx);
       if (isLocked()) document.exitPointerLock();
       useGameStore.getState().setWalkLocked(false);
     };
   }, [gl, camera]);
 
-  // 进走动自动上锁（X/Tab 起身属于用户手势激活窗内,一般成功;组队期除外——选角要用鼠标）;
-  // 附身时释放锁。失败无妨:点击画面随时可锁。
+  // 应锁状态随「模式/相位」变化即时同步（起身回锁、进协商放开、掷完回下注回锁…）。
+  // 相位驱动的回锁不在用户手势内可能被浏览器拒绝——onKeyDown/onDown 的手势回锁兜底。
+  useEffect(() => { syncLockRef.current(); }, [mode]);
   useEffect(() => {
-    if (IS_TOUCH) return;
-    const canvas = gl.domElement;
-    if (mode === 'walk') {
-      if (useGameStore.getState().state?.phase !== 'SINGLE_SETUP') {
-        try { canvas.requestPointerLock?.()?.catch?.(() => {}); } catch { /* 忽略 */ }
-      }
-    } else if (document.pointerLockElement === canvas) {
-      document.exitPointerLock();
-    }
-  }, [mode, gl]);
+    if (IS_TOUCH) return undefined;
+    let prevPhase = null;
+    const unsub = useGameStore.subscribe((s) => {
+      const ph = s.state?.phase;
+      if (ph !== prevPhase) { prevPhase = ph; syncLockRef.current(); }
+    });
+    return unsub;
+  }, []);
 
   // 触屏兜底:拖动增量转视角（无指针锁可用;抓着牌/钱时让位——grab.active,碰撞铁律）。
   useEffect(() => {
@@ -422,10 +476,12 @@ function SingleRig({ mode, seat, look, shakeRef }) {
     );
     camera.rotation.order = 'YXZ';
     camera.rotation.set(pitch.current, yaw.current, roll.current);
-    // 情境准心:指向可附身队友 → 十字变斜方形（仅锁定中有准心;组队期无附身不判定;守卫写入）
+    // 情境准心:指向可交互目标（圈/硬币/队友）→ 十字张开（仅锁定中有准心;组队期不判定;守卫写入）
     const gs = useGameStore.getState();
-    if (gs.walkLocked && gs.state?.phase !== 'SINGLE_SETUP') gs.setWalkAim(!!aimTeammateId(camera, gs.state?.players));
-    else if (gs.walkAim) gs.setWalkAim(false);
+    if (gs.walkLocked && gs.state?.phase !== 'SINGLE_SETUP') gs.setWalkAim(aimTargetOf(camera, gs.state));
+    else if (gs.walkAim) gs.setWalkAim(null);
+    // 本地调试探针（同 __payoutDir 先例）:E2E/截图工具读逐帧相机与准心状态
+    if (DEV) window.__walkRig = { locked: gs.walkLocked, aim: gs.walkAim, yaw: yaw.current, pitch: pitch.current, pos: [pos.current.x, pos.current.z] };
   });
   return null;
 }
@@ -932,6 +988,38 @@ function Chandelier() {
   );
 }
 
+// 单人下注浮字层（§9.6 交互 v3）:每个队伍圈上方挂暂存注额（+投资人保金）,中央挂「开掷」。
+// 锁定态由准心点击接管;未锁定/附身时中央浮字本身可点（同一条 single_flip 消息）。
+function SingleBetPrompts({ players, spots }) {
+  const send = useGameStore(s => s.send);
+  return (
+    <>
+      {players.map((p, i) => {
+        if (p.id === 'L' || p.bankrupt) return null;
+        const s = spots[i];
+        if (!s) return null;
+        return (
+          <Html key={`sb-${p.id}`} position={[s.x, TABLE_TOP + 0.42, s.z]} center distanceFactor={6} zIndexRange={[28, 0]}>
+            <div className="felt-float">
+              <PixelText size={2} color="var(--px-gold)">{`¥${p.bet ?? 0}`}</PixelText>
+              {(p.pledge ?? 0) > 0 && (
+                <div><PixelText size={2} color="var(--ok)">{T.single.pledgeTag(p.pledge)}</PixelText></div>
+              )}
+            </div>
+          </Html>
+        );
+      })}
+      <Html position={[0, TABLE_TOP + 0.5, 0]} center distanceFactor={6} zIndexRange={[28, 0]}>
+        <div className="felt-float">
+          <div className="clickable prompt-line" onClick={() => send({ type: 'single_flip' })}>
+            <PixelText size={2} color="var(--px-gold)">{T.single.flip}</PixelText>
+          </div>
+        </div>
+      </Html>
+    </>
+  );
+}
+
 // 桌下圆毯
 function Rug() {
   return (
@@ -1293,16 +1381,18 @@ function SceneContents({ look, freeCam = false }) {
                 seed={i * 1.7}
                 look={p.id === playerId ? null : looks[p.id]}
                 seated
+                label={single ? `¥${p.balance ?? 0}` : null}
               />
             </group>
           );
         })}
 
-        {/* 桌面钱堆(每人落在自己座位前的烘焙圆圈里;自己的堆飞行中隐藏,落定后无缝接力) */}
+        {/* 桌面钱堆(每人落在自己座位前的烘焙圆圈里;自己的堆飞行中隐藏,落定后无缝接力)。
+            单人（交互 v3）:无手牌层,全部席位统一按服务端口径渲染（下注期=暂存注的背面堆） */}
         {!payoutActive && players.map((p, i) => {
           if (!p.hasBet) return null;
           const spot = spots[i];
-          if (p.id === playerId) {
+          if (!single && p.id === playerId) {
             if (flightActive || !(selfNotes?.length || selfBetCount > 0)) return null;
             // 3D 模式下注期：金额由圈边浮字「已下注 ¥N」承担（验收修订③），堆上标签让位
             const selfAmount = IS_3D_INPUT && !betsVisible ? null : selfBet;
@@ -1328,8 +1418,13 @@ function SceneContents({ look, freeCam = false }) {
 
         {/* 圈上提示层（反馈⑪⑫）：大厅选角/准备/开始、讨论期准备下注、下注后金额驻留、揭牌确认——
             底部木板面板退役；BETTING 只在已下注后有内容（下注操作中浮字由 HandLayer 负责） */}
-        {IS_3D_INPUT && ['LOBBY', 'DISCUSSION', 'BETTING', 'CHALLENGE', 'REVEAL'].includes(state.phase) && (
+        {IS_3D_INPUT && !single && ['LOBBY', 'DISCUSSION', 'BETTING', 'CHALLENGE', 'REVEAL'].includes(state.phase) && (
           <FeltPrompts mySpot={mySpot} players={players} spots={spots} playerId={playerId} />
+        )}
+
+        {/* 单人下注浮字层（交互 v3）:每个队伍圈上方=暂存注额（+保金）,中央=开掷 */}
+        {single && state.phase === 'BETTING' && (
+          <SingleBetPrompts players={players} spots={spots} />
         )}
 
         {/* 对质票 3D 模型（§8.8，只在 CHALLENGE、农民本人有票时）：一小排薄卡浮在自己圈前 */}
@@ -1354,8 +1449,9 @@ function SceneContents({ look, freeCam = false }) {
 
       {/* 3D 手牌层（交互 3D 化）：BETTING 期把余额捏在相机前，拖进圆圈下注。
           挂在旋转组之外（手随相机走、拖拽射线都在世界系），桌面暂存牌由它内部按 rot 对齐。 */}
-      {IS_3D_INPUT && state.phase === 'BETTING' && state.me && !state.me.spectator
-        && factionOf(state.me.role) && state.me.bet == null && (!single || possessed) && (
+      {/* 单人不挂手牌层（交互 v3）:下注全走准心 ±1/全押,手牌拖拽是多人的交互 */}
+      {IS_3D_INPUT && !single && state.phase === 'BETTING' && state.me && !state.me.spectator
+        && factionOf(state.me.role) && state.me.bet == null && (
           <HandLayer
             key={`hand-${state.round}-${state.me.balance}-${state.me.id}`}
             look={look}
@@ -1466,15 +1562,12 @@ export default function Scene3D() {
       >
         <SceneContents look={look} freeCam={freeCam} />
       </Canvas>
-      {singleWalk && !IS_TOUCH && (
-        walkLocked
-          ? (
-            // 四条臂独立成元素:可交互时各自向外平移+微缩短(CSS 过渡出"张开"动程)
-            <div className={`walk-crosshair ${walkAim ? 'aim' : ''}`}>
-              <i className="ch-n" /><i className="ch-s" /><i className="ch-w" /><i className="ch-e" />
-            </div>
-          )
-          : <div className="walk-lock-hint">{T.single.lockHint}</div>
+      {singleWalk && !IS_TOUCH && walkLocked && (
+        // 四条臂独立成元素:可交互时各自向外平移+微缩短(CSS 过渡出"张开"动程)。
+        // data-aim 暴露目标类型（'circle:s0'/'coin'/'seat:s1'）——E2E 断言用。未锁定=系统光标,无提示文案。
+        <div className={`walk-crosshair ${walkAim ? 'aim' : ''}`} data-aim={walkAim ?? undefined}>
+          <i className="ch-n" /><i className="ch-s" /><i className="ch-w" /><i className="ch-e" />
+        </div>
       )}
       {DEV && (
         <div className="dev-hud">{T.dev.hud(freeCam)}</div>

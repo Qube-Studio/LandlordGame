@@ -28,9 +28,11 @@ function noteCount(amount) {
 // 本层接管的意图（index.js 在 ws 挂着单机会话时优先路由这些）。
 export const SINGLE_INTENTS = new Set([
   'single_seat', 'single_quit', 'single_role', 'single_ghost', 'single_begin',
+  'single_bet_adjust', 'single_bet_allin', 'single_pledge_adjust', 'single_flip',
   'place_bet', 'summon',
   'request_reflip', 'pass_reflip', 'negotiate_transfer', 'negotiate_confirm', 'ready',
 ]);
+const clampInt = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
 export class SingleSession {
   /** @param {object} o { teamRoles?, ghost, configOverrides, send(msg), rng }
@@ -47,6 +49,10 @@ export class SingleSession {
     this.coinResult = null;       // 最近一次掷币结果（'heads'|'tails'，REFLIP/NEGOTIATE 期间保留展示）
     this._coinOverlay = false;    // 正在播掷币动画（叠加相位 COIN_FLIP）
     this._timer = null;
+    // 暂存注（§9.6 交互 v3,准心下注）：COMMAND 期各席位的待掷注/保金,±1 调整、可全押,
+    // single_flip 才真正落到 SingleTable。每回合默认**继承上回合注法**,不够则尽量下注(夹紧)。
+    this.staged = null;           // { bets:{seatId:amt}, pledges:{seatId:n} } | null
+    this.lastStaged = null;       // 上回合开掷时的注法（继承源）
     if (Array.isArray(teamRoles) && teamRoles.length) {
       // 直接开局：槽位=数组序
       this.setup = false;
@@ -73,6 +79,71 @@ export class SingleSession {
     });
     this.slotOf = filled.map(x => x.i);
     this.seatId = this.table.seats[0].id;
+  }
+
+  // ---------- 暂存注 ----------
+  _seatBounds(seat, pledge = 0) {
+    return betBounds({
+      balance: seat.balance - pledge, role: seat.role,
+      farmerCount: this.table.seats.filter(s => !s.dead).length,
+      config: this.table.config, mode: 'single',
+    });
+  }
+
+  // COMMAND 期若暂存注不存在则按继承源初始化（回合推进后第一次 handle/view 触发,幂等）。
+  _ensureStaged() {
+    if (!this.table || this.setup || this.table.phase !== 'COMMAND' || this.staged) return;
+    const bets = {}, pledges = {};
+    for (const s of this.table.seats.filter(x => !x.dead)) {
+      const b = this._seatBounds(s);
+      let amt = this.lastStaged?.bets?.[s.id] ?? b.min;
+      amt = b.forceAllIn ? s.balance : clampInt(amt, b.min, s.balance);  // 不够则尽量(全押=合法上限)
+      bets[s.id] = amt;
+      pledges[s.id] = 0;
+    }
+    this.staged = { bets, pledges };
+  }
+
+  _adjustBet(seatId, delta) {
+    this._ensureStaged();
+    const seat = this.table.seats.find(s => s.id === seatId && !s.dead);
+    if (!seat || !this.staged) return { error: SINGLE.errBadSeat };
+    const pledge = this.staged.pledges[seatId] ?? 0;
+    const b = this._seatBounds(seat, pledge);
+    if (b.forceAllIn) return { error: '资金见底，只能全押' };
+    this.staged.bets[seatId] = clampInt((this.staged.bets[seatId] ?? b.min) + delta, b.min, seat.balance - pledge);
+    return { ok: true };
+  }
+
+  _adjustPledge(seatId, delta) {
+    this._ensureStaged();
+    const seat = this.table.seats.find(s => s.id === seatId && !s.dead);
+    if (!seat || !this.staged) return { error: SINGLE.errBadSeat };
+    if (seat.role !== 'investor') return { error: '只有投资人可以投保' };
+    const cap = Math.min(this.table.config.single.investor.maxPledge, seat.balance - 1);
+    const np = clampInt((this.staged.pledges[seatId] ?? 0) + delta, 0, cap);
+    this.staged.pledges[seatId] = np;
+    // 保金挤占注金:重夹注到新的合法区间
+    const b = this._seatBounds(seat, np);
+    this.staged.bets[seatId] = b.forceAllIn
+      ? seat.balance - np
+      : clampInt(this.staged.bets[seatId] ?? b.min, b.min, seat.balance - np);
+    return { ok: true };
+  }
+
+  // 开掷：把暂存注整批落到 SingleTable → resolve → 掷币演出。
+  _flip() {
+    this._ensureStaged();
+    if (!this.staged) return { error: '当前不是下令阶段' };
+    for (const s of this.table.seats.filter(x => !x.dead)) {
+      const r = this.table.setBet(s.id, this.staged.bets[s.id], { pledge: this.staged.pledges[s.id] || 0 });
+      if (r.error) return r;                                   // 已夹紧,理论上不该发生
+    }
+    this.lastStaged = { bets: { ...this.staged.bets } };       // 继承源=开掷那一刻的注法(保金不继承)
+    this.staged = null;
+    const r = this.table.resolve();
+    if (r.error) return r;
+    return this._afterCoin(r);
   }
 
   // 意图入口。返回 {error} 时由 index.js 转成 error 消息；成功一律广播新 state。
@@ -120,6 +191,20 @@ export class SingleSession {
         if (!r.error) this._maybeResolve();
         break;
       }
+      case 'single_bet_adjust': r = this._adjustBet(msg.seatId, Math.sign(Number(msg.delta) || 0)); break;
+      case 'single_bet_allin': {
+        this._ensureStaged();
+        const seat = this.table.seats.find(s => s.id === msg.seatId && !s.dead);
+        if (!seat || !this.staged) { r = { error: SINGLE.errBadSeat }; break; }
+        this.staged.bets[seat.id] = seat.balance - (this.staged.pledges[seat.id] ?? 0);
+        r = { ok: true };
+        break;
+      }
+      case 'single_pledge_adjust': r = this._adjustPledge(msg.seatId, Math.sign(Number(msg.delta) || 0)); break;
+      case 'single_flip': {
+        if (this.table.phase !== 'COMMAND') return { error: '当前不是下令阶段' };
+        return this._flip();                                   // 内部走掷币演出广播
+      }
       case 'summon': r = this.table.summonBoss(this.seatId); break;
       case 'request_reflip': {
         r = this.table.requestReflip(this.seatId);
@@ -149,6 +234,7 @@ export class SingleSession {
 
   // 掷币演出：先广播 COIN_FLIP 叠加相位，coinAnimMs 后放行真相位（REFLIP/NEGOTIATE/BETTING/ENDED）。
   _afterCoin(result) {
+    this.staged = null;           // 本回合注已落账,暂存作废（place_bet/重掷路径也经此,下回合重新继承）
     this.coinResult = result.teamWin ? 'tails' : 'heads';
     const ms = this.table.config.timing?.coinAnimMs ?? 0;
     if (ms > 0) {
@@ -164,6 +250,7 @@ export class SingleSession {
   // ---------- 多人同形 state ----------
   view() {
     if (this.setup) return this._setupView();
+    this._ensureStaged();                                 // 回合推进后第一次视图即带上继承注
     const t = this.table;
     const phase = this._coinOverlay ? 'COIN_FLIP' : (PHASE_MAP[t.phase] ?? t.phase);
     const betting = phase === 'BETTING';
@@ -171,20 +258,23 @@ export class SingleSession {
     const meSeat = t.seats.find(s => s.id === this.seatId) ?? t.seats[0];
     const plan = t.phase === 'ALLOCATE' ? t.view().pendingPlan : null;
     const pot = Object.values(t.bets).reduce((x, y) => x + y, 0) + t.bossBet + t.ghostBet;
+    // COMMAND 期席位的展示注=暂存注（准心 ±1 的实时值）;掷币后=已落账的真注
+    const shownBet = (s) => (betting && this.staged ? (this.staged.bets[s.id] ?? null) : (t.bets[s.id] ?? null));
 
     const players = [
       ...t.seats.map((s, i) => ({
         id: s.id, name: SINGLE.seatName(ROLE_LABEL[s.role] ?? s.role, i + 1), role: s.role,
         seat: this.slotOf[i] ?? i,                       // 槽位=桌边固定座位（组队期所选）
         online: true, isHost: s.id === t.seats[0].id, lobbyReady: true, ready: true,
-        hasBet: t.bets[s.id] != null,
-        betCount: t.bets[s.id] != null ? noteCount(t.bets[s.id]) : 0,
-        bet: betting ? (t.bets[s.id] ?? null) : (t.bets[s.id] ?? null),
+        hasBet: shownBet(s) != null,
+        betCount: shownBet(s) != null ? noteCount(shownBet(s)) : 0,
+        bet: shownBet(s),
         balance: s.balance,                              // 单人无隐私：全队余额可见
         bankrupt: s.dead, spectator: false, confirmed: true,
         negotiateConfirmed: false, emote: null,
         reflipsLeft: s.role === 'glutton' ? s.reflipsLeft : undefined,
-        pledge: s.pledge, tickets: null, challengeSkip: false,
+        pledge: betting && this.staged ? (this.staged.pledges[s.id] ?? 0) : s.pledge,
+        tickets: null, challengeSkip: false,
       })),
       {
         id: 'L', name: SINGLE.bossName, role: 'landlord',

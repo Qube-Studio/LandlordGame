@@ -1724,9 +1724,3 @@ body {
 .walk-crosshair.aim .ch-s { transform: translateY(3px); height: 5px; }
 .walk-crosshair.aim .ch-w { transform: translateX(-3px); width: 5px; }
 .walk-crosshair.aim .ch-e { transform: translateX(3px); width: 5px; }
-.walk-lock-hint {
-  position: absolute; left: 50%; top: 55%; transform: translateX(-50%);
-  pointer-events: none; z-index: 35;
-  font-family: var(--font-cjk); font-size: 14px; color: rgba(255, 255, 255, 0.75);
-  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.6);
-}

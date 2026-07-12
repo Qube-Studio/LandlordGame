@@ -80,7 +80,10 @@ export class SingleTable {
     }
     const b = betBounds({ balance: seat.balance - premium, role: seat.role, farmerCount: this._farmerCount(), config: this.config, mode: 'single' });
     const amt = b.forceAllIn ? seat.balance - premium : amount;
-    if (!Number.isInteger(amt) || amt < b.min || amt > (b.forceAllIn ? seat.balance : b.max)) {
+    // 单人允许**自愿全押**（§9.6 交互 v3:玩家可指令任一席位孤注一掷）——多人的 max=余额−保底
+    // 是防死局的兜底,单机牺牲打是合法战术。
+    const allIn = amt === seat.balance - premium;
+    if (!Number.isInteger(amt) || amt < b.min || (amt > b.max && !allIn && !b.forceAllIn)) {
       return { error: `下注需在 ${b.min}-${b.max} 之间` };
     }
     seat.pledge = premium;
