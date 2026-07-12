@@ -157,10 +157,41 @@ const WALK_EYE = 2.35, WALK_SPEED = 3.6;
 const WALK_BOUND = { x: 10.6, zMin: 1.15, zMax: 10.6 };
 const _walkDir = new THREE.Vector3();
 const _aim = new THREE.Vector3();
+// 场景碰撞体（与造景逐件对位,身位半径 ~0.3 已烘进尺寸;§9.6 三轮反馈①）。
+// 矩形=沿最浅穿透轴推出,圆=径向推出;两轮迭代解决角落双碰撞体。走动区本身已限己方半场,
+// Boss 侧/壁炉/后墙摆设无需碰撞。椅子逐把建体 → 椅子之间的缝隙可以侧身贴到桌沿。
+const WALK_BOXES = [
+  { x0: -4.8, x1: 4.8, z0: -4.0, z1: 2.6 },                        // 长桌桌体(框半宽 4.5/2.3 + 身位)
+  ...SINGLE_TEAM_SEATS.map(s => ({ x0: s.x - 0.56, x1: s.x + 0.56, z0: 2.1, z1: 3.22 })), // 四把座椅
+  { x0: -8.0, x1: -6.7, z0: 7.35, z1: 8.65 },                      // 前左角木箱
+];
+const WALK_CIRCLES = [
+  { cx: 8.3, cz: 6.8, r: 1.05 },     // 前右角小圆桌(桌面 r0.75 + 身位)
+  { cx: 7.25, cz: 5.85, r: 0.6 },    // 圆桌双椅
+  { cx: 9.3, cz: 7.75, r: 0.6 },
+  { cx: -8.6, cz: 7.2, r: 0.88 },    // 前左角酒桶
+];
 function clampWalk(p) {
   p.x = THREE.MathUtils.clamp(p.x, -WALK_BOUND.x, WALK_BOUND.x);
   p.z = THREE.MathUtils.clamp(p.z, WALK_BOUND.zMin, WALK_BOUND.zMax);
-  if (Math.abs(p.x) < 5.2 && p.z < 3.5) p.z = 3.5;   // 长桌+座椅碰撞箱
+  for (let pass = 0; pass < 2; pass++) {
+    for (const b of WALK_BOXES) {
+      if (p.x <= b.x0 || p.x >= b.x1 || p.z <= b.z0 || p.z >= b.z1) continue;
+      const dx = Math.min(p.x - b.x0, b.x1 - p.x);
+      const dz = Math.min(p.z - b.z0, b.z1 - p.z);
+      if (dx < dz) p.x = (p.x - b.x0 < b.x1 - p.x) ? b.x0 : b.x1;
+      else p.z = (p.z - b.z0 < b.z1 - p.z) ? b.z0 : b.z1;
+    }
+    for (const c of WALK_CIRCLES) {
+      const dx = p.x - c.cx, dz = p.z - c.cz;
+      const d = Math.hypot(dx, dz);
+      if (d >= c.r || d === 0) continue;
+      p.x = c.cx + (dx / d) * c.r;
+      p.z = c.cz + (dz / d) * c.r;
+    }
+  }
+  p.x = THREE.MathUtils.clamp(p.x, -WALK_BOUND.x, WALK_BOUND.x);
+  p.z = THREE.MathUtils.clamp(p.z, WALK_BOUND.zMin, WALK_BOUND.zMax);
 }
 // 准心指向的可附身队友（解析式:±0.14rad 锥内取角度最近的活席位;不走 raycaster——
 // 指针锁定时 r3f 的指针位置是过期的）。点击附身与准心变形（十字→45°方形）共用。
@@ -231,12 +262,14 @@ function SingleRig({ mode, seat, look, shakeRef }) {
     const onDown = (e) => {
       if (modeRef.current !== 'walk') { down.valid = false; return; }
       if (isLocked()) {
-        // 锁定中点按:准心指向的队友 → 附身
+        // 锁定中点按:准心指向的队友 → 附身（组队期还没有可附身的席位,不判定）
         const st = useGameStore.getState();
-        const id = aimTeammateId(camera, st.state?.players);
-        if (id) {
-          if (id !== st.playerId) st.send({ type: 'single_seat', seatId: id });
-          st.setSingleCam('seat');
+        if (st.state?.phase !== 'SINGLE_SETUP') {
+          const id = aimTeammateId(camera, st.state?.players);
+          if (id) {
+            if (id !== st.playerId) st.send({ type: 'single_seat', seatId: id });
+            st.setSingleCam('seat');
+          }
         }
         down.valid = false;
         return;
@@ -375,9 +408,9 @@ function SingleRig({ mode, seat, look, shakeRef }) {
     );
     camera.rotation.order = 'YXZ';
     camera.rotation.set(pitch.current, yaw.current, roll.current);
-    // 情境准心:指向可附身队友 → 十字变 45° 方形（仅锁定中有准心;守卫写入,不变不触发渲染）
+    // 情境准心:指向可附身队友 → 十字变斜方形（仅锁定中有准心;组队期无附身不判定;守卫写入）
     const gs = useGameStore.getState();
-    if (gs.walkLocked) gs.setWalkAim(!!aimTeammateId(camera, gs.state?.players));
+    if (gs.walkLocked && gs.state?.phase !== 'SINGLE_SETUP') gs.setWalkAim(!!aimTeammateId(camera, gs.state?.players));
     else if (gs.walkAim) gs.setWalkAim(false);
   });
   return null;

@@ -1695,28 +1695,35 @@ body {
 .seat-chip.begin:disabled { filter: grayscale(0.7) brightness(0.7); cursor: not-allowed; }
 .seat-chip.begin:not(:disabled):hover { filter: brightness(1.12); transform: translateY(-2px); }
 
-/* 走动模式（MC 心智）：中央准心——difference 混合 + 半透明（贴近 MC 的浅灰质感,深浅背景都可读）。
-   情境变形：指向可交互目标（可附身队友）时十字变 45° 方形。未锁定时显示上锁提示。 */
+/* 走动模式（MC 心智）：中央准心。
+   MC 准心的观感不是"半透明",而是**背景反色**（1-dst 的反相混合）——暗底泛亮灰、亮底压暗、
+   颜色随背景变化。用 difference 混合 + 浅灰源色(#dcdcdc)复刻:反相强度打 86%,柔和不刺眼。
+   情境变形：指向可交互目标（可附身队友）时十字变**像素块拼的斜方形**（同一混合,同一观感）。
+   未锁定时显示上锁提示。 */
 .walk-crosshair {
   position: absolute; left: 50%; top: 50%; width: 14px; height: 14px;
   transform: translate(-50%, -50%);
   pointer-events: none; z-index: 35;
-  opacity: 0.72;
 }
 .walk-crosshair::before {
   content: ''; position: absolute; left: 6px; top: 0; width: 2px; height: 14px;
-  background: #fff; mix-blend-mode: difference;
+  background: #dcdcdc; mix-blend-mode: difference;
 }
 .walk-crosshair::after {
   content: ''; position: absolute; top: 6px; left: 0; width: 14px; height: 2px;
-  background: #fff; mix-blend-mode: difference;
+  background: #dcdcdc; mix-blend-mode: difference;
 }
-.walk-crosshair.aim { opacity: 0.9; }
+/* 斜方形=12 个 2px 像素块的菱形描边（box-shadow 逐块摆,无平滑斜线,像素美学） */
 .walk-crosshair.aim::before {
-  left: 50%; top: 50%; width: 9px; height: 9px;
-  transform: translate(-50%, -50%) rotate(45deg);
-  background: transparent; border: 2px solid #fff; box-sizing: border-box;
-  mix-blend-mode: difference;
+  left: 6px; top: 0; width: 2px; height: 2px;
+  background: #dcdcdc; mix-blend-mode: difference;
+  box-shadow:
+    -2px 2px #dcdcdc, 2px 2px #dcdcdc,
+    -4px 4px #dcdcdc, 4px 4px #dcdcdc,
+    -6px 6px #dcdcdc, 6px 6px #dcdcdc,
+    -4px 8px #dcdcdc, 4px 8px #dcdcdc,
+    -2px 10px #dcdcdc, 2px 10px #dcdcdc,
+    0 12px #dcdcdc;
 }
 .walk-crosshair.aim::after { display: none; }
 .walk-lock-hint {
