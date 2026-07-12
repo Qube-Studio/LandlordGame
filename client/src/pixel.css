@@ -1709,22 +1709,21 @@ body {
   pointer-events: none; z-index: 35;
   mix-blend-mode: difference;
 }
-.walk-crosshair::before {
-  content: ''; position: absolute; left: 6px; top: 0; width: 2px; height: 14px;
-  background: #dcdcdc;
+/* 十字=四条独立臂（上下臂 2×7、左右臂 7×2,在中心拼合无缝）。
+   可交互（.aim）：四臂各自向外平移 3px 并缩短 7→5px——张开有动程（130ms ease-out）,
+   松开目标原路合拢。平移用 transform、缩短用宽高,锚点(上臂锚顶/下臂锚底…)保证内缘先退。 */
+.walk-crosshair i {
+  position: absolute; background: #dcdcdc;
+  transition: transform 0.13s ease-out, width 0.13s ease-out, height 0.13s ease-out;
 }
-.walk-crosshair::after {
-  content: ''; position: absolute; top: 6px; left: 0; width: 14px; height: 2px;
-  background: #dcdcdc;
-}
-/* 可交互变化（用户选定方案 A）：**中空张开十字**——四臂各留外侧 4px、中心 6px 镂空,
-   FPS 通用的"可交互"语言;结构与常态十字同源,硬停渐变抠空,像素味不丢,反色随包裹层生效 */
-.walk-crosshair.aim::before {
-  background: linear-gradient(180deg, #dcdcdc 0 4px, transparent 4px 10px, #dcdcdc 10px 14px);
-}
-.walk-crosshair.aim::after {
-  background: linear-gradient(90deg, #dcdcdc 0 4px, transparent 4px 10px, #dcdcdc 10px 14px);
-}
+.walk-crosshair .ch-n { left: 6px; top: 0; width: 2px; height: 7px; }
+.walk-crosshair .ch-s { left: 6px; bottom: 0; width: 2px; height: 7px; }
+.walk-crosshair .ch-w { left: 0; top: 6px; width: 7px; height: 2px; }
+.walk-crosshair .ch-e { right: 0; top: 6px; width: 7px; height: 2px; }
+.walk-crosshair.aim .ch-n { transform: translateY(-3px); height: 5px; }
+.walk-crosshair.aim .ch-s { transform: translateY(3px); height: 5px; }
+.walk-crosshair.aim .ch-w { transform: translateX(-3px); width: 5px; }
+.walk-crosshair.aim .ch-e { transform: translateX(3px); width: 5px; }
 .walk-lock-hint {
   position: absolute; left: 50%; top: 55%; transform: translateX(-50%);
   pointer-events: none; z-index: 35;

@@ -1468,7 +1468,12 @@ export default function Scene3D() {
       </Canvas>
       {singleWalk && !IS_TOUCH && (
         walkLocked
-          ? <div className={`walk-crosshair ${walkAim ? 'aim' : ''}`} />
+          ? (
+            // 四条臂独立成元素:可交互时各自向外平移+微缩短(CSS 过渡出"张开"动程)
+            <div className={`walk-crosshair ${walkAim ? 'aim' : ''}`}>
+              <i className="ch-n" /><i className="ch-s" /><i className="ch-w" /><i className="ch-e" />
+            </div>
+          )
           : <div className="walk-lock-hint">{T.single.lockHint}</div>
       )}
       {DEV && (
