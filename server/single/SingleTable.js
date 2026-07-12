@@ -14,13 +14,13 @@ import {
 } from '../logic/settleSingle.js';
 import { getPersona } from './bosses/basic.js';
 
-const TEAM_ROLES = new Set(['farmer', 'investor', 'glutton', 'prosecutor', 'lucky']);
+export const TEAM_ROLES = new Set(['farmer', 'investor', 'glutton', 'prosecutor', 'lucky']);
 
 export class SingleTable {
   /**
    * @param {object} o
    * @param {string[]} o.teamRoles 玩家队角色（1-4 个，§9 阵容）
-   * @param {object} [o.boss] { persona: 'steward', ghost: false, initialBalance? }
+   * @param {object} [o.boss] { ghost: false, initialBalance? }（Boss 脚本见 bosses/basic.js，现阶段只有一个）
    * @param {object} [o.configOverrides] 叠加在 DEFAULT_CONFIG 上（角色升级=增量合并的入口）
    * @param {() => number} [o.rng] 注入随机源（缺省 Math.random）
    */

@@ -867,7 +867,7 @@ export default function PayoutLayer({ players, seats, spots, playerId, rot }) {
       })}
       {negoIdle && mySpot && (
         <PromptFloat spot={mySpot} nw>
-          <PixelText size={2} color="#fff">{iConfirmed ? T.payout3d.confirmedWaiting : T.payout3d.dragHint}</PixelText>
+          <PixelText size={2} color="#fff">{iConfirmed ? T.payout3d.confirmedWaiting : (state.mode === 'single' ? T.payout3d.dragHintSingle : T.payout3d.dragHint)}</PixelText>
           <div className={`clickable prompt-line ${spaceHeld ? 'pressed' : ''}`} onClick={() => send({ type: 'negotiate_confirm', confirmed: !iConfirmed })}>
             <PixelText size={2} color="var(--px-gold)">{iConfirmed ? T.payout3d.undoConfirm : T.payout3d.confirmAlloc}</PixelText>
             <KeyCap color="var(--px-gold)" />

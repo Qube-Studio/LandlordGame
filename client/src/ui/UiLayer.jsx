@@ -37,6 +37,7 @@ const PHASE_META = {
     hint: IS_3D_INPUT ? T.phase.CHALLENGE.hint3d : T.phase.CHALLENGE.hint2d,
   },
   REVEAL: { label: T.phase.REVEAL.label, hint: T.phase.REVEAL.hint },
+  SINGLE_SETUP: { label: T.phase.SINGLE_SETUP.label, hint: T.phase.SINGLE_SETUP.hint },
   COIN_FLIP: { label: T.phase.COIN_FLIP.label, hint: T.phase.COIN_FLIP.hint },
   REFLIP: { label: T.phase.REFLIP.label, hint: T.phase.REFLIP.hint },
   SETTLE: { label: T.phase.SETTLE.label, hint: T.phase.SETTLE.hint },
@@ -242,7 +243,7 @@ function TopBar() {
   const state = useGameStore(s => s.state);
   const leaveRoom = useGameStore(s => s.leaveRoom);
 
-  const inGame = !['LOBBY', 'ENDED'].includes(state.phase);
+  const inGame = !['LOBBY', 'ENDED', 'SINGLE_SETUP'].includes(state.phase);
   const exit = () => {
     if (inGame && !window.confirm(T.topbar.exitConfirm)) return;
     leaveRoom();

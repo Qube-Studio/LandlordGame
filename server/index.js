@@ -168,7 +168,7 @@ wss.on('connection', (ws, req) => {
       ws.singleSession?.destroy();
       try {
         ws.singleSession = new SingleSession({
-          teamRoles: msg.teamRoles, persona: msg.persona, ghost: !!msg.ghost,
+          teamRoles: msg.teamRoles, ghost: !!msg.ghost,
           configOverrides: msg.config ?? {},
           send: (m) => send(ws, m),
         });
@@ -186,6 +186,9 @@ wss.on('connection', (ws, req) => {
         if (r?.error) send(ws, { type: 'error', message: r.error });
         return;
       }
+      // 单人局里客户端习惯性发的房间消息（视角上报/聊天/表情）静默吞掉，别落进
+      // 下面的房间路由变成「尚未加入房间」错误刷屏。
+      if (type === 'look' || type === 'chat' || type === 'emote') return;
     }
 
     const room = rooms.get(ws.roomId);

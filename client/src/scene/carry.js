@@ -10,6 +10,11 @@ const _dir = new THREE.Vector3();
 // 「牌在哪」和「指到哪」越一致（玩家反馈③:拖拽牌要贴住鼠标）。
 export const CARRY_HEIGHT = TABLE_TOP + 0.32;
 
+// 毡面夹紧范围（世界半宽/半深）。默认=多人 6 座桌；单人长桌由 Scene3D 挂载时改写、卸载时还原
+// （模块级单例，与 projection.js 同一模式——避免把边界穿三层组件树）。
+export const feltBounds = { hx: 2.9, hz: 1.95 };
+export function setFeltBounds(hx, hz) { feltBounds.hx = hx; feltBounds.hz = hz; }
+
 // 指针(NDC {x,y}) → 高度 height 平面上的目标点（世界系，写入 out 并返回）。
 // 关键手感（反馈③）:射线直接与【携带高度平面】求交——被抓的牌永远钉在指针正下方,
 // 而不是先打到桌面再抬高（那会让牌浮到指针上方,越低头偏得越远）。
@@ -21,8 +26,8 @@ export function aimFromPointer(camera, ndc, height, out, slack = 0) {
   let t = _dir.y < -0.02 ? (height - camera.position.y) / _dir.y : 3.2;
   t = Math.min(Math.max(t, 0.4), 12);
   out.copy(camera.position).addScaledVector(_dir, t);
-  out.x = THREE.MathUtils.clamp(out.x, -2.9 - slack, 2.9 + slack);
-  out.z = THREE.MathUtils.clamp(out.z, -1.95 - slack, 1.95 + slack);
+  out.x = THREE.MathUtils.clamp(out.x, -feltBounds.hx - slack, feltBounds.hx + slack);
+  out.z = THREE.MathUtils.clamp(out.z, -feltBounds.hz - slack, feltBounds.hz + slack);
   out.y = height;
   return out;
 }

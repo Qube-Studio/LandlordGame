@@ -115,9 +115,48 @@ await test('暴食者重掷经会话路由：REFLIP 相位 → request_reflip �
 });
 
 await test('single_quit 意图集合完备（客户端会发的名字都在路由表里）', () => {
-  for (const t of ['place_bet', 'summon', 'request_reflip', 'pass_reflip', 'negotiate_transfer', 'negotiate_confirm', 'single_seat', 'ready']) {
+  for (const t of ['place_bet', 'summon', 'request_reflip', 'pass_reflip', 'negotiate_transfer', 'negotiate_confirm', 'single_seat', 'ready', 'single_role', 'single_ghost', 'single_begin']) {
     assert.ok(SINGLE_INTENTS.has(t), `路由表缺 ${t}`);
   }
+});
+
+await test('组队期（SETUP，交互 v2）：桌边选角 → 幽灵 → 开局；槽位=固定座位；对局期改队被拒', async () => {
+  const { s, last } = mkSession({ rng: seq(0.0) });          // 不带 teamRoles → 进组队期
+  let v = s.view();
+  assert.equal(v.phase, 'SINGLE_SETUP');
+  assert.equal(v.me, null);
+  assert.equal(v.single.seatId, null);
+  assert.deepEqual(v.single.setup.roles, ['farmer', 'farmer', null, null]);
+  assert.equal(v.players[v.players.length - 1].id, 'L');     // Boss 在组队期就坐在对面
+  assert.equal(v.players[v.players.length - 1].seat, 4);
+  // 改槽：1 号槽清空、3 号槽放暴食者；非法槽/角色被拒
+  assert.equal(s.handle('single_role', { slot: 1, role: null }).ok, true);
+  assert.equal(s.handle('single_role', { slot: 3, role: 'glutton' }).ok, true);
+  assert.ok(s.handle('single_role', { slot: 9, role: 'farmer' }).error);
+  assert.ok(s.handle('single_role', { slot: 0, role: 'landlord' }).error);
+  assert.equal(s.handle('single_ghost', { on: true }).ok, true);
+  // 组队期不许下注
+  assert.ok(s.handle('place_bet', { amount: 2 }).error);
+  // 开局：farmer(槽0)+glutton(槽3) → seats s0/s1，seat 字段保留槽位
+  assert.equal(s.handle('single_begin', {}).ok, true);
+  v = last();
+  assert.equal(v.phase, 'BETTING');
+  assert.equal(v.single.setup, null);
+  assert.equal(v.single.seatId, 's0');
+  assert.equal(v.single.bossGhost, true);
+  const seatsOf = Object.fromEntries(v.players.map(p => [p.id, p.seat]));
+  assert.equal(seatsOf.s0, 0);
+  assert.equal(seatsOf.s1, 3);                               // 槽位跟人走：组队期选哪坐哪
+  assert.equal(seatsOf.L, 4);
+  // 对局期改队被拒
+  assert.ok(s.handle('single_role', { slot: 0, role: 'lucky' }).error);
+  assert.ok(s.handle('single_begin', {}).error);
+});
+
+await test('空队伍不许开局', () => {
+  const { s } = mkSession({ rng: seq(0.0) });
+  for (const slot of [0, 1]) s.handle('single_role', { slot, role: null });
+  assert.ok(s.handle('single_begin', {}).error);
 });
 
 console.log(`\n全部通过：${passed} 项 ✅`);

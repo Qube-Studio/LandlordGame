@@ -44,6 +44,7 @@ const phase = {
     hint2d: '农民可花 2 票指控敌方暗注「比阵营总注多/少」，猜对逼其多结算一次制约',
   },
   REVEAL: { label: '揭牌', hint: '各家下注已公开，空格确认后掷硬币' },
+  SINGLE_SETUP: { label: '组建队伍', hint: '左下角点席位换角色，开局按钮开打；WASD 可在场里走动' },
   COIN_FLIP: { label: '掷硬币', hint: '正面地主阵营胜，反面农民阵营胜' },
   REFLIP: { label: '重掷决策', hint: '农民输了！暴食者可请求重掷硬币（每局次数=农民人数，每回合限 1 次）' },
   SETTLE: { label: '系统结算', hint: '桌上的钱聚拢成彩池，按规则分成几份送到各家圈里' },
@@ -196,6 +197,7 @@ const payout3d = {
   confirmed: '已确认',
   confirmedWaiting: '已确认 · 等待其他农民',
   dragHint: '拖钱牌/债务牌/对质票到队友圈',
+  dragHintSingle: '拖钱牌/债务牌到队友圈',   // 单人模式无对质票
   undoConfirm: '撤销确认',
   confirmAlloc: '确认分配',
   take: '拿取',
@@ -672,25 +674,19 @@ const payoutSteps = {
   capitalistTax: '税收',
 };
 
-// ---- 单人模式（§9.6，席位切换指挥 v1）----
+// ---- 单人模式（§9.6，交互 v2：长桌两阵营对坐 + 自由走动/附身 + 桌边选角）----
 const single = {
   start: '单人开局',
-  setupTitle: '组建你的队伍',
-  setupHint: '点击席位循环切换角色；至少 1 人',
+  setupHint: '点席位换角色 · 至少 1 人',
   emptySeat: '空位',
-  bossTitle: '选择对手',
-  ghostToggle: '幽灵随行（Boss 侧幻影注金）',
+  ghostToggle: '幽灵随行',
   begin: '开局',
-  cancel: '取消',
   seatCurrent: '操控中',
   seatDone: '已下注',
   seatDead: '破产',
-  switchHint: 'Tab 切换席位',
-  personas: {
-    steward: { name: '账房先生', desc: '稳健收租 · 基准难度' },
-    gambler: { name: '亡命赌徒', desc: '背水一战 · 越输越凶' },
-    miser: { name: '铁公鸡', desc: '小注磨人 · 盘剥狠辣' },
-  },
+  standUp: '起身 [X]',
+  switchHint: 'TAB 切席 · X 起身走动',
+  walkHint: 'WASD 走动 · 拖动转视角 · TAB/点队友附身',
 };
 
 // ---- 开发/测试专用（仅 import.meta.env.DEV 可见）----

@@ -23,6 +23,7 @@ export const useGameStore = create((set, get) => ({
   myStack: null,     // 自己实际放到桌上的牌（与飞出去的是同一批）：{round, notes:[{id,value,slot}]}
   looks: {},         // 其他玩家头部朝向（任务⑦，高频瞬态，不走全量 state）：{ playerId: {yaw, pitch} }
   panel: null,       // 桌沿抽屉（HUD 2.0）：当前升起的面板 'roles' | 'ledger' | null（收起）
+  singleCam: 'walk', // 单人相机（§9.6 交互 v2）：'walk' 全局走动 | 'seat' 附身当前席位（纯表现状态）
 
   connect(token) {
     connectSocket(token);
@@ -42,15 +43,17 @@ export const useGameStore = create((set, get) => ({
   },
 
   // 单人模式（§9.6）：会话随连接活，不占房间系统——不写 sessionStorage（断线即回大厅，无重连恢复）。
-  startSingle({ teamRoles, persona, ghost }) {
-    set({ roomId: 'SINGLE', joining: true });
-    sendMsg({ type: 'single_start', teamRoles, persona, ghost });
+  // 直接进 3D 组队期（SINGLE_SETUP 相位）：选角/幽灵/开局都在桌边席位列完成，无 2D 面板。
+  startSingle() {
+    set({ roomId: 'SINGLE', joining: true, singleCam: 'walk' });
+    sendMsg({ type: 'single_start' });
   },
+  setSingleCam(v) { set(s => (s.singleCam === v ? {} : { singleCam: v })); },
 
   leaveRoom() {
     sendMsg({ type: get().roomId === 'SINGLE' ? 'single_quit' : 'leave_room' });
     sessionStorage.removeItem('llg_room');
-    set({ roomId: null, playerId: null, state: null, chat: [], chatTab: 'all', chatFlash: 0, joining: false, insuranceDrops: [], betFlight: null, myStack: null, looks: {}, panel: null, balanceFreeze: null });
+    set({ roomId: null, playerId: null, state: null, chat: [], chatTab: 'all', chatFlash: 0, joining: false, insuranceDrops: [], betFlight: null, myStack: null, looks: {}, panel: null, balanceFreeze: null, singleCam: 'walk' });
   },
 
   send(msg) {

@@ -13,6 +13,7 @@ import { decompose } from '../game/notes';
 import { factionOf } from '../game/roles';
 import { IS_3D_INPUT, IS_TOUCH } from '../game/inputMode';
 import { grab } from './grab';
+import { setFeltBounds } from './carry';
 import Tickets3D from './Tickets3D';
 import MinecraftPlayer from './MinecraftPlayer';
 import Coin from './Coin';
@@ -70,6 +71,16 @@ const spotOf = (seat) => {
 };
 // 把「我的座位」旋到 +z 近侧的场景旋转角
 const rotFor = (seat) => -Math.atan2(seat.x, seat.z);
+
+// ---- 单人长桌（§9.6 交互 v2）：两阵营对坐,不复用多人环桌 ----
+// 桌 X 拉长(毡面 8.6×4.0),玩家队 4 个固定槽位沿 +z 长边一字排开(槽位=组队期所选,players[].seat),
+// Boss 独坐 -z 对面。场景不再按「我的座位」旋转(rot=0)——全局走动视角下房间是恒定的。
+const SINGLE_TABLE = { w: 8.6, d: 4.0 };
+const SINGLE_TEAM_SEATS = [-2.85, -0.95, 0.95, 2.85].map((x) => ({ x, z: 2.65 }));
+const SINGLE_BOSS_SEAT = { x: 0, z: -2.65 };
+const singleSeatOf = (p) => (p.id === 'L' ? SINGLE_BOSS_SEAT : (SINGLE_TEAM_SEATS[p.seat] ?? SINGLE_TEAM_SEATS[0]));
+// 下注圈:队侧沿长边一排(x 内收 0.8),Boss 圈在对侧中线。圈 r=0.42,到中央双环(0.6)/缝线(z≈1.86)间距≥0.18。
+const singleSpotOf = (seat) => (seat.z < 0 ? { x: 0, z: -1.22 } : { x: seat.x * 0.8, z: 1.22 });
 
 // 大号靠背椅(每个入座玩家一张,反馈⑦):坐面沿用旧凳(y=0.46、0.52 见方,坐姿不用重调),
 // 外侧两立柱升到 ~1.35 + 三根横板,靠背略后仰。立柱/横板都收在 |x|≤0.24、z≤-0.2,
@@ -130,6 +141,127 @@ function CameraRig({ look, shakeRef, camZ = 3.0 }) {
     camera.position.x += (mx * 0.3 - camera.position.x) * 0.05;
     camera.position.y += (EYE_Y - my * 0.1 - camera.position.y) * 0.05;
     camera.position.z += (camZ - camera.position.z) * 0.05;
+    camera.lookAt(target.current);
+  });
+  return null;
+}
+
+// 单人相机（§9.6 交互 v2）：两种模式，同一套阻尼收敛做自然过渡。
+// - seat（附身席位）：沿用落座第一人称手感——绝对鼠标环视 + 注视桌心 + 破产微震；
+//   相机每帧向「席位眼位」收敛，从走动位切过来就是一段柔和飞入。
+// - walk（全局走动）：WASD 平移 + 左键在 3D 画布上拖动转视角（增量，同触屏心智）；
+//   位置夹在己方半场（阵营线有隔离带可视化），桌+椅一个碰撞箱。
+//   落座期间持续把行走位/朝向同步到当前相机 → 「起身」瞬间无跳变。
+const WALK_EYE = 2.35, WALK_SPEED = 3.4;
+const WALK_BOUND = { x: 10.6, zMin: 1.15, zMax: 10.6 };
+const _walkDir = new THREE.Vector3();
+function clampWalk(p) {
+  p.x = THREE.MathUtils.clamp(p.x, -WALK_BOUND.x, WALK_BOUND.x);
+  p.z = THREE.MathUtils.clamp(p.z, WALK_BOUND.zMin, WALK_BOUND.zMax);
+  if (Math.abs(p.x) < 5.2 && p.z < 3.5) p.z = 3.5;   // 长桌+座椅碰撞箱
+}
+function SingleRig({ mode, seat, look, shakeRef }) {
+  const { camera } = useThree();
+  const pos = useRef(new THREE.Vector3(0, WALK_EYE, 6.8));
+  const yaw = useRef(0);          // 朝向:yaw=0 面向 -z(桌心);fwd=(-sinYaw,0,-cosYaw)
+  const pitch = useRef(-0.16);
+  const keys = useRef({});
+  const target = useRef(new THREE.Vector3(0, LOOK_Y, 0));
+
+  // WASD（输入框聚焦让路；窗口失焦清空按键防"卡键漂移"）
+  useEffect(() => {
+    const typing = () => {
+      const el = document.activeElement;
+      return el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA');
+    };
+    const down = (e) => { if (!typing()) keys.current[e.code] = true; };
+    const up = (e) => { keys.current[e.code] = false; };
+    const blur = () => { keys.current = {}; };
+    window.addEventListener('keydown', down);
+    window.addEventListener('keyup', up);
+    window.addEventListener('blur', blur);
+    return () => {
+      window.removeEventListener('keydown', down);
+      window.removeEventListener('keyup', up);
+      window.removeEventListener('blur', blur);
+    };
+  }, []);
+
+  // 左键拖动转视角（仅走动模式;只在 3D 画布上起手;抓着牌/钱时让位——grab.active,碰撞铁律）。
+  // 监听器只挂一次,模式经 ref 读活值（carry.js 铁律③:effect 依赖 mode 会在切换瞬间打断进行中的拖动）。
+  const modeRef = useRef(mode);
+  useEffect(() => { modeRef.current = mode; }, [mode]);
+  useEffect(() => {
+    const drag = { on: false, x: 0, y: 0 };
+    const down = (e) => {
+      if (modeRef.current !== 'walk') return;
+      if (!(e.target instanceof Element) || !e.target.closest('.r3f-scene')) return;
+      drag.on = true; drag.x = e.clientX; drag.y = e.clientY;
+    };
+    const move = (e) => {
+      if (!drag.on || modeRef.current !== 'walk') return;
+      if (grab.active) { drag.x = e.clientX; drag.y = e.clientY; return; }
+      yaw.current -= (e.clientX - drag.x) * 0.0042;
+      pitch.current = THREE.MathUtils.clamp(pitch.current - (e.clientY - drag.y) * 0.0032, -0.7, 0.55);
+      drag.x = e.clientX; drag.y = e.clientY;
+    };
+    const up = () => { drag.on = false; };
+    window.addEventListener('pointerdown', down);
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+    return () => {
+      window.removeEventListener('pointerdown', down);
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+    };
+  }, []);
+
+  useFrame((st, delta) => {
+    if (mode === 'seat' && seat) {
+      const mx = look.current.x, my = look.current.y;
+      target.current.x += (seat.x * 0.3 + mx * 1.15 - target.current.x) * 0.06;
+      target.current.y += (LOOK_Y - my * 0.5 - target.current.y) * 0.06;
+      target.current.z += (0 - target.current.z) * 0.06;
+      if (shakeRef && shakeRef.current > 0) {
+        shakeRef.current = Math.max(0, shakeRef.current - delta);
+        const k = shakeRef.current / 0.3;
+        target.current.x += Math.sin(st.clock.elapsedTime * 55) * 0.025 * k;
+        target.current.y += Math.cos(st.clock.elapsedTime * 47) * 0.018 * k;
+      }
+      camera.position.x += (seat.x + mx * 0.3 - camera.position.x) * 0.05;
+      camera.position.y += (EYE_Y - my * 0.1 - camera.position.y) * 0.05;
+      camera.position.z += (seat.z + CAM_BACK - camera.position.z) * 0.05;
+      camera.lookAt(target.current);
+      // 起身无跳变:落座期间持续把行走状态钉在当前相机姿态上
+      pos.current.set(camera.position.x, WALK_EYE, camera.position.z);
+      clampWalk(pos.current);
+      camera.getWorldDirection(_walkDir);
+      yaw.current = Math.atan2(-_walkDir.x, -_walkDir.z);
+      pitch.current = Math.asin(THREE.MathUtils.clamp(_walkDir.y, -1, 1));
+      return;
+    }
+    // 走动:WASD 相对朝向平移
+    const k = keys.current;
+    const f = (k.KeyW ? 1 : 0) - (k.KeyS ? 1 : 0);
+    const r = (k.KeyD ? 1 : 0) - (k.KeyA ? 1 : 0);
+    if (f || r) {
+      const sy = Math.sin(yaw.current), cy = Math.cos(yaw.current);
+      const n = f && r ? Math.SQRT1_2 : 1;    // 斜向不加速
+      pos.current.x += (-sy * f + cy * r) * n * WALK_SPEED * delta;
+      pos.current.z += (-cy * f - sy * r) * n * WALK_SPEED * delta;
+      clampWalk(pos.current);
+    }
+    camera.position.x += (pos.current.x - camera.position.x) * 0.16;
+    camera.position.y += (WALK_EYE - camera.position.y) * 0.10;
+    camera.position.z += (pos.current.z - camera.position.z) * 0.16;
+    const cp = Math.cos(pitch.current);
+    target.current.set(
+      camera.position.x - Math.sin(yaw.current) * cp * 4,
+      camera.position.y + Math.sin(pitch.current) * 4,
+      camera.position.z - Math.cos(yaw.current) * cp * 4,
+    );
     camera.lookAt(target.current);
   });
   return null;
@@ -648,8 +780,14 @@ function Rug() {
 }
 
 // 赌桌(ART_BIBLE §1.4):毡面烘金描线下注区(与钱堆落点同源对位)+ 橡木框 + 黄铜嵌线 + 横撑
-function Table({ spots = [] }) {
-  const feltTex = useMemo(() => tex('tableFelt', { spots }), [spots]);
+// size 缺省=多人 6 座桌(毡面盒 6.0×4.0、纹理映射保持历史 6.6 口径不动观感);
+// 单人长桌传 SINGLE_TABLE(8.6×4.0),此时纹理映射=盒尺寸,圈与钱堆严格对位。
+function Table({ spots = [], size = null }) {
+  const w = size?.w ?? 6.0, d = size?.d ?? 4.0;
+  const feltTex = useMemo(
+    () => tex('tableFelt', size ? { spots, dims: { w, d } } : { spots }),
+    [spots, size, w, d],
+  );
   const frameWood = tex('wood', { tone: P.wood500 });
   const legWood = tex('wood', { tone: P.wood700 });
   const brass = tex('brass');
@@ -657,20 +795,20 @@ function Table({ spots = [] }) {
     <group>
       {/* 桌面毡布:下注区/硬币圈直接烘死在纹理里,零文字锚定。X 收窄一点(用户反馈):6.6→6.0 */}
       <mesh position={[0, TABLE_TOP - 0.06, 0]} receiveShadow>
-        <boxGeometry args={[6.0, 0.12, 4.0]} />
+        <boxGeometry args={[w, 0.12, d]} />
         <meshStandardMaterial map={feltTex} roughness={0.95} flatShading />
       </mesh>
       {/* 木框 */}
       <mesh position={[0, 0.78, 0]}>
-        <boxGeometry args={[6.4, 0.34, 4.4]} />
+        <boxGeometry args={[w + 0.4, 0.34, d + 0.4]} />
         <meshStandardMaterial map={frameWood} roughness={1} flatShading />
       </mesh>
       {/* 内缘黄铜嵌线(微 emissive,Bloom 下泛柔光) */}
       {[
-        { pos: [0, 0.952, -2.06], args: [6.12, 0.03, 0.06] },
-        { pos: [0, 0.952, 2.06], args: [6.12, 0.03, 0.06] },
-        { pos: [-3.06, 0.952, 0], args: [0.06, 0.03, 4.06] },
-        { pos: [3.06, 0.952, 0], args: [0.06, 0.03, 4.06] },
+        { pos: [0, 0.952, -(d / 2 + 0.06)], args: [w + 0.12, 0.03, 0.06] },
+        { pos: [0, 0.952, d / 2 + 0.06], args: [w + 0.12, 0.03, 0.06] },
+        { pos: [-(w / 2 + 0.06), 0.952, 0], args: [0.06, 0.03, d + 0.06] },
+        { pos: [w / 2 + 0.06, 0.952, 0], args: [0.06, 0.03, d + 0.06] },
       ].map((b, i) => (
         <mesh key={i} position={b.pos}>
           <boxGeometry args={b.args} />
@@ -678,20 +816,54 @@ function Table({ spots = [] }) {
         </mesh>
       ))}
       {/* 桌腿 + 横撑 */}
-      {[[-2.9, -1.9], [2.9, -1.9], [-2.9, 1.9], [2.9, 1.9]].map(([x, z], i) => (
+      {[[-(w / 2 - 0.1), -(d / 2 - 0.1)], [w / 2 - 0.1, -(d / 2 - 0.1)], [-(w / 2 - 0.1), d / 2 - 0.1], [w / 2 - 0.1, d / 2 - 0.1]].map(([x, z], i) => (
         <mesh key={i} position={[x, 0.3, z]}>
           <boxGeometry args={[0.32, 0.8, 0.32]} />
           <meshStandardMaterial map={legWood} roughness={1} flatShading />
         </mesh>
       ))}
-      {[-1.9, 1.9].map((z) => (
+      {[-(d / 2 - 0.1), d / 2 - 0.1].map((z) => (
         <mesh key={z} position={[0, 0.22, z]}>
-          <boxGeometry args={[5.8, 0.1, 0.14]} />
+          <boxGeometry args={[w - 0.2, 0.1, 0.14]} />
           <meshStandardMaterial map={legWood} roughness={1} flatShading />
         </mesh>
       ))}
     </group>
   );
+}
+
+// 阵营隔离带(单人,§9.6 交互 v2):桌子两端各一排麻绳立柱,把 Boss 半场拦起来——
+// 走动相机的 z≥ 阵营线夹紧有了可见的物理理由。纯摆设,零光源零交互。
+function FactionBarriers() {
+  const brass = tex('brass');
+  const rope = tex('wood', { tone: P.wood300, plankW: 4 });
+  const posts = [5.2, 7.0, 8.8, 10.6];
+  return [1, -1].map((sx) => (
+    <group key={sx} position={[0, 0, 0.62]}>
+      {posts.map((x) => (
+        <group key={x} position={[x * sx, 0, 0]}>
+          <mesh position={[0, 0.52, 0]}>
+            <cylinderGeometry args={[0.05, 0.07, 1.04, 6]} />
+            <meshStandardMaterial color={P.wood900} roughness={1} flatShading />
+          </mesh>
+          <mesh position={[0, 1.08, 0]}>
+            <sphereGeometry args={[0.09, 6, 5]} />
+            <meshStandardMaterial map={brass} roughness={0.55} metalness={0.35} flatShading />
+          </mesh>
+          <mesh position={[0, 0.05, 0]}>
+            <cylinderGeometry args={[0.16, 0.19, 0.1, 8]} />
+            <meshStandardMaterial color={P.wood900} roughness={1} flatShading />
+          </mesh>
+        </group>
+      ))}
+      {posts.slice(0, -1).map((x, i) => (
+        <mesh key={`r${x}`} position={[((x + posts[i + 1]) / 2) * sx, 0.94, 0]} rotation={[0, 0, Math.PI / 2]}>
+          <cylinderGeometry args={[0.035, 0.035, posts[i + 1] - x - 0.14, 5]} />
+          <meshStandardMaterial map={rope} roughness={1} flatShading />
+        </mesh>
+      ))}
+    </group>
+  ));
 }
 
 // 钱牌材质/堆叠槽位/静态钱堆已抽到 scene/cards.jsx（与 PayoutLayer 共用，保证飞行/静堆/彩池同源）。
@@ -793,12 +965,13 @@ function FlyingNotes({ betFlight, target, rot = 0 }) {
 }
 
 // 任务⑦：把自己的鼠标视角换算成头部 yaw/pitch，限频(8Hz)、仅变化时上报，服务端转发给其他玩家。
-function useHeadReport(look) {
+// 单人模式没有别的观众（Boss 是脚本），不上报——省一条 8Hz 消息也免得会话层吞路由。
+function useHeadReport(look, disabled = false) {
   const send = useGameStore(s => s.send);
   const playerId = useGameStore(s => s.playerId);
   const last = useRef({ yaw: 99, pitch: 99 });
   useEffect(() => {
-    if (!playerId) return;
+    if (!playerId || disabled) return undefined;
     const id = setInterval(() => {
       const yaw = -look.current.x * 0.6;   // 鼠标右→头转右（如方向反了把负号去掉即可）
       const pitch = look.current.y * 0.3;
@@ -807,7 +980,7 @@ function useHeadReport(look) {
       send({ type: 'look', yaw, pitch });
     }, 125);
     return () => clearInterval(id);
-  }, [look, send, playerId]);
+  }, [look, send, playerId, disabled]);
 }
 
 function SceneContents({ look, freeCam = false }) {
@@ -819,21 +992,41 @@ function SceneContents({ look, freeCam = false }) {
   // 画质设置(反馈①):阴影/光影特效由玩家档位控制;URL 排查开关仍可强制关
   const shadowsOn = useSettingsStore(s => s.shadows);
   const postfxOn = useSettingsStore(s => s.postfx);
-  useHeadReport(look);
+  // 单人模式（§9.6 交互 v2）：长桌两阵营对坐 + 自由走动/附身双态相机
+  const single = !!state.single;
+  const setup = state.phase === 'SINGLE_SETUP';
+  const singleCam = useGameStore(s => s.singleCam);
+  const possessed = single && !setup && singleCam === 'seat';
+  useHeadReport(look, single);
 
   const players = state.players;
   const meIdx = Math.max(0, players.findIndex(p => p.id === playerId));
   const me = players.find(p => p.id === playerId);
-  // 绝对座位:players[] 序 → 桌边固定位;整个场景旋转把我的座位转到相机近侧
+  // 绝对座位:players[] 序 → 桌边固定位;整个场景旋转把我的座位转到相机近侧。
+  // 单人:槽位固定长桌两侧、场景不旋转(rot=0)——走动视角下房间恒定。
   const N = Math.max(1, players.length);
-  const seats = players.map((_, i) => seatOf(N, i));
+  const seats = single ? players.map(singleSeatOf) : players.map((_, i) => seatOf(N, i));
   const mySeat = seats[meIdx] ?? { x: 0, z: 2.65 };
   // ?yaw=<弧度>:仅美术 QA 用——在座位旋转上再加偏航,便于截图核验四面墙
-  const rot = rotFor(mySeat) + (parseFloat(PARAMS.get('yaw')) || 0);
-  const mySpot = spotOf(mySeat);
-  const spots = seats.map(spotOf);
+  const rot = (single ? 0 : rotFor(mySeat)) + (parseFloat(PARAMS.get('yaw')) || 0);
+  const mySpot = single ? singleSpotOf(mySeat) : spotOf(mySeat);
+  const spots = seats.map(single ? singleSpotOf : spotOf);
   // 第一人称落座相机基准(反馈⑥):我的座位旋转后必在 +z 近侧,距离=座距+微退
   const camZ = Math.hypot(mySeat.x, mySeat.z) + CAM_BACK;
+
+  // 单人长桌:重力枪拖拽的毡面夹紧范围放宽到长桌(模块级单例,卸载还原多人口径)
+  useEffect(() => {
+    if (!single) return undefined;
+    setFeltBounds(SINGLE_TABLE.w / 2 - 0.1, SINGLE_TABLE.d / 2 - 0.05);
+    return () => setFeltBounds(2.9, 1.95);
+  }, [single]);
+
+  // 点队友附身（走动模式;e.delta 区分拖动转视角与点选）
+  const possess = (pid) => {
+    const store = useGameStore.getState();
+    if (pid !== playerId) store.send({ type: 'single_seat', seatId: pid });
+    store.setSingleCam('seat');
+  };
 
   // 有人破产的瞬间:镜头注视点微震 300ms(§1.9)
   const bankruptCount = players.filter(p => p.bankrupt).length;
@@ -882,7 +1075,11 @@ function SceneContents({ look, freeCam = false }) {
       <ChandelierLight />
       <directionalLight position={[-6, 4, 6]} intensity={0.30} color={P.coolFill} />
 
-      {freeCam ? <OrbitControls target={[0, 1.05, 0]} makeDefault /> : <CameraRig look={look} shakeRef={shakeRef} camZ={camZ} />}
+      {freeCam
+        ? <OrbitControls target={[0, 1.05, 0]} makeDefault />
+        : single
+          ? <SingleRig mode={possessed ? 'seat' : 'walk'} seat={possessed ? mySeat : null} look={look} shakeRef={shakeRef} />
+          : <CameraRig look={look} shakeRef={shakeRef} camZ={camZ} />}
       <Projector />
 
       {/* 场景旋转组:把「我的座位」转到 +z 近侧——不同玩家看到自己坐在桌边不同位置(反馈⑫)。
@@ -897,18 +1094,30 @@ function SceneContents({ look, freeCam = false }) {
         <Chandelier />
         <Rug />
 
-        <Table spots={spots} />
+        <Table spots={spots} size={single ? SINGLE_TABLE : null} />
+        {single && <FactionBarriers />}
 
-        {/* 入座椅子(反馈⑬:第一人称不渲染自己的椅子——与不建模自己身体同理,低头/退远也不穿帮) */}
-        {seats.map((seat, i) => (
-          (freeCam || i !== meIdx) && <Chair key={`chair-${i}`} x={seat.x} z={seat.z} ry={Math.atan2(-seat.x, -seat.z)} />
-        ))}
+        {/* 入座椅子(反馈⑬:第一人称不渲染自己的椅子——与不建模自己身体同理,低头/退远也不穿帮)。
+            单人:四个队伍槽位+Boss 位恒有椅子(空椅=可招募的位置);附身席位的椅子隐去。 */}
+        {single
+          ? [...SINGLE_TEAM_SEATS, SINGLE_BOSS_SEAT].map((seat, i) => (
+            (!possessed || seat !== mySeat) && <Chair key={`chair-${i}`} x={seat.x} z={seat.z} ry={Math.atan2(-seat.x, -seat.z)} />
+          ))
+          : seats.map((seat, i) => (
+            (freeCam || i !== meIdx) && <Chair key={`chair-${i}`} x={seat.x} z={seat.z} ry={Math.atan2(-seat.x, -seat.z)} />
+          ))}
         {players.map((p, i) => {
-          if (p.id === playerId && !freeCam) return null;
+          if (p.id === playerId && !freeCam && (!single || possessed)) return null;
           const seat = seats[i];
           const ry = Math.atan2(-seat.x, -seat.z);
+          const clickable = single && p.id !== 'L' && !p.bankrupt && !setup;
           return (
-            <group key={p.id} position={[seat.x, 0, seat.z]} rotation={[0, ry, 0]}>
+            <group
+              key={p.id}
+              position={[seat.x, 0, seat.z]}
+              rotation={[0, ry, 0]}
+              onClick={clickable ? (e) => { if (e.delta < 6) { e.stopPropagation(); possess(p.id); } } : undefined}
+            >
               <MinecraftPlayer
                 player={p}
                 expression={expressionFor(p, state)}
@@ -977,9 +1186,9 @@ function SceneContents({ look, freeCam = false }) {
       {/* 3D 手牌层（交互 3D 化）：BETTING 期把余额捏在相机前，拖进圆圈下注。
           挂在旋转组之外（手随相机走、拖拽射线都在世界系），桌面暂存牌由它内部按 rot 对齐。 */}
       {IS_3D_INPUT && state.phase === 'BETTING' && state.me && !state.me.spectator
-        && factionOf(state.me.role) && state.me.bet == null && (
+        && factionOf(state.me.role) && state.me.bet == null && (!single || possessed) && (
           <HandLayer
-            key={`hand-${state.round}-${state.me.balance}`}
+            key={`hand-${state.round}-${state.me.balance}-${state.me.id}`}
             look={look}
             rot={rot}
             mySpot={mySpot}

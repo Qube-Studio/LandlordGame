@@ -4,7 +4,6 @@ import { useAuthStore } from '../store/authStore';
 import { useGameStore } from '../store/gameStore';
 import { getArt } from '../assets/registry';
 import PixelText from '../assets/pixelfont/PixelText';
-import SingleSetup from '../ui/SingleSetup';
 import { T } from '../text';
 
 const Icon = getArt('icon');
@@ -23,7 +22,7 @@ export default function LobbyScreen() {
   const [online, setOnline] = useState({ count: 0, users: [] });
   const [roomName, setRoomName] = useState('');
   const [joinId, setJoinId] = useState('');
-  const [singleOpen, setSingleOpen] = useState(false); // 单人模式组队面板（§9.6，不走房间 API）
+  const startSingle = useGameStore(s => s.startSingle); // 单人模式（§9.6 交互 v2）：直接进 3D 组队期
 
   useEffect(() => {
     let alive = true;
@@ -67,8 +66,8 @@ export default function LobbyScreen() {
             <h3>{m.label}</h3>
             <p className="dim">{m.description}</p>
             {m.id === 'single' ? (
-              // 单人模式不走房间 API：点开组队面板 → single_start（§9.6）
-              <button className="btn primary" disabled={!connected} onClick={() => setSingleOpen(v => !v)}>{T.single.start}</button>
+              // 单人模式不走房间 API：直接 single_start 进 3D 组队期（选角在桌边席位列，§9.6 交互 v2）
+              <button className="btn primary" disabled={!connected} onClick={startSingle}>{T.single.start}</button>
             ) : m.available ? (
               <button className="btn primary" disabled={!connected} onClick={() => createRoom(m.id)}>{T.lobby.createRoom}</button>
             ) : (
@@ -77,8 +76,6 @@ export default function LobbyScreen() {
           </div>
         ))}
       </section>
-
-      {singleOpen && <SingleSetup onClose={() => setSingleOpen(false)} />}
 
       <section className="lobby-actions">
         <label className="field inline">

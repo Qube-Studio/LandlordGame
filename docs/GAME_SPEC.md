@@ -540,9 +540,12 @@ competitive: {
 - 模式注册 `modes/index.js`：`single`（`available: false` 占位直至可玩）。文案：`text/zh.js` 未来加 `rolesSingle` 命名空间（单人角色手册与多人数值分叉）。
 - 模拟脚本：scratchpad `single-sim.mjs`（真实 settleRound + 各角色外挂，4000 局/格）——参数改动先过模拟再进 config。
 
-### 9.6 接线与交互 v1（席位切换指挥）
+### 9.6 接线与交互 v2（长桌对坐 + 自由走动/附身 + 桌边选角）
 
 - **会话层** `server/single/session.js`：`SingleSession` 把 `SingleTable.view()` 适配成**与多人 `viewFor()` 同形的 state**——现有客户端（Scene3D/HandLayer/PayoutLayer/UiLayer）零结构改动即可渲染。相位映射：`COMMAND→BETTING`、`REFLIP→REFLIP`、`ALLOCATE→NEGOTIATE`、`ENDED→ENDED`；席位=players（Boss 挂 landlord 位）；`me`=当前操控席位。
-- **WS 协议**：`single_start {teamRoles, persona, ghost}` 在连接上开一局（无房间概念，会话随连接活）；`single_seat {seatId}` 切换操控席位（≈测试模式 possess 的产品化）；其余**复用既有消息名**（`place_bet`/`summon`/`request_reflip`/`pass_reflip`/`negotiate_transfer`/`negotiate_confirm`），index.js 在 ws 挂着单机会话时优先路由给它。全部席位下注即自动 resolve（同多人 `_checkAllBet`）。
-- **交互 v1 = 席位切换指挥**：玩家用现有单座交互逐席位操作（HandLayer 拖牌下注、PayoutLayer 协商拖拽分账），切席入口沿用「V 切换操控角色」的心智；同时操控/阵型摆放（真·指挥官视角）留给 v2。
-- Boss 意图电报 v1 = 人格明牌（卡面名 + attrs 档位可见）；出注金额仍暗、张数照多人惯例可见。
+- **组队期（SINGLE_SETUP 相位）**：`single_start`（无参）先进组队期——4 个席位槽 `single_role {slot, role|null}` 循环选角、`single_ghost {on}` 切幽灵、`single_begin` 才构造 SingleTable 开打。**槽位=桌边固定座位**（players[].seat 保留组队所选槽，Boss 恒 seat 4）。测试/脚本仍可 `single_start {teamRoles}` 直启跳过组队期。
+- **WS 协议**：`single_seat {seatId}` 切换操控席位；其余**复用既有消息名**（`place_bet`/`summon`/`request_reflip`/`pass_reflip`/`negotiate_transfer`/`negotiate_confirm`），index.js 在 ws 挂着单机会话时优先路由给它（`look`/`chat`/`emote` 静默吞掉）。全部席位下注即自动 resolve（同多人 `_checkAllBet`）。
+- **场景 = 单人专属长桌**（不复用多人环桌）：毡面 8.6×4.0，玩家队 4 槽沿 +z 长边一字排开、Boss 独坐 −z 对面，两阵营对坐；场景不随席位旋转（rot=0）。桌两端麻绳立柱隔离带把 Boss 半场拦起来（走动边界的可见理由）。
+- **相机双态**（客户端 `singleCam`，纯表现）：**walk 全局走动**（WASD 平移 + 左键拖动转视角，夹在己方半场，桌椅有碰撞箱）↔ **seat 附身席位**（沿用多人落座第一人称手感）。切换：点席位芯片/点队友模型/Tab=附身，X/起身按钮=回走动；两态同一套阻尼收敛，起身/落座无跳变。下注等桌面交互在附身态进行（HandLayer 只在附身时挂载）。
+- **左下角席位列**（SeatBar）双态：组队期=槽位选角+幽灵开关+开局按钮；对局期=附身/切席/起身 + 已下注/破产状态标。
+- **Boss**：现阶段只有一个（`bosses/basic.js` BOSS，attrs=base 档、押 35%），不做人格三选——玩法优先（用户裁决 2026-07-12）；难度档位表留在 `config.single.boss.attrs` 供战役梯度。出注金额仍暗、张数照多人惯例可见。

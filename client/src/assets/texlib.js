@@ -331,18 +331,19 @@ function drawBarrel(ctx, w, h, rnd) {
 
 // 桌毡(512²):felt 基材 + 金描线下注区烘死在纹理里。
 // spots = 各钱堆落点世界坐标 [{x,z}](对手 + 自己),与 Scene3D 的 MoneyStack 位置同源。
-// 映射:u=(x/6.6+0.5)*512, v=(z/4.0+0.5)*512(若截图发现 z 镜像,翻转 FELT_FLIP_Z)。
+// dims = 纹理映射的世界尺寸(多人默认 6.6×4.0;单人长桌传 8.6×4.0——映射=毡面盒尺寸,严格对位)。
+// 映射:u=(x/dims.w+0.5)*512, v=(z/dims.d+0.5)*512(若截图发现 z 镜像,翻转 FELT_FLIP_Z)。
 const FELT_W = 512, FELT_H = 512;
 const FELT_FLIP_Z = false;
-function feltU(x) { return (x / 6.6 + 0.5) * FELT_W; }
-function feltV(z) { return ((FELT_FLIP_Z ? -z : z) / 4.0 + 0.5) * FELT_H; }
+const FELT_DIMS = { w: 6.6, d: 4.0 };
 
-// 世界系正圆 → 纹理系椭圆的纵横比补偿:纹理 512² 铺在 6.6×4.0 桌面上,
-// x 向 512/6.6≈77.6 px/单位、z 向 512/4.0=128 px/单位,直接画圆会被拉成椭圆(玩家反馈⑦)。
-const feltRU = (r) => r * (FELT_W / 6.6);
-const feltRV = (r) => r * (FELT_H / 4.0);
-
-function drawTableFelt(ctx, w, h, spots, rnd) {
+function drawTableFelt(ctx, w, h, spots, rnd, dims = FELT_DIMS) {
+  const feltU = (x) => (x / dims.w + 0.5) * FELT_W;
+  const feltV = (z) => ((FELT_FLIP_Z ? -z : z) / dims.d + 0.5) * FELT_H;
+  // 世界系正圆 → 纹理系椭圆的纵横比补偿:512² 铺在 dims.w×dims.d 桌面上,
+  // 两向 px/单位不同,直接画圆会被拉成椭圆(玩家反馈⑦)。
+  const feltRU = (r) => r * (FELT_W / dims.w);
+  const feltRV = (r) => r * (FELT_H / dims.d);
   drawFelt(ctx, w, h, P.feltTable, rnd, 4);
   // 四周金色缝线边(双线内缩)
   ctx.strokeStyle = 'rgba(202,160,78,0.5)';
@@ -441,7 +442,7 @@ function canvasKey(kind, o = {}) {
     case 'felt': return `felt|${o.color ?? P.feltTable}`;
     case 'fabric': return `fabric|${o.color ?? P.wood300}|${o.pattern ?? 'plain'}`;
     case 'brass': return `brass|${o.patina ?? 0}`;
-    case 'tableFelt': return `tableFelt|${(o.spots ?? []).map(s => `${s.x.toFixed(2)},${s.z.toFixed(2)}`).join(';')}`;
+    case 'tableFelt': return `tableFelt|${o.dims ? `${o.dims.w}x${o.dims.d}|` : ''}${(o.spots ?? []).map(s => `${s.x.toFixed(2)},${s.z.toFixed(2)}`).join(';')}`;
     case 'flame': return `flame|${o.frame ?? 0}`;
     case 'stone': return `stone|${o.tone ?? P.stone500}`;
     default: return kind; // parchment/chalk/wall/floor/rug/barrel/menu 无参数
@@ -468,7 +469,7 @@ export function canvasFor(kind, o = {}) {
     case 'floor': drawPlankFloor(ctx, w, h, rnd); break;
     case 'rug': drawRug(ctx, w, h, rnd); break;
     case 'barrel': drawBarrel(ctx, w, h, rnd); break;
-    case 'tableFelt': drawTableFelt(ctx, w, h, o.spots ?? [], rnd); break;
+    case 'tableFelt': drawTableFelt(ctx, w, h, o.spots ?? [], rnd, o.dims); break;
     case 'flame': drawFlame(ctx, w, h, o.frame ?? 0); break;
     case 'abacus': drawAbacus(ctx, w, h, rnd); break;
     case 'stone': drawStone(ctx, w, h, o.tone ?? P.stone500, rnd); break;
