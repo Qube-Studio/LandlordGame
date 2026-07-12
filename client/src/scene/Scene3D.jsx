@@ -231,7 +231,7 @@ function aimTargetOf(camera, state) {
   const id = aimTeammateId(camera, players);
   return id ? `seat:${id}` : null;
 }
-function SingleRig({ mode, seat, look, shakeRef }) {
+function SingleRig({ mode, seat, shakeRef }) {
   const { camera, gl } = useThree();
   const pos = useRef(new THREE.Vector3(0, WALK_EYE, 6.8));
   const vel = useRef({ x: 0, z: 0 });   // 走动惯性速度（xz 平面）
@@ -268,10 +268,12 @@ function SingleRig({ mode, seat, look, shakeRef }) {
   useEffect(() => { modeRef.current = mode; }, [mode]);
 
   const syncLockRef = useRef(() => {});   // 锁同步函数经 ref 暴露给模式/相位 effect（大 effect 只挂一次）
-  // 指针锁管理（§9.6 交互 v3,全程锁定）:
-  // - 应锁条件:走动模式 && 相位 ∈ {BETTING, COIN_FLIP}（协商拖钱/重掷面板/组队选角/终局要自由鼠标,自动放开）
-  // - **按住 CTRL** 临时放开鼠标,松开自动回锁（用户裁决:ESC 不作为放开手段）
-  // - ESC 被浏览器强制退锁无法拦截 → 下一个输入手势（任意按键/点画布）**静默回锁**,无提示文案
+  const seatLook = useRef({ x: 0, y: 0 }); // 附身环视（锁定态没有绝对光标,用移动增量驱动,夹在 [-1,1]）
+  // 指针锁管理（§9.6 交互 v3,全程锁定——用户裁决:进游戏就锁,期间只有两个出口）:
+  // - 放开条件仅两个:**按住 CTRL**（松开自动回锁）、打开面板类 UI（设置/规则/角色墙/账本,gameStore.panel）;
+  //   另加终局（ENDED,要点按钮）。协商/重掷等需要鼠标的操作=按住 CTRL 进行。ESC 不是出口——
+  //   浏览器强制退锁无法拦截,但下一个输入手势（任意按键/点画布）**静默回锁**,无提示文案。
+  // - 附身也保持锁定:落座环视由移动增量驱动（seatLook）,不再依赖绝对光标位置。
   // - 锁定中点按走准心路由:中央圈=开掷、下注圈=左+1/右−1/Shift全押/Alt保金、队友身体=附身
   useEffect(() => {
     if (IS_TOUCH) return undefined;
@@ -280,9 +282,12 @@ function SingleRig({ mode, seat, look, shakeRef }) {
     const requestLock = () => { try { canvas.requestPointerLock?.()?.catch?.(() => {}); } catch { /* 忽略被浏览器拒绝 */ } };
     const isLocked = () => document.pointerLockElement === canvas;
     const shouldLock = () => {
-      if (modeRef.current !== 'walk' || ctrl.held) return false;
-      const ph = useGameStore.getState().state?.phase;
-      return ph === 'BETTING' || ph === 'COIN_FLIP';
+      if (ctrl.held) return false;
+      const st = useGameStore.getState();
+      if (!st.state?.single) return false;
+      if (st.state.phase === 'ENDED') return false;
+      if (st.panel) return false;                       // 设置/规则/角色墙/账本开着 → 鼠标自由
+      return true;
     };
     const sync = () => {
       if (shouldLock()) { if (!isLocked()) requestLock(); }
@@ -297,11 +302,17 @@ function SingleRig({ mode, seat, look, shakeRef }) {
       useGameStore.getState().setWalkLocked(isLocked());
     };
     const onMove = (e) => {
-      if (!isLocked() || modeRef.current !== 'walk') return;
+      if (!isLocked()) return;
       if (spike.skip) { spike.skip = false; return; }
       if (Math.abs(e.movementX) > 200 || Math.abs(e.movementY) > 200) return;
-      yaw.current -= e.movementX * 0.0026;
-      pitch.current = THREE.MathUtils.clamp(pitch.current - e.movementY * 0.0022, -0.85, 0.6);
+      if (modeRef.current === 'walk') {
+        yaw.current -= e.movementX * 0.0026;
+        pitch.current = THREE.MathUtils.clamp(pitch.current - e.movementY * 0.0022, -0.85, 0.6);
+      } else {
+        // 附身:增量驱动的环视偏移（对应旧绝对光标 [-1,1] 口径,落座相机原公式直接吃）
+        seatLook.current.x = THREE.MathUtils.clamp(seatLook.current.x + e.movementX * 0.0016, -1, 1);
+        seatLook.current.y = THREE.MathUtils.clamp(seatLook.current.y + e.movementY * 0.0016, -1, 1);
+      }
     };
     const onKeyDown = (e) => {
       if (e.key === 'Control') { ctrl.held = true; if (isLocked()) document.exitPointerLock(); return; }
@@ -354,15 +365,21 @@ function SingleRig({ mode, seat, look, shakeRef }) {
     };
   }, [gl, camera]);
 
-  // 应锁状态随「模式/相位」变化即时同步（起身回锁、进协商放开、掷完回下注回锁…）。
-  // 相位驱动的回锁不在用户手势内可能被浏览器拒绝——onKeyDown/onDown 的手势回锁兜底。
-  useEffect(() => { syncLockRef.current(); }, [mode]);
+  // 应锁状态随「模式/相位/面板」变化即时同步（附身/起身、进终局放开、关面板回锁…）。
+  // 非手势上下文的回锁可能被浏览器拒绝——onKeyDown/onDown 的手势回锁兜底。
+  useEffect(() => {
+    if (mode === 'seat') { seatLook.current.x = 0; seatLook.current.y = 0; }  // 落座视线归中
+    syncLockRef.current();
+  }, [mode]);
   useEffect(() => {
     if (IS_TOUCH) return undefined;
-    let prevPhase = null;
+    let prevPhase = null, prevPanel = null;
     const unsub = useGameStore.subscribe((s) => {
       const ph = s.state?.phase;
-      if (ph !== prevPhase) { prevPhase = ph; syncLockRef.current(); }
+      if (ph !== prevPhase || s.panel !== prevPanel) {
+        prevPhase = ph; prevPanel = s.panel;
+        syncLockRef.current();
+      }
     });
     return unsub;
   }, []);
@@ -398,7 +415,7 @@ function SingleRig({ mode, seat, look, shakeRef }) {
 
   useFrame((st, delta) => {
     if (mode === 'seat' && seat) {
-      const mx = look.current.x, my = look.current.y;
+      const mx = seatLook.current.x, my = seatLook.current.y;
       target.current.x += (seat.x * 0.3 + mx * 1.15 - target.current.x) * 0.06;
       target.current.y += (LOOK_Y - my * 0.5 - target.current.y) * 0.06;
       target.current.z += (0 - target.current.z) * 0.06;
@@ -1329,7 +1346,7 @@ function SceneContents({ look, freeCam = false }) {
       {freeCam
         ? <OrbitControls target={[0, 1.05, 0]} makeDefault />
         : single
-          ? <SingleRig mode={possessed ? 'seat' : 'walk'} seat={possessed ? mySeat : null} look={look} shakeRef={shakeRef} />
+          ? <SingleRig mode={possessed ? 'seat' : 'walk'} seat={possessed ? mySeat : null} shakeRef={shakeRef} />
           : <CameraRig look={look} shakeRef={shakeRef} camZ={camZ} />}
       <Projector />
 

@@ -67,7 +67,14 @@ export class SingleSession {
 
   destroy() { clearTimeout(this._timer); }
 
-  _push() { this.send({ type: 'state', state: this.view() }); }
+  // 操控席位破产 → 自动切到第一个存活席位（否则「操控中」钉在死人身上,右下余额显示 0）。
+  _fixSeat() {
+    if (!this.table || this.setup) return;
+    const cur = this.table.seats.find(s => s.id === this.seatId);
+    if (!cur || cur.dead) this.seatId = this.table.seats.find(s => !s.dead)?.id ?? this.seatId;
+  }
+
+  _push() { this._fixSeat(); this.send({ type: 'state', state: this.view() }); }
 
   _buildTable() {
     const filled = this.slots.map((r, i) => ({ r, i })).filter(x => x.r);
