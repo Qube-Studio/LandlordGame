@@ -1695,6 +1695,9 @@ body {
 .seat-chip.begin:disabled { filter: grayscale(0.7) brightness(0.7); cursor: not-allowed; }
 .seat-chip.begin:not(:disabled):hover { filter: brightness(1.12); transform: translateY(-2px); }
 
+/* 单人组队期 3D 角色面板：挂在角色身旁的手册卡（Html distanceFactor 缩放,走近变大） */
+.role-detail.sheet3d { width: 300px; pointer-events: none; }
+
 /* 走动模式（MC 心智）：中央准心。
    MC 准心的观感不是"半透明",而是**背景反色**（1-dst 的反相混合）——暗底泛亮灰、亮底压暗、
    颜色随背景变化。用 difference 混合 + 浅灰源色(#dcdcdc)复刻:反相强度打 86%,柔和不刺眼。

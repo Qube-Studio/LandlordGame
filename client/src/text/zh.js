@@ -690,7 +690,7 @@ const payoutSteps = {
 // ---- 单人模式（§9.6，交互 v2：长桌两阵营对坐 + 自由走动/附身 + 桌边选角）----
 const single = {
   start: '单人开局',
-  setupHint: '准心点角色看面板 · 按住CTRL点席位换角色',
+  setupHint: '准心指角色看手册 · 按住CTRL点席位换角色',
   emptySeat: '空位',
   ghostToggle: '幽灵随行',
   begin: '开局',

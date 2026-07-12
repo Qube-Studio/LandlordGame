@@ -17,6 +17,7 @@ import { setFeltBounds } from './carry';
 import Tickets3D from './Tickets3D';
 import MinecraftPlayer from './MinecraftPlayer';
 import PixelText from '../assets/pixelfont/PixelText';
+import { RoleDetailBody } from '../ui/RoleWall';
 import Coin from './Coin';
 import PayoutLayer from './PayoutLayer';
 import HandLayer from './HandLayer';
@@ -157,7 +158,6 @@ function CameraRig({ look, shakeRef, camZ = 3.0 }) {
 const WALK_EYE = 2.35, WALK_SPEED = 3.6;
 const WALK_BOUND = { x: 10.6, zMin: 1.15, zMax: 10.6 };
 const _walkDir = new THREE.Vector3();
-const _aim = new THREE.Vector3();
 // 场景碰撞体（与造景逐件对位,身位半径 ~0.3 已烘进尺寸;§9.6 三轮反馈①）。
 // 矩形=沿最浅穿透轴推出,圆=径向推出;两轮迭代解决角落双碰撞体。走动区本身已限己方半场,
 // Boss 侧/壁炉/后墙摆设无需碰撞。椅子逐把建体 → 椅子之间的缝隙可以侧身贴到桌沿。
@@ -194,39 +194,47 @@ function clampWalk(p) {
   p.x = THREE.MathUtils.clamp(p.x, -WALK_BOUND.x, WALK_BOUND.x);
   p.z = THREE.MathUtils.clamp(p.z, WALK_BOUND.zMin, WALK_BOUND.zMax);
 }
-// 准心指向的可附身队友（解析式:±0.14rad 锥内取角度最近的活席位;不走 raycaster——
-// 指针锁定时 r3f 的指针位置是过期的）。
-function aimTeammateId(camera, players) {
+// 射线 ∩ 轴对齐盒（slab 法）,命中返回距离、未中返回 Infinity。
+// 角色命中用它替代旧锥角判定（用户五轮反馈:锥角以躯干中心点为准——身旁空隙误中、
+// 头/帽/侧身等偏离中心的部位漏中;包围盒贴合坐姿模型轮廓,远近一致）。
+function rayHitsBox(origin, dir, cx, cz, y0, y1, hx, hz) {
+  let tmin = 0, tmax = 30;
+  const axes = [
+    [origin.x, dir.x, cx - hx, cx + hx],
+    [origin.y, dir.y, y0, y1],
+    [origin.z, dir.z, cz - hz, cz + hz],
+  ];
+  for (const [o, d, lo, hi] of axes) {
+    if (Math.abs(d) < 1e-9) { if (o < lo || o > hi) return Infinity; continue; }
+    let t0 = (lo - o) / d, t1 = (hi - o) / d;
+    if (t0 > t1) { const tt = t0; t0 = t1; t1 = tt; }
+    tmin = Math.max(tmin, t0); tmax = Math.min(tmax, t1);
+    if (tmin > tmax) return Infinity;
+  }
+  return tmin;
+}
+// 坐姿角色包围盒:y 0.15-2.05(腿到帽顶)、xz 半宽 0.5(身体+摆臂)。取射线最近命中。
+function aimBodyTarget(camera, players, { includeBoss = false } = {}) {
   const fwd = camera.getWorldDirection(_walkDir);
   let best = null;
   for (const p of players ?? []) {
-    if (p.id === 'L' || p.bankrupt) continue;
-    const s = SINGLE_TEAM_SEATS[p.seat];
-    if (!s) continue;
-    _aim.set(s.x - camera.position.x, 1.15 - camera.position.y, s.z - camera.position.z);
-    if (_aim.length() > 10) continue;
-    const ang = _aim.normalize().angleTo(fwd);
-    if (ang < 0.14 && (!best || ang < best.ang)) best = { id: p.id, ang };
+    if (p.id === 'L' ? !includeBoss : p.bankrupt) continue;
+    const seat = p.id === 'L' ? SINGLE_BOSS_SEAT : SINGLE_TEAM_SEATS[p.seat];
+    if (!seat) continue;
+    const t = rayHitsBox(camera.position, fwd, seat.x, seat.z, 0.15, 2.05, 0.5, 0.5);
+    if (t < 15 && (!best || t < best.t)) best = { p, t };
   }
-  return best?.id ?? null;
+  return best?.p ?? null;
 }
 // 准心可交互目标（§9.6 交互 v3）：下注期优先毡面圈（视线∩桌面,圈半径内）,其次队友身体（附身）;
-// 组队期指任意角色（含 Boss）=查看角色面板。
-// 返回 'coin'（开掷）| 'circle:<seatId>'（±1/全押）| 'seat:<seatId>'（附身）| 'sheet:<role>'（面板）| null。
+// 组队期指任意角色（含 Boss）=展示 3D 角色面板（瞄准即显,不点击、不退出指针锁）。
+// 返回 'coin'（开掷）| 'circle:<seatId>'（±1/全押）| 'seat:<seatId>'（附身）| 'sheet:<playerId>'（面板）| null。
 function aimTargetOf(camera, state) {
   const players = state?.players ?? [];
   const fwd = camera.getWorldDirection(_walkDir);
   if (state?.phase === 'SINGLE_SETUP') {
-    let best = null;
-    for (const p of players) {
-      const seat = p.id === 'L' ? SINGLE_BOSS_SEAT : SINGLE_TEAM_SEATS[p.seat];
-      if (!seat) continue;
-      _aim.set(seat.x - camera.position.x, 1.15 - camera.position.y, seat.z - camera.position.z);
-      if (_aim.length() > 14) continue;                  // Boss 在对面,视距放宽
-      const ang = _aim.normalize().angleTo(fwd);
-      if (ang < 0.14 && (!best || ang < best.ang)) best = { role: p.role, ang };
-    }
-    return best ? `sheet:${best.role}` : null;
+    const p = aimBodyTarget(camera, players, { includeBoss: true });
+    return p ? `sheet:${p.id}` : null;
   }
   if (state?.phase === 'BETTING' && fwd.y < -0.04) {
     const t = (TABLE_TOP - camera.position.y) / fwd.y;
@@ -241,8 +249,8 @@ function aimTargetOf(camera, state) {
       }
     }
   }
-  const id = aimTeammateId(camera, players);
-  return id ? `seat:${id}` : null;
+  const p = aimBodyTarget(camera, players);
+  return p ? `seat:${p.id}` : null;
 }
 function SingleRig({ mode, seat, shakeRef }) {
   const { camera, gl } = useThree();
@@ -300,7 +308,6 @@ function SingleRig({ mode, seat, shakeRef }) {
       if (!st.state?.single) return false;
       if (st.state.phase === 'ENDED') return false;
       if (st.panel) return false;                       // 设置/规则/角色墙/账本开着 → 鼠标自由
-      if (st.roleSheet) return false;                   // 角色详情卡开着（组队期准心点角色）→ 鼠标自由
       return true;
     };
     const sync = () => {
@@ -343,10 +350,7 @@ function SingleRig({ mode, seat, shakeRef }) {
       const tgt = aimTargetOf(camera, st.state);
       if (!tgt) return;
       const [kind, id] = tgt.split(':');
-      if (kind === 'sheet') {                            // 组队期:查看角色面板（打开即放开鼠标）
-        if (e.button === 0) st.setRoleSheet(id);
-        return;
-      }
+      if (kind === 'sheet') return;                      // 组队期:面板瞄准即显（3D 空间,无点击语义）
       if (e.button === 2 && kind === 'circle') {
         st.send(e.altKey
           ? { type: 'single_pledge_adjust', seatId: id, delta: -1 }
@@ -390,11 +394,11 @@ function SingleRig({ mode, seat, shakeRef }) {
   }, [mode]);
   useEffect(() => {
     if (IS_TOUCH) return undefined;
-    let prevPhase = null, prevPanel = null, prevSheet = null;
+    let prevPhase = null, prevPanel = null;
     const unsub = useGameStore.subscribe((s) => {
       const ph = s.state?.phase;
-      if (ph !== prevPhase || s.panel !== prevPanel || s.roleSheet !== prevSheet) {
-        prevPhase = ph; prevPanel = s.panel; prevSheet = s.roleSheet;
+      if (ph !== prevPhase || s.panel !== prevPanel) {
+        prevPhase = ph; prevPanel = s.panel;
         syncLockRef.current();
       }
     });
@@ -1022,6 +1026,27 @@ function Chandelier() {
   );
 }
 
+// 组队期 3D 角色面板（§9.6 交互 v3,用户五轮反馈）:准心指到谁,谁身旁浮出标准角色手册
+// （RoleDetailBody,与招募令同格式）——写在 3D 空间、瞄准即显、移开即收,不点击、不退出指针锁。
+function SetupSheet3D({ players }) {
+  const walkAim = useGameStore(s => s.walkAim);
+  if (!walkAim?.startsWith('sheet:')) return null;
+  const pid = walkAim.slice(6);
+  const p = players.find(x => x.id === pid);
+  if (!p) return null;
+  const seat = p.id === 'L' ? SINGLE_BOSS_SEAT : SINGLE_TEAM_SEATS[p.seat];
+  if (!seat) return null;
+  // 挂在角色身侧偏桌心一点,免得挡住模型本体;Boss 在对面,面板朝向由 Html 屏幕空间保证
+  const toward = seat.z > 0 ? -0.5 : 0.5;
+  return (
+    <Html position={[seat.x, 1.9, seat.z + toward]} center distanceFactor={7} zIndexRange={[29, 0]}>
+      <div className="role-detail sheet3d">
+        <RoleDetailBody role={p.role} advanced />
+      </div>
+    </Html>
+  );
+}
+
 // 单人下注浮字层（§9.6 交互 v3）:每个队伍圈上方挂暂存注额（+投资人保金）,中央挂「开掷」。
 // 锁定态由准心点击接管;未锁定/附身时中央浮字本身可点（同一条 single_flip 消息）。
 function SingleBetPrompts({ players, spots }) {
@@ -1460,6 +1485,9 @@ function SceneContents({ look, freeCam = false }) {
         {single && state.phase === 'BETTING' && (
           <SingleBetPrompts players={players} spots={spots} />
         )}
+
+        {/* 组队期:准心指到的角色身旁浮出 3D 角色手册（瞄准即显,不退锁） */}
+        {single && setup && <SetupSheet3D players={players} />}
 
         {/* 对质票 3D 模型（§8.8，只在 CHALLENGE、农民本人有票时）：一小排薄卡浮在自己圈前 */}
         {IS_3D_INPUT && state.phase === 'CHALLENGE' && me && !me.spectator

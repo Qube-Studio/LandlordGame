@@ -25,8 +25,7 @@ export const useGameStore = create((set, get) => ({
   panel: null,       // 桌沿抽屉（HUD 2.0）：当前升起的面板 'roles' | 'ledger' | null（收起）
   singleCam: 'walk', // 单人相机（§9.6 交互 v2）：'walk' 全局走动 | 'seat' 附身当前席位（纯表现状态）
   walkLocked: false, // 走动模式指针锁（MC 心智）：锁定=鼠标直接转视角+中央准心；ESC 释放后可点 UI
-  walkAim: null,     // 准心指向的可交互目标（'circle:s0'|'coin'|'seat:s1'|'sheet:farmer'|null）→ 十字张开;也供 E2E 断言
-  roleSheet: null,   // 单人组队期准心点角色打开的角色面板（role 名 | null;开着时指针锁放开）
+  walkAim: null,     // 准心指向的可交互目标（'circle:s0'|'coin'|'seat:s1'|'sheet:slot0'|null）→ 十字张开;也供 E2E 断言
 
   connect(token) {
     connectSocket(token);
@@ -54,12 +53,11 @@ export const useGameStore = create((set, get) => ({
   setSingleCam(v) { set(s => (s.singleCam === v ? {} : { singleCam: v })); },
   setWalkLocked(v) { set(s => (s.walkLocked === v ? {} : { walkLocked: v })); },
   setWalkAim(v) { set(s => (s.walkAim === v ? {} : { walkAim: v })); },
-  setRoleSheet(v) { set(s => (s.roleSheet === v ? {} : { roleSheet: v })); },
 
   leaveRoom() {
     sendMsg({ type: get().roomId === 'SINGLE' ? 'single_quit' : 'leave_room' });
     sessionStorage.removeItem('llg_room');
-    set({ roomId: null, playerId: null, state: null, chat: [], chatTab: 'all', chatFlash: 0, joining: false, insuranceDrops: [], betFlight: null, myStack: null, looks: {}, panel: null, balanceFreeze: null, singleCam: 'walk', roleSheet: null });
+    set({ roomId: null, playerId: null, state: null, chat: [], chatTab: 'all', chatFlash: 0, joining: false, insuranceDrops: [], betFlight: null, myStack: null, looks: {}, panel: null, balanceFreeze: null, singleCam: 'walk' });
   },
 
   send(msg) {
@@ -153,11 +151,9 @@ export const useGameStore = create((set, get) => ({
       case 'state': {
         // 单人模式席位切换（§9.6）：me 随 single.seatId 换人 → playerId（3D 场景锚点）必须跟着走，
         // 并清掉上一席位的下注瞬态（myStack/betFlight），否则手牌/桌面堆锚错座位。
-        // 角色详情卡只属于组队期：相位一走自动收起（否则挡着下注还压着指针锁）。
         const sid = msg.state?.single?.seatId;
-        const patch = get().roleSheet && msg.state?.phase !== 'SINGLE_SETUP' ? { roleSheet: null } : {};
-        if (sid && sid !== get().playerId) set({ state: msg.state, playerId: sid, betFlight: null, myStack: null, ...patch });
-        else set({ state: msg.state, ...patch });
+        if (sid && sid !== get().playerId) set({ state: msg.state, playerId: sid, betFlight: null, myStack: null });
+        else set({ state: msg.state });
         break;
       }
       case 'chat':

@@ -30,8 +30,9 @@ function selectability(role, state, me, readonly) {
   return { mine, blocked, clickable: !readonly && !blocked && !mine && !me?.spectator };
 }
 
-// 角色手册正文（浮窗与触屏详情卡共用）：简介段落 + 高级信息表。
-function RoleDetailBody({ role, advanced }) {
+// 角色手册正文（浮窗/触屏详情卡/单人组队期 3D 面板共用）：简介段落 + 高级信息表。
+// export 供 Scene3D 的组队期瞄准面板复用（§9.6 交互 v3——面板写在 3D 空间,不退出指针锁）。
+export function RoleDetailBody({ role, advanced }) {
   const sheet = ROLE_SHEET[role];
   return (
     <>
@@ -62,9 +63,8 @@ function RoleDetailBody({ role, advanced }) {
   );
 }
 
-// 角色详情卡（居中固定卡）：属性常开、内置应征按钮（readonly 隐藏）；点卡外关闭。
-// 移动端点招募令弹出;单人组队期准心点角色也用它（§9.6 交互 v3,export 供 UiLayer 挂载）。
-export function RoleSheet({ role, state, me, send, readonly, onClose }) {
+// 触屏角色详情卡（移动端）：点招募令弹出居中固定卡——属性常开、内置应征按钮；点卡外关闭。
+function RoleSheet({ role, state, me, send, readonly, onClose }) {
   useEffect(() => {
     if (!role) return undefined;
     const onDown = (e) => {
