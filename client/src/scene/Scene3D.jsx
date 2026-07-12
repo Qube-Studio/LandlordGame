@@ -162,6 +162,22 @@ function clampWalk(p) {
   p.z = THREE.MathUtils.clamp(p.z, WALK_BOUND.zMin, WALK_BOUND.zMax);
   if (Math.abs(p.x) < 5.2 && p.z < 3.5) p.z = 3.5;   // 长桌+座椅碰撞箱
 }
+// 准心指向的可附身队友（解析式:±0.14rad 锥内取角度最近的活席位;不走 raycaster——
+// 指针锁定时 r3f 的指针位置是过期的）。点击附身与准心变形（十字→45°方形）共用。
+function aimTeammateId(camera, players) {
+  const fwd = camera.getWorldDirection(_walkDir);
+  let best = null;
+  for (const p of players ?? []) {
+    if (p.id === 'L' || p.bankrupt) continue;
+    const s = SINGLE_TEAM_SEATS[p.seat];
+    if (!s) continue;
+    _aim.set(s.x - camera.position.x, 1.15 - camera.position.y, s.z - camera.position.z);
+    if (_aim.length() > 10) continue;
+    const ang = _aim.normalize().angleTo(fwd);
+    if (ang < 0.14 && (!best || ang < best.ang)) best = { id: p.id, ang };
+  }
+  return best?.id ?? null;
+}
 function SingleRig({ mode, seat, look, shakeRef }) {
   const { camera, gl } = useThree();
   const pos = useRef(new THREE.Vector3(0, WALK_EYE, 6.8));
@@ -215,21 +231,11 @@ function SingleRig({ mode, seat, look, shakeRef }) {
     const onDown = (e) => {
       if (modeRef.current !== 'walk') { down.valid = false; return; }
       if (isLocked()) {
-        // 锁定中点按:准心 ±0.14rad 锥内最近的活队友 → 附身（解析式,不走 raycaster）
+        // 锁定中点按:准心指向的队友 → 附身
         const st = useGameStore.getState();
-        const fwd = camera.getWorldDirection(_walkDir);
-        let best = null;
-        for (const p of st.state?.players ?? []) {
-          if (p.id === 'L' || p.bankrupt) continue;
-          const s = SINGLE_TEAM_SEATS[p.seat];
-          if (!s) continue;
-          _aim.set(s.x - camera.position.x, 1.15 - camera.position.y, s.z - camera.position.z);
-          if (_aim.length() > 10) continue;
-          const ang = _aim.normalize().angleTo(fwd);
-          if (ang < 0.14 && (!best || ang < best.ang)) best = { id: p.id, ang };
-        }
-        if (best) {
-          if (best.id !== st.playerId) st.send({ type: 'single_seat', seatId: best.id });
+        const id = aimTeammateId(camera, st.state?.players);
+        if (id) {
+          if (id !== st.playerId) st.send({ type: 'single_seat', seatId: id });
           st.setSingleCam('seat');
         }
         down.valid = false;
@@ -344,17 +350,22 @@ function SingleRig({ mode, seat, look, shakeRef }) {
     const kAcc = 1 - Math.exp(-(f || r ? 9 : 6.5) * dt);
     vel.current.x += (tx - vel.current.x) * kAcc;
     vel.current.z += (tz - vel.current.z) * kAcc;
-    pos.current.x += vel.current.x * dt;
-    pos.current.z += vel.current.z * dt;
+    // 位移后夹墙;**被夹住的轴速度清零**——顶着墙/桌沿推时步伐相位不再空转
+    // （否则原地不动却一直上下晃,像撞墙抽搐;沿墙滑动的分量保留,颠簸只随真实移动）
+    const nx = pos.current.x + vel.current.x * dt;
+    const nz = pos.current.z + vel.current.z * dt;
+    pos.current.x = nx; pos.current.z = nz;
     clampWalk(pos.current);
-    // 步伐:速度驱动相位;竖向双频颠簸 + 沿相机右向的横摆
+    if (pos.current.x !== nx) vel.current.x = 0;
+    if (pos.current.z !== nz) vel.current.z = 0;
+    // 步伐:速度驱动相位;竖向双频颠簸 + 沿相机右向的横摆（幅度温和,用户二轮反馈调低）
     const speed = Math.hypot(vel.current.x, vel.current.z);
     const sf = Math.min(1, speed / WALK_SPEED);
     bob.current += speed * dt * 3.1;
-    const bobY = Math.sin(bob.current * 2) * 0.03 * sf;
-    const bobS = Math.sin(bob.current) * 0.022 * sf;
+    const bobY = Math.sin(bob.current * 2) * 0.017 * sf;
+    const bobS = Math.sin(bob.current) * 0.012 * sf;
     // 侧倾:横移压肩 + 步伐微滚(平滑趋近,松键自动回正)
-    const rollTarget = -r * 0.022 * sf + Math.sin(bob.current) * 0.01 * sf;
+    const rollTarget = -r * 0.014 * sf + Math.sin(bob.current) * 0.006 * sf;
     roll.current += (rollTarget - roll.current) * Math.min(1, 10 * dt);
     eyeY.current += (WALK_EYE - eyeY.current) * Math.min(1, 6 * dt);
     camera.position.set(
@@ -364,6 +375,10 @@ function SingleRig({ mode, seat, look, shakeRef }) {
     );
     camera.rotation.order = 'YXZ';
     camera.rotation.set(pitch.current, yaw.current, roll.current);
+    // 情境准心:指向可附身队友 → 十字变 45° 方形（仅锁定中有准心;守卫写入,不变不触发渲染）
+    const gs = useGameStore.getState();
+    if (gs.walkLocked) gs.setWalkAim(!!aimTeammateId(camera, gs.state?.players));
+    else if (gs.walkAim) gs.setWalkAim(false);
   });
   return null;
 }
@@ -1323,6 +1338,7 @@ export default function Scene3D() {
   // 单人走动模式的 2D 罩层:锁定=中央准心;未锁=「点击画面锁定视角」提示（MC 心智,§9.6 交互 v2）
   const singleWalk = useGameStore(s => !!s.state?.single && s.singleCam === 'walk');
   const walkLocked = useGameStore(s => s.walkLocked);
+  const walkAim = useGameStore(s => s.walkAim);
   // 渲染分辨率档位(反馈①):auto=像素预算自适应;low/medium/high 固定 dpr。R3F 对 dpr 热应用。
   const renderScale = useSettingsStore(s => s.renderScale);
   const dpr = renderScale === 'low' ? 0.75
@@ -1405,7 +1421,7 @@ export default function Scene3D() {
       </Canvas>
       {singleWalk && !IS_TOUCH && (
         walkLocked
-          ? <div className="walk-crosshair" />
+          ? <div className={`walk-crosshair ${walkAim ? 'aim' : ''}`} />
           : <div className="walk-lock-hint">{T.single.lockHint}</div>
       )}
       {DEV && (
