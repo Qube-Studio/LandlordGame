@@ -62,8 +62,9 @@ function RoleDetailBody({ role, advanced }) {
   );
 }
 
-// 触屏角色详情卡（移动端）：点招募令弹出居中固定卡——属性常开、内置应征按钮；点卡外关闭。
-function RoleSheet({ role, state, me, send, readonly, onClose }) {
+// 角色详情卡（居中固定卡）：属性常开、内置应征按钮（readonly 隐藏）；点卡外关闭。
+// 移动端点招募令弹出;单人组队期准心点角色也用它（§9.6 交互 v3,export 供 UiLayer 挂载）。
+export function RoleSheet({ role, state, me, send, readonly, onClose }) {
   useEffect(() => {
     if (!role) return undefined;
     const onDown = (e) => {

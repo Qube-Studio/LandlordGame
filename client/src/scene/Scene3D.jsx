@@ -210,11 +210,24 @@ function aimTeammateId(camera, players) {
   }
   return best?.id ?? null;
 }
-// 准心可交互目标（§9.6 交互 v3）：下注期优先毡面圈（视线∩桌面,圈半径内）,其次队友身体（附身）。
-// 返回 'coin'（中央圈=开掷）| 'circle:<seatId>'（下注圈=±1/全押）| 'seat:<seatId>'（附身）| null。
+// 准心可交互目标（§9.6 交互 v3）：下注期优先毡面圈（视线∩桌面,圈半径内）,其次队友身体（附身）;
+// 组队期指任意角色（含 Boss）=查看角色面板。
+// 返回 'coin'（开掷）| 'circle:<seatId>'（±1/全押）| 'seat:<seatId>'（附身）| 'sheet:<role>'（面板）| null。
 function aimTargetOf(camera, state) {
   const players = state?.players ?? [];
   const fwd = camera.getWorldDirection(_walkDir);
+  if (state?.phase === 'SINGLE_SETUP') {
+    let best = null;
+    for (const p of players) {
+      const seat = p.id === 'L' ? SINGLE_BOSS_SEAT : SINGLE_TEAM_SEATS[p.seat];
+      if (!seat) continue;
+      _aim.set(seat.x - camera.position.x, 1.15 - camera.position.y, seat.z - camera.position.z);
+      if (_aim.length() > 14) continue;                  // Boss 在对面,视距放宽
+      const ang = _aim.normalize().angleTo(fwd);
+      if (ang < 0.14 && (!best || ang < best.ang)) best = { role: p.role, ang };
+    }
+    return best ? `sheet:${best.role}` : null;
+  }
   if (state?.phase === 'BETTING' && fwd.y < -0.04) {
     const t = (TABLE_TOP - camera.position.y) / fwd.y;
     if (t > 0 && t < 16) {
@@ -287,6 +300,7 @@ function SingleRig({ mode, seat, shakeRef }) {
       if (!st.state?.single) return false;
       if (st.state.phase === 'ENDED') return false;
       if (st.panel) return false;                       // 设置/规则/角色墙/账本开着 → 鼠标自由
+      if (st.roleSheet) return false;                   // 角色详情卡开着（组队期准心点角色）→ 鼠标自由
       return true;
     };
     const sync = () => {
@@ -326,10 +340,13 @@ function SingleRig({ mode, seat, shakeRef }) {
       if (!isLocked()) { if (e.target === canvas) sync(); return; }   // 点画布=回锁（无提示）
       // 锁定中:准心路由
       const st = useGameStore.getState();
-      if (st.state?.phase === 'SINGLE_SETUP') return;
       const tgt = aimTargetOf(camera, st.state);
       if (!tgt) return;
       const [kind, id] = tgt.split(':');
+      if (kind === 'sheet') {                            // 组队期:查看角色面板（打开即放开鼠标）
+        if (e.button === 0) st.setRoleSheet(id);
+        return;
+      }
       if (e.button === 2 && kind === 'circle') {
         st.send(e.altKey
           ? { type: 'single_pledge_adjust', seatId: id, delta: -1 }
@@ -373,11 +390,11 @@ function SingleRig({ mode, seat, shakeRef }) {
   }, [mode]);
   useEffect(() => {
     if (IS_TOUCH) return undefined;
-    let prevPhase = null, prevPanel = null;
+    let prevPhase = null, prevPanel = null, prevSheet = null;
     const unsub = useGameStore.subscribe((s) => {
       const ph = s.state?.phase;
-      if (ph !== prevPhase || s.panel !== prevPanel) {
-        prevPhase = ph; prevPanel = s.panel;
+      if (ph !== prevPhase || s.panel !== prevPanel || s.roleSheet !== prevSheet) {
+        prevPhase = ph; prevPanel = s.panel; prevSheet = s.roleSheet;
         syncLockRef.current();
       }
     });
@@ -493,9 +510,9 @@ function SingleRig({ mode, seat, shakeRef }) {
     );
     camera.rotation.order = 'YXZ';
     camera.rotation.set(pitch.current, yaw.current, roll.current);
-    // 情境准心:指向可交互目标（圈/硬币/队友）→ 十字张开（仅锁定中有准心;组队期不判定;守卫写入）
+    // 情境准心:指向可交互目标（圈/硬币/队友/组队期角色面板）→ 十字张开（仅锁定中有准心;守卫写入）
     const gs = useGameStore.getState();
-    if (gs.walkLocked && gs.state?.phase !== 'SINGLE_SETUP') gs.setWalkAim(aimTargetOf(camera, gs.state));
+    if (gs.walkLocked) gs.setWalkAim(aimTargetOf(camera, gs.state));
     else if (gs.walkAim) gs.setWalkAim(null);
     // 本地调试探针（同 __payoutDir 先例）:E2E/截图工具读逐帧相机与准心状态
     if (DEV) window.__walkRig = { locked: gs.walkLocked, aim: gs.walkAim, yaw: yaw.current, pitch: pitch.current, pos: [pos.current.x, pos.current.z] };

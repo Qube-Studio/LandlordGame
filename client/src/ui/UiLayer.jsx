@@ -15,7 +15,7 @@ import PhaseCoachmark from './PhaseCoachmark';
 import SettingsPanel from './SettingsPanel';
 import RulesPanel from './RulesPanel';
 import Dock from './Dock';
-import RoleWall from './RoleWall';
+import RoleWall, { RoleSheet } from './RoleWall';
 import LedgerBook from './LedgerBook';
 import { EVENT_TEXT } from '../game/settleText';
 import { ROLE_LABEL, ROLE_GLYPH, factionOf, isFarmerSide, isLandlordSide } from '../game/roles';
@@ -1035,6 +1035,8 @@ export default function UiLayer() {
   const connected = useGameStore(s => s.connected);
   const panel = useGameStore(s => s.panel);
   const setPanel = useGameStore(s => s.setPanel);
+  const roleSheet = useGameStore(s => s.roleSheet);
+  const setRoleSheet = useGameStore(s => s.setRoleSheet);
   useGameKeys();
   useWaitHints();
   useMobileHaptics();
@@ -1090,6 +1092,17 @@ export default function UiLayer() {
       </div>
       <TicketTransfer />
       {panel === 'roles' && <RoleWall />}
+      {/* 单人组队期准心点角色 → 标准角色详情卡（只读,点卡外关闭并自动回锁） */}
+      {roleSheet && (
+        <RoleSheet
+          role={roleSheet}
+          state={state}
+          me={state.me}
+          send={() => {}}
+          readonly
+          onClose={() => setRoleSheet(null)}
+        />
+      )}
       {panel === 'ledger' && <LedgerBook />}
       <Dock />
     </div>
