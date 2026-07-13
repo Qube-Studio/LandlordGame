@@ -123,6 +123,11 @@ function GhostPreview() {
                 <meshStandardMaterial vertexColors roughness={1} flatShading transparent opacity={0.45} depthWrite={false} />
               </mesh>
             )}
+            {geo.glass && (
+              <mesh geometry={geo.glass}>
+                <meshStandardMaterial vertexColors roughness={1} flatShading transparent opacity={0.3} depthWrite={false} />
+              </mesh>
+            )}
           </group>
         )
       ) : (
@@ -147,14 +152,17 @@ export default function Stage() {
     <>
       <color attach="background" args={[P.sceneBg]} />
       <fog attach="fog" args={[P.sceneFog, 16, 44]} />
-      {/* 灯 rig(5 盏,参数照抄 SceneContents;环境光 0.38→0.5 隔离区微抬,看清远处资产) */}
+      {/* 灯 rig(5 盏,参数照抄 SceneContents;环境光 0.38→0.5 隔离区微抬,看清远处资产)。
+          平行光阴影(隔离区特调):游戏的 ±9 视锥只盖 24×24 房间中部——摆放系统全域可放,
+          物体出视锥后阴影贴图边缘 clamp 会拉出不更新的长条残影(用户实测)。
+          灯位 2×(方向不变观感零漂移)+ 视锥 ±19 盖全房间 + mapSize 2048(纹素密度持平)。 */}
       <ambientLight intensity={0.5} color={P.sceneAmbient} />
       <directionalLight
-        position={[4, 9, 3]} intensity={1.35} color={P.key}
-        castShadow shadow-mapSize={[1024, 1024]}
-        shadow-camera-near={1} shadow-camera-far={30}
-        shadow-camera-left={-9} shadow-camera-right={9}
-        shadow-camera-top={9} shadow-camera-bottom={-9}
+        position={[8, 18, 6]} intensity={1.35} color={P.key}
+        castShadow shadow-mapSize={[2048, 2048]}
+        shadow-camera-near={0.5} shadow-camera-far={36}
+        shadow-camera-left={-19} shadow-camera-right={19}
+        shadow-camera-top={19} shadow-camera-bottom={-19}
         shadow-bias={-0.0004}
       />
       <LabChandelierLight />

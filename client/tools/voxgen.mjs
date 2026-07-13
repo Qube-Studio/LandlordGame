@@ -126,7 +126,16 @@ function genChandelierDeluxe() {
   const wax = reg(P.parchment);
   const waxDrip = reg(shade(P.parchment, -8));
   const wick = reg(P.wood900);
-  const ember = reg(P.ember);          // 琥珀吊坠=自发光(运行时按此 hex 拆 emissive 子网格)
+  const ember = reg(P.ember);          // 琥珀吊坠=自发光
+
+  // MATL 材质标注(P0-2):生成资产与 MagicaVoxel 手修资产走同一条运行时路径——
+  // 发光/金属由 MATL 承载(hex 匹配仅作旧文件回退),手修时改材质面板即生效。
+  const materials = {
+    [ember]: { _type: '_emit', _emit: '1', _flux: '1' },
+    [brass]: { _type: '_metal', _metal: '0.7', _rough: '0.35' },
+    [brassHi]: { _type: '_metal', _metal: '0.7', _rough: '0.25' },
+    [brassDim]: { _type: '_metal', _metal: '0.7', _rough: '0.45' },
+  };
 
   const R = CHAND.rim.faceR, TH = CHAND.rim.th, Y0 = CHAND.rim.y0, H = CHAND.rim.h;
   const yTop = Y0 + H;
@@ -243,7 +252,7 @@ function genChandelierDeluxe() {
   p.cylinderY(0, 0, CHAND.knotY - 0.005, CHAND.knotY + 0.02, 0.082, brassHi); // 冠腰高光箍
   p.torus({ x: 0, y: CHAND.knotY + 0.10, z: 0 }, { x: 1, y: 0, z: 0 }, 0.045, 0.014, brassHi); // 吊环(竖向)
 
-  return { dense, pal };
+  return { dense, pal, materials };
 }
 
 // ================= 出盘 =================
@@ -252,10 +261,10 @@ const assets = [
   ['chandelier-deluxe.vox', genChandelierDeluxe],
 ];
 for (const [name, gen] of assets) {
-  const { dense, pal } = gen();
+  const { dense, pal, materials } = gen();
   let count = 0;
   for (let i = 0; i < dense.data.length; i++) if (dense.data[i]) count++;
-  const buf = writeVox(dense, pal);
+  const buf = writeVox(dense, pal, materials);
   writeFileSync(join(OUT_DIR, name), Buffer.from(buf));
   console.log(`✓ ${name}: ${dense.sx}×${dense.sy}×${dense.sz} 格,${count.toLocaleString()} 实心体素,${(buf.byteLength / 1024).toFixed(1)} KB`);
 }

@@ -136,5 +136,64 @@ const ok = (cond, name) => {
   ok(Math.abs(area - faces) < 1e-6, `面积对账:网格面积 ${area} == 暴露面 ${faces}`);
 }
 
+// ---- 7. MATL 材质块:写→读 roundtrip + 归一化 + 容错 ----
+{
+  const v = makeDense(2, 1, 2);
+  v.data[0] = 1; v.data[1] = 2; v.data[2] = 3; v.data[3] = 4;
+  const pal = new Uint8Array(1024);
+  for (let i = 1; i <= 4; i++) setPaletteColor(pal, i, `#0${i}0${i}0${i}`);
+  const mats = {
+    2: { _type: '_emit', _emit: '0.5', _flux: '2' },        // emitK = 0.5×2^(2-1) = 1
+    3: { _type: '_metal', _metal: '0.7', _rough: '0.35' },
+    4: { _type: '_glass', _alpha: '0.7' },                   // alpha = 1-0.7 = 0.3
+  };
+  const { dense: v2, materials } = parseVox(writeVox(v, pal, mats));
+  ok(v2.data[0] === 1, 'MATL 不破坏几何');
+  ok(materials[1] === null, '未标注索引 materials=null');
+  ok(materials[2]?.type === '_emit' && Math.abs(materials[2].emitK - 1) < 1e-6, `emitK=_emit×2^(_flux-1)(${materials[2]?.emitK})`);
+  ok(materials[3]?.metal === 0.7 && materials[3]?.rough === 0.35, '金属 _metal/_rough 归一化');
+  ok(materials[4]?.type === '_glass' && Math.abs(materials[4].alpha - 0.3) < 1e-6, `玻璃 alpha=1-_alpha(${materials[4]?.alpha})`);
+  // 未知 key 静默跳过
+  const { materials: m2 } = parseVox(writeVox(v, pal, { 1: { _type: '_emit', _weird: 'x', _emit: '1' } }));
+  ok(m2[1]?.emitK === 1, '未知 MATL key 静默跳过');
+  // 无 MATL 文件 → materials 全 null
+  const { materials: m3 } = parseVox(writeVox(v, pal));
+  ok(m3.every(m => m === null), '无 MATL 文件 materials 全 null');
+  // 旧字段兼容:_weight 承载 emit
+  const { materials: m4 } = parseVox(writeVox(v, pal, { 1: { _type: '_emit', _weight: '0.5' } }));
+  ok(Math.abs(m4[1].emitK - 0.5) < 1e-6, '旧字段 _weight 兼容');
+}
+
+// ---- 8. 材质分桶(P0-3):MATL 驱动三桶 + rm/emit 属性 + 玻璃可见性 ----
+{
+  const v = makeDense(3, 1, 1);
+  v.data[0] = 1; v.data[1] = 2; v.data[2] = 3; // 实心 | 玻璃 | 发光
+  const pal = new Uint8Array(1024);
+  setPaletteColor(pal, 1, '#808080');
+  setPaletteColor(pal, 2, '#cfe6ee');
+  setPaletteColor(pal, 3, '#ff9a4a');
+  const mats = {
+    1: { _type: '_metal', _metal: '0.9', _rough: '0.3' },   // metal 应钳到 0.75
+    2: { _type: '_glass', _alpha: '0.6' },
+    3: { _type: '_emit', _emit: '2', _flux: '1' },
+  };
+  const { dense: v2, palette: pal2, materials } = parseVox(writeVox(v, pal, mats));
+  const { main, emissive, glass } = greedyMesh(v2, pal2, { materials });
+  ok(main && emissive && glass, 'MATL 三桶各就位');
+  // 玻璃可见性:实心与玻璃相邻的面不再被剔(实心 6 面全在:5 外露 + 1 朝玻璃)
+  ok(main.count === 36, `实心朝玻璃的面保留(${main.count / 6} 面)`);
+  // 玻璃自身:朝实心的面剔掉? 规则=邻居空 或 邻居玻璃且自己非玻璃→玻璃朝实心/发光的面隐藏
+  ok(glass.count === 4 * 6, `玻璃朝实心/发光面隐藏(${glass.count / 6} 面)`);
+  ok(Math.abs(glass.alpha - 0.4) < 1e-6, `玻璃桶均值 alpha(${glass.alpha})`);
+  // rm 属性:metal 钳 0.75 → 191;rough 0.3 → 77
+  ok(main.rm[0] === 77 && main.rm[1] === 191, `aRm 归一化+金属钳制(${main.rm[0]},${main.rm[1]})`);
+  // emit 属性:emitK=2
+  ok(emissive.emit[0] === 2, `aEmit=emitK(${emissive.emit[0]})`);
+  // 无 MATL + hex 回退:并集路径
+  const { main: m2, emissive: e2 } = greedyMesh(v2, pal2, { emissiveIndices: new Set([3]) });
+  ok(e2 && e2.emit[0] === 1 && m2.rm[1] === 0, 'hex 回退:发光 emitK=1,无 MATL 默认 rough1/metal0');
+  ok(m2.rm[0] === 255, '无 MATL 默认 rough=1(255)');
+}
+
 console.log(`\n${pass} 通过, ${fail} 失败`);
 process.exit(fail ? 1 : 0);
