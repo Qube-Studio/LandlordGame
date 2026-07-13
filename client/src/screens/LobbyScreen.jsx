@@ -10,6 +10,10 @@ const Icon = getArt('icon');
 
 const MODE_LABEL = T.lobby.modeLabels;
 
+// 单人模式仍在开发中（Single 分支）：入口只在本地测试（DEV）可见，正式推送里隐藏——
+// 服务端 single 模式仍 available:false，此处仅决定大厅是否渲染「单人开局」卡。
+const DEV = import.meta.env.DEV;
+
 export default function LobbyScreen() {
   const username = useAuthStore(s => s.username);
   const logout = useAuthStore(s => s.logout);
@@ -61,7 +65,7 @@ export default function LobbyScreen() {
       {!connected && <div className="conn-banner">{T.common.connecting}</div>}
 
       <section className="mode-row">
-        {modes.map(m => (
+        {modes.filter(m => m.id !== 'single' || DEV).map(m => (
           <div key={m.id} className={`mode-card panel ${m.available || m.id === 'single' ? '' : 'disabled'}`}>
             <h3>{m.label}</h3>
             <p className="dim">{m.description}</p>
