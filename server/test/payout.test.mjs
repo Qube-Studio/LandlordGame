@@ -214,11 +214,12 @@ await test('竞技资本家：本金留堆归还、盈亏差额走池、税收/�
   assert.equal(cap.pool, 20);
   await playToSettle(room, C, [G], { [C]: 2, [G]: 1 }, 'tails');
   await until(() => room.phase === 'FINALIZE', '单农民跳协商');
-  // pot 3 全归暴食者；资本家堆 0 → 池垫付本金 2；池 20−2−税2=16；暴食者饭账 1 从堆里扣
-  assert.deepEqual(stepSources(room), ['capitalistPool', 'capitalistTax', 'mealAllowance']);
+  // pot 3 全归暴食者；资本家堆 0 → 池垫付本金 2；池 20−2=18（1 农民间隔=max(2,1)=2 → 回合 1 不征税）；
+  // 暴食者饭账 1 从堆里扣
+  assert.deepEqual(stepSources(room), ['capitalistPool', 'mealAllowance']);
   assert.equal(room.payout.piles[C], 2);      // 本金留堆
   assert.equal(room.payout.piles[G], 3 - 1);  // take 3 − 饭账 1
-  assert.equal(cap.pool, 16);
+  assert.equal(cap.pool, 18);
   room.takePayout(C);
   room.takePayout(G);
   await until(() => room.phase === 'DISCUSSION', '下一回合');
@@ -236,11 +237,11 @@ await test('竞技资本家：盈余入池步（heads 全覆盖）', async () =>
   await playToSettle(room, C, [F], { [C]: 2, [F]: 1 }, 'heads');
   await until(() => room.phase === 'FINALIZE', '单农民跳协商');
   // target round(2×1.6)=round(3.2)=3 = pot → landlordTake 3；堆 3 − 本金 2 = 盈余 1 入池；
-  // 1 农民 → 间隔 1 每回合征税；税基=当前池(20+盈余1=21) → max(2, round(21×0.1)=2)=2
+  // 1 农民 → 间隔 max(2,1)=2 → 回合 1 不征税，池 = 20 + 盈余 1
   const pool = room.payout.script.find(s => s.source === 'capitalistPool');
   assert.deepEqual(pool.flows, [{ from: { kind: 'pile', id: C }, to: { kind: 'pool', id: C }, amount: 1 }]);
   assert.equal(room.payout.piles[C], 2);
-  assert.equal(room.players.get(C).pool, 20 + 1 - 2);
+  assert.equal(room.players.get(C).pool, 20 + 1);
   room.takePayout(C);
   await until(() => room.phase === 'DISCUSSION', '下一回合');
   assert.equal(room.players.get(C).balance, 8);  // 本回合钱包 = 6×1+round(20×0.1) = 8

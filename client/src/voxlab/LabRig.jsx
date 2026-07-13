@@ -1,6 +1,8 @@
 // VoxLab 行走 rig:复刻单人模式 SingleRig 的 walk 态(Scene3D.jsx §9.6)——
 // 指针锁定 + 中央准心、WASD 惯性(加速快/滑停慢)、步伐颠簸 + 横移侧倾、碰撞软推出。
-// 隔离区差异:全屋可走(无阵营半场夹紧)、准心路由=摆放/删除人物(不发任何 WS 消息)。
+// 隔离区差异:全屋可走(无阵营半场夹紧)、准心路由=摆放/删除素材(不发任何 WS 消息)。
+// 可放置面:地面 / 桌面(y=1.0,毡区) / 横梁顶(y=6.2) / 天花板(y=10,悬挂=顶部吸附)。
+// 摆放变换:Q/E 旋转(±15°,按住连转)、滚轮缩放(0.2×~5×)、R 换笔刷;虚影(Stage#GhostPreview)实时预览。
 // 保留原版三条硬规则:①锁定后首帧 mousemove 尖峰吞掉+ >200px 钳制;②CTRL 按住放锁、
 // 松开回锁,ESC 退锁后任意按键/点画布静默回锁;③监听器只挂一次,活值经 ref 读。
 /* eslint-disable react-hooks/immutability */
@@ -8,7 +10,7 @@ import { useEffect, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { SINGLE_TEAM_SEATS } from '../scene/singleLayout';
-import { useLabStore, aimLive } from './labStore';
+import { useLabStore, aimLive, placeTransform } from './labStore';
 
 const WALK_EYE = 2.35, WALK_SPEED = 3.6;
 const BOUND = 10.6;                       // 全屋走动界(墙在 ±12,留身位)
@@ -55,7 +57,7 @@ function clampWalk(p) {
   p.z = THREE.MathUtils.clamp(p.z, -BOUND, BOUND);
 }
 
-// 射线 ∩ 轴对齐盒(slab 法;同 Scene3D#rayHitsBox)
+// 射线 ∩ 轴对齐盒(slab 法;同 Scene3D#rayHitsBox,y 界改为显式 y0/y1)
 function rayHitsBox(origin, dir, cx, cz, y0, y1, hx, hz) {
   let tmin = 0, tmax = 30;
   const axes = [
@@ -73,24 +75,45 @@ function rayHitsBox(origin, dir, cx, cz, y0, y1, hx, hz) {
   return tmin;
 }
 
-// 准心目标:优先站立人物包围盒(y 0..2.15,半宽 0.45),其次地面点(可摆放,界内且不进碰撞体)
+// 横梁(对位 Room:y 中心 6、截面 0.4、z ∈ {-9,-3,3,9},通长 ±12)
+const BEAM_ZS = [-9, -3, 3, 9];
+
+// 准心目标:优先摆放物包围盒(缩放后的实际范围,可删),其次最近的可放置面。
+// 可放置面统一返回 {kind:'floor', surface, x, y, z}——kind 不细分,HUD 准心张开逻辑不变。
 function aimTargetOf(camera, chars) {
   const fwd = camera.getWorldDirection(_dir);
+  const o = camera.position;
   let best = null;
   for (const c of chars) {
-    const t = rayHitsBox(camera.position, fwd, c.x, c.z, 0, 2.15, 0.45, 0.45);
+    const sc = c.scale ?? 1;
+    const t = rayHitsBox(o, fwd, c.x, c.z, c.y ?? 0, (c.y ?? 0) + (c.hy ?? 2.15) * sc, (c.hx ?? 0.45) * sc, (c.hx ?? 0.45) * sc);
     if (t < 12 && (!best || t < best.t)) best = { c, t };
   }
   if (best) return { kind: 'char', id: best.c.id };
-  if (fwd.y < -0.05) {
-    const t = -camera.position.y / fwd.y;
-    if (t > 0.5 && t < 12) {
-      const x = camera.position.x + fwd.x * t;
-      const z = camera.position.z + fwd.z * t;
-      if (Math.abs(x) < BOUND && Math.abs(z) < BOUND) return { kind: 'floor', x, z };
-    }
+
+  const hits = [];
+  const plane = (y, surface, lim, cond) => {
+    if (Math.abs(fwd.y) < 1e-6) return;
+    const t = (y - o.y) / fwd.y;
+    if (t < 0.5 || t > 16) return;
+    const x = o.x + fwd.x * t, z = o.z + fwd.z * t;
+    if (Math.abs(x) > lim || Math.abs(z) > lim) return;
+    if (cond && !cond(x, z)) return;
+    hits.push({ t, x, y, z, surface });
+  };
+  if (fwd.y < 0) {
+    plane(0, 'floor', BOUND);
+    if (o.y > 1.0) plane(1.0, 'table', 12, (x, z) => Math.abs(x) <= 4.5 && Math.abs(z) <= 2.2); // 长桌毡面+框
+  } else {
+    plane(10, 'ceiling', 11.6);
   }
-  return null;
+  for (const bz of BEAM_ZS) {
+    const t = rayHitsBox(o, fwd, 0, bz, 5.8, 6.2, 12, 0.2);
+    if (t < 16) hits.push({ t, x: o.x + fwd.x * t, y: 6.2, z: bz, surface: 'beam' }); // 顶面+中线吸附
+  }
+  if (!hits.length) return null;
+  const h = hits.reduce((a, b) => (a.t < b.t ? a : b));
+  return { kind: 'floor', surface: h.surface, x: h.x, y: h.y, z: h.z };
 }
 
 export default function LabRig() {
@@ -104,7 +127,7 @@ export default function LabRig() {
   const bob = useRef(0);
   const keys = useRef({});
 
-  // WASD(输入框让路;窗口失焦清键防卡键漂移)
+  // WASD(输入框让路;窗口失焦清空按键防"卡键漂移")
   useEffect(() => {
     const typing = () => {
       const el = document.activeElement;
@@ -146,11 +169,13 @@ export default function LabRig() {
       const el = document.activeElement;
       if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) return;
       const st = useLabStore.getState();
-      // 功能键(锁定与否都生效)
+      // 功能键(锁定与否都生效;Q/E 吃键盘自动重复=按住连转)
       if (e.code === 'KeyV') st.toggleSwap('chandelier');
       else if (e.code === 'KeyH') st.toggleHelp();
-      else if (e.code === 'KeyR') st.cycleRole(e.shiftKey ? -1 : 1);
+      else if (e.code === 'KeyR') st.cycleBrush(e.shiftKey ? -1 : 1);
       else if (e.code === 'KeyX') st.clearChars();
+      else if (e.code === 'KeyQ') st.rotGhost(Math.PI / 12);
+      else if (e.code === 'KeyE') st.rotGhost(-Math.PI / 12);
       if (!isLocked() && !ctrl.held) requestLock();     // ESC 退锁后任意按键静默回锁
     };
     const onKeyUp = (e) => { if (e.key === 'Control') { ctrl.held = false; requestLock(); } };
@@ -160,16 +185,16 @@ export default function LabRig() {
       const aim = aimLive.current;
       if (!aim) return;
       if (e.button === 0 && aim.kind === 'floor') {
-        // 面向摆放者站好
-        const ry = Math.atan2(camera.position.x - aim.x, camera.position.z - aim.z);
-        st.placeChar(aim.x, aim.z, ry);
+        const p = placeTransform(camera, aim, st);
+        st.placeBrush(p.x, p.y, p.z, p.ry);
       } else if (e.button === 2 && aim.kind === 'char') {
         st.removeChar(aim.id);
       }
     };
     const onWheel = (e) => {
       if (!isLocked()) return;
-      useLabStore.getState().cycleRole(e.deltaY > 0 ? 1 : -1);
+      // 滚轮=缩放(换笔刷在 R);按 delta 比例——一格鼠标(±120)=×1.1,触控板小步平滑
+      useLabStore.getState().scaleGhost(Math.pow(1.1, -e.deltaY / 120));
     };
     const onCtx = (e) => { if (document.pointerLockElement) e.preventDefault(); };
     document.addEventListener('pointerlockchange', onLockChange);
@@ -247,7 +272,9 @@ export default function LabRig() {
     if (import.meta.env.DEV) {
       window.__voxlab = {
         locked: labSt.locked, aim, yaw: yaw.current, pitch: pitch.current,
-        pos: [pos.current.x, pos.current.z], chars: labSt.chars.length, swaps: labSt.swaps, role: labSt.role,
+        pos: [pos.current.x, pos.current.z], chars: labSt.chars.length, swaps: labSt.swaps,
+        role: labSt.brush, imports: labSt.imports.length,
+        ghostRot: labSt.ghostRot, ghostScale: labSt.ghostScale,
       };
     }
   });

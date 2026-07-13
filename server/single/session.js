@@ -212,15 +212,35 @@ export class SingleSession {
         if (this.table.phase !== 'COMMAND') return { error: '当前不是下令阶段' };
         return this._flip();                                   // 内部走掷币演出广播
       }
-      case 'summon': r = this.table.summonBoss(this.seatId); break;
+      case 'summon': {
+        // 准心口径（§9.6 交互 v3.1）:瞄 Boss 点监管可带 seatId 直指检察官席位,无需先切席
+        const sid = typeof msg.seatId === 'string' ? msg.seatId : this.seatId;
+        r = this.table.summonBoss(sid);
+        if (!r.error && this.staged) {
+          // 监管费已从该席位余额扣走——暂存注可能超出新余额,重夹到新的合法区间
+          const seat = this.table.seats.find(s => s.id === sid);
+          const pledge = this.staged.pledges[sid] ?? 0;
+          const b = this._seatBounds(seat, pledge);
+          this.staged.bets[sid] = b.forceAllIn
+            ? seat.balance - pledge
+            : clampInt(this.staged.bets[sid] ?? b.min, b.min, seat.balance - pledge);
+        }
+        break;
+      }
       case 'request_reflip': {
-        r = this.table.requestReflip(this.seatId);
+        // 准心口径:一人指挥全队——自动路由到可重掷的暴食者席位（操控席位无需是暴食者）
+        const g = this.table.seats.find(s => !s.dead && s.role === 'glutton' && s.reflipsLeft > 0);
+        r = this.table.requestReflip(g?.id ?? this.seatId);
         if (!r.error) return this._afterCoin(r);                    // 重掷=又一枚硬币 → 走演出
         break;
       }
       case 'pass_reflip': r = this.table.passReflip(); break;
       case 'negotiate_transfer':
-        r = this.table.transferAllocation(this.seatId, msg.toId, msg.kind === 'debt' ? 'debt' : 'take', Number(msg.amount));
+        // 准心口径:可带 fromId 从任意队友堆转出（缺省=操控席位,兼容拖拽路径）
+        r = this.table.transferAllocation(
+          typeof msg.fromId === 'string' ? msg.fromId : this.seatId,
+          msg.toId, msg.kind === 'debt' ? 'debt' : 'take', Number(msg.amount),
+        );
         break;
       case 'negotiate_confirm': r = this.table.confirmAllocate(); break;
       default: return { error: `未知消息类型: ${type}` };
@@ -341,6 +361,14 @@ export class SingleSession {
         setup: null,
         bossGhost: t.boss.ghost, ghostBalance: t.boss.ghostBalance,
         lastRoundResult: t.lastRoundResult,
+        // 检察官·监管可用性（准心口径:瞄 Boss 左键=监管,无需先切席）——首个满足门槛的检察官席位
+        summon: (() => {
+          if (t.phase !== 'COMMAND' || t.summon.pendingPenalty > 0) return null;
+          if (!summonCooldownOk(t.round, t.summon.lastRound, alive.length, t.config)) return null;
+          const cost = singleSummonCost(alive.length, t.config);
+          const seat = alive.find(s => s.role === 'prosecutor' && t.bets[s.id] == null && s.balance >= cost + 1);
+          return seat ? { seatId: seat.id, cost } : null;
+        })(),
       },
     };
   }
@@ -383,6 +411,7 @@ export class SingleSession {
         setup: { roles: [...this.slots], ghost: this.ghost },
         bossGhost: this.ghost, ghostBalance: 0,
         lastRoundResult: null,
+        summon: null,
       },
     };
   }

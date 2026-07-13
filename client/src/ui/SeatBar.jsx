@@ -81,7 +81,10 @@ export default function SeatBar() {
     <div className="seat-bar">
       <span className="seat-hint dim">
         <PixelText size={2} color="var(--ink-dim)">
-          {singleCam === 'seat' ? T.single.switchHint : T.single.walkHint}
+          {singleCam === 'seat' ? T.single.switchHint
+            : state.phase === 'REFLIP' ? T.single.walkHintReflip
+              : state.phase === 'NEGOTIATE' ? T.single.walkHintNegotiate
+                : T.single.walkHint}
         </PixelText>
       </span>
       {seats.map(p => {

@@ -10,11 +10,11 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const seq = (...vals) => { let i = 0; return () => { const v = vals[Math.min(i, vals.length - 1)]; i++; return v; }; };
 
 // 收集广播的 state；coinAnimMs 压到 15ms 让演出节拍可测。
-function mkSession({ teamRoles, rng, ghost = false, persona }) {
+function mkSession({ teamRoles, rng, ghost = false, persona, overrides = {} }) {
   const pushes = [];
   const s = new SingleSession({
     teamRoles, persona, ghost, rng,
-    configOverrides: { timing: { coinAnimMs: 15 } },
+    configOverrides: { timing: { coinAnimMs: 15 }, ...overrides },
     send: (m) => pushes.push(m),
   });
   return { s, pushes, last: () => pushes[pushes.length - 1]?.state };
@@ -198,6 +198,57 @@ await test('暂存注（交互 v3）：默认最小注 → ±1/全押/保金 →
   assert.equal(s0.bet, Math.min(20, s0bal));                  // 继承 20,不够则尽量
   const s1 = v.players.find(p => p.id === 's1');
   assert.equal(s1.pledge, 0);                                 // 保金不继承
+});
+
+await test('监管准心口径（v3.1）：single.summon 可用性 + 非检察官操控席带 seatId 监管 + 费扣后暂存注重夹', async () => {
+  const { s, last } = mkSession({
+    teamRoles: ['farmer', 'prosecutor'], rng: seq(0.0),
+    overrides: { single: { initialBalance: { prosecutor: 20 } } },   // n=2 费4,初始 4 付不起——测试抬到 20
+  });
+  let v = s.view();
+  assert.deepEqual(v.single.summon, { seatId: 's1', cost: 4 });      // 视图直发监管可用性
+  assert.equal(v.single.seatId, 's0');                               // 操控席=农民,无需切席
+  // 检察官席暂存注全押 20 → 监管扣费 4 → 暂存注必须重夹到 16
+  assert.equal(s.handle('single_bet_allin', { seatId: 's1' }).ok, true);
+  assert.equal(s.handle('summon', { seatId: 's1' }).ok, true);
+  v = last();
+  assert.equal(v.players[1].balance, 16);
+  assert.equal(v.players[1].bet, 16);                                // 暂存注被重夹,开掷不会报错
+  assert.equal(v.single.summon, null);                               // 本回合已监管
+  assert.ok(v.lastSummon && v.lastSummon.targetId === 'L');
+  // 开掷照常走通（重夹后注额合法）
+  assert.equal(s.handle('single_flip', {}).ok, true);
+  await sleep(40);
+  assert.ok(['BETTING', 'NEGOTIATE', 'REFLIP', 'ENDED'].includes(last().phase));
+});
+
+await test('重掷准心口径（v3.1）：操控席不是暴食者也能 request_reflip（自动路由到暴食者席位）', async () => {
+  const { s, last } = mkSession({ teamRoles: ['farmer', 'glutton'], rng: seq(0.99, 0.0) });
+  assert.equal(s.view().single.seatId, 's0');                        // 操控席=农民
+  assert.equal(s.handle('single_flip', {}).ok, true);                // 暂存注(保底1)直接开掷
+  await sleep(40);
+  assert.equal(last().phase, 'REFLIP');                              // 0.99 → 败局,暴食者开决策窗
+  assert.equal(s.handle('request_reflip', {}).ok, true);             // s0 发起,路由到 s1 暴食者
+  await sleep(40);
+  const v = last();
+  assert.equal(v.coinResult, 'tails');                               // 0.0 → 翻盘
+  const glutton = v.players.find(p => p.id === 's1');
+  assert.equal(glutton.reflipsLeft, v.config.single.glutton.reflips - 1);  // 消耗了 1 次
+});
+
+await test('协商准心口径（v3.1）：negotiate_transfer 可带 fromId 从任意队友堆转出', async () => {
+  const { s, last } = mkSession({ teamRoles: ['farmer', 'farmer'], rng: seq(0.0) });
+  s.handle('single_flip', {});
+  await sleep(40);
+  let v = last();
+  assert.equal(v.phase, 'NEGOTIATE');
+  const before = { ...v.allocation.takes };
+  // 操控席=s0,却把 s1 的收益挪 2 给 s0（准心右键=取回口径）
+  assert.equal(s.handle('negotiate_transfer', { fromId: 's1', toId: 's0', kind: 'take', amount: 2 }).ok, true);
+  v = last();
+  assert.equal(v.allocation.takes.s0, before.s0 + 2);
+  assert.equal(v.allocation.takes.s1, before.s1 - 2);
+  assert.ok(s.handle('negotiate_transfer', { fromId: 'sX', toId: 's0', kind: 'take', amount: 1 }).error);
 });
 
 console.log(`\n全部通过：${passed} 项 ✅`);

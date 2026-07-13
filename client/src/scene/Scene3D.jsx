@@ -223,7 +223,10 @@ function aimBodyTarget(camera, players, { includeBoss = false } = {}) {
 }
 // 准心可交互目标（§9.6 交互 v3）：下注期优先毡面圈（视线∩桌面,圈半径内）,其次队友身体（附身）;
 // 组队期指任意角色（含 Boss）=展示 3D 角色面板（瞄准即显,不点击、不退出指针锁）。
-// 返回 'coin'（开掷）| 'circle:<seatId>'（±1/全押）| 'seat:<seatId>'（附身）| 'sheet:<playerId>'（面板）| null。
+// v3.1 技能入口准心化：下注期瞄 Boss=监管（检察官在队且可用）、REFLIP 瞄桌上硬币=重掷决策、
+// 协商期瞄队友圈=挪收益/债务——全部技能不再依赖面板/切席。
+// 返回 'coin'（开掷）| 'circle:<seatId>'（±1/全押）| 'summon:<seatId>'（监管）| 'reflip'（重掷决策）
+// | 'pile:<seatId>'（协商转移）| 'seat:<seatId>'（附身）| 'sheet:<playerId>'（面板）| null。
 function aimTargetOf(camera, state) {
   const players = state?.players ?? [];
   const fwd = camera.getWorldDirection(_walkDir);
@@ -231,21 +234,41 @@ function aimTargetOf(camera, state) {
     const p = aimBodyTarget(camera, players, { includeBoss: true });
     return p ? `sheet:${p.id}` : null;
   }
-  if (state?.phase === 'BETTING' && fwd.y < -0.04) {
+  // 视线∩桌面交点（毡面圈类目标共用）
+  let hit = null;
+  if (fwd.y < -0.04) {
     const t = (TABLE_TOP - camera.position.y) / fwd.y;
-    if (t > 0 && t < 16) {
-      const ix = camera.position.x + fwd.x * t;
-      const iz = camera.position.z + fwd.z * t;
-      if (Math.hypot(ix, iz) < 0.62) return 'coin';
-      for (const p of players) {
-        if (p.id === 'L' || p.bankrupt) continue;
-        const spot = singleSpotOf(SINGLE_TEAM_SEATS[p.seat] ?? SINGLE_TEAM_SEATS[0]);
-        if (Math.hypot(ix - spot.x, iz - spot.z) < 0.55) return `circle:${p.id}`;
-      }
+    if (t > 0 && t < 16) hit = { x: camera.position.x + fwd.x * t, z: camera.position.z + fwd.z * t };
+  }
+  if (state?.phase === 'BETTING' && hit) {
+    if (Math.hypot(hit.x, hit.z) < 0.62) return 'coin';
+    for (const p of players) {
+      if (p.id === 'L' || p.bankrupt) continue;
+      const spot = singleSpotOf(SINGLE_TEAM_SEATS[p.seat] ?? SINGLE_TEAM_SEATS[0]);
+      if (Math.hypot(hit.x - spot.x, hit.z - spot.z) < 0.55) return `circle:${p.id}`;
     }
   }
-  const p = aimBodyTarget(camera, players);
-  return p ? `seat:${p.id}` : null;
+  // REFLIP:瞄停在桌上的硬币=重掷决策（左键重掷/右键认输）
+  if (state?.phase === 'REFLIP' && hit) {
+    const rest = getCoinRest();
+    if (Math.hypot(hit.x - (rest?.x ?? 0), hit.z - (rest?.z ?? 0)) < 0.9) return 'reflip';
+  }
+  // 协商:瞄队友的圈=转移目标（左键送 1/右键取 1;ALT=债务;自己的圈不成目标）
+  if (state?.phase === 'NEGOTIATE' && hit) {
+    const meId = state?.single?.seatId;
+    for (const p of players) {
+      if (p.id === 'L' || p.bankrupt || p.id === meId) continue;
+      if (!state.roundFarmerIds?.includes(p.id)) continue;
+      const spot = singleSpotOf(SINGLE_TEAM_SEATS[p.seat] ?? SINGLE_TEAM_SEATS[0]);
+      if (Math.hypot(hit.x - spot.x, hit.z - spot.z) < 0.55) return `pile:${p.id}`;
+    }
+  }
+  // 身体类目标:下注期监管可用时 Boss 也可瞄（=监管）,队友=附身
+  const su = state?.phase === 'BETTING' ? state?.single?.summon : null;
+  const p = aimBodyTarget(camera, players, { includeBoss: !!su });
+  if (!p) return null;
+  if (p.id === 'L') return su ? `summon:${su.seatId}` : null;
+  return `seat:${p.id}`;
 }
 function SingleRig({ mode, seat, shakeRef }) {
   const { camera, gl } = useThree();
@@ -346,12 +369,29 @@ function SingleRig({ mode, seat, shakeRef }) {
       if (!tgt) return;
       const [kind, id] = tgt.split(':');
       if (kind === 'sheet') return;                      // 组队期:面板瞄准即显（3D 空间,无点击语义）
+      if (kind === 'reflip') {                           // 重掷决策:左键=重掷,右键=认输落账
+        if (e.button === 0) st.send({ type: 'request_reflip' });
+        else if (e.button === 2) st.send({ type: 'pass_reflip' });
+        return;
+      }
+      if (kind === 'pile') {                             // 协商:左键送 1 给瞄准席位,右键取 1 回来;ALT=债务
+        const meId = st.state?.single?.seatId;
+        const alloc = st.state?.allocation;
+        if (!meId || !alloc || (e.button !== 0 && e.button !== 2)) return;
+        const debt = e.altKey;
+        const fromId = e.button === 2 ? id : meId;
+        const toId = e.button === 2 ? meId : id;
+        const avail = (debt ? alloc.debts : alloc.takes)?.[fromId] ?? 0;
+        if (avail >= 1) st.send({ type: 'negotiate_transfer', fromId, toId, kind: debt ? 'debt' : 'take', amount: 1 });
+        return;
+      }
       if (e.button === 2 && kind === 'circle') {
         st.send(e.altKey
           ? { type: 'single_pledge_adjust', seatId: id, delta: -1 }
           : { type: 'single_bet_adjust', seatId: id, delta: -1 });
       } else if (e.button === 0) {
         if (kind === 'coin') st.send({ type: 'single_flip' });
+        else if (kind === 'summon') st.send({ type: 'summon', seatId: id });
         else if (kind === 'circle') {
           if (e.shiftKey) st.send({ type: 'single_bet_allin', seatId: id });
           else if (e.altKey) st.send({ type: 'single_pledge_adjust', seatId: id, delta: 1 });
@@ -514,7 +554,7 @@ function SingleRig({ mode, seat, shakeRef }) {
     if (gs.walkLocked) gs.setWalkAim(aimTargetOf(camera, gs.state));
     else if (gs.walkAim) gs.setWalkAim(null);
     // 本地调试探针（同 __payoutDir 先例）:E2E/截图工具读逐帧相机与准心状态
-    if (DEV) window.__walkRig = { locked: gs.walkLocked, aim: gs.walkAim, yaw: yaw.current, pitch: pitch.current, pos: [pos.current.x, pos.current.z] };
+    if (DEV) window.__walkRig = { locked: gs.walkLocked, aim: gs.walkAim, yaw: yaw.current, pitch: pitch.current, pos: [pos.current.x, pos.current.z], coin: getCoinRest() };
   });
   return null;
 }
@@ -1074,6 +1114,41 @@ function SingleBetPrompts({ players, spots }) {
   );
 }
 
+// 单人重掷决策浮字（§9.6 v3.1 技能准心化）:REFLIP 期挂在停定的硬币上方——
+// 准心瞄硬币 左键=重掷/右键=认输;浮字本身也可点（按住 CTRL 的鼠标用户同一条消息）。
+function SingleReflipPrompts({ players }) {
+  const send = useGameStore(s => s.send);
+  const left = players.find(p => p.role === 'glutton' && !p.bankrupt && (p.reflipsLeft ?? 0) > 0)?.reflipsLeft ?? 0;
+  const rest = getCoinRest();
+  return (
+    <Html position={[rest?.x ?? 0, TABLE_TOP + 0.55, rest?.z ?? 0]} center distanceFactor={6} zIndexRange={[28, 0]}>
+      <div className="felt-float">
+        <div className="clickable prompt-line" onClick={() => send({ type: 'request_reflip' })}>
+          <PixelText size={2} color="var(--px-gold)">{T.single.reflipAim(left)}</PixelText>
+        </div>
+        <div className="clickable prompt-line" onClick={() => send({ type: 'pass_reflip' })}>
+          <PixelText size={2} color="#fff">{T.single.reflipPass}</PixelText>
+        </div>
+      </div>
+    </Html>
+  );
+}
+
+// 单人监管提示浮字:下注期准心指向 Boss 且监管可用时,Boss 头顶浮出「监管 ¥费 [左键]」——
+// 瞄准即显、移开即收（与组队期 3D 手册同一心智,不退指针锁）。
+function SingleSummonPrompt() {
+  const walkAim = useGameStore(s => s.walkAim);
+  const su = useGameStore(s => s.state.single?.summon);
+  if (!su || !walkAim?.startsWith('summon:')) return null;
+  return (
+    <Html position={[SINGLE_BOSS_SEAT.x, 2.45, SINGLE_BOSS_SEAT.z]} center distanceFactor={6.5} zIndexRange={[28, 0]}>
+      <div className="felt-float">
+        <PixelText size={2} color="var(--px-gold)">{T.single.summonAim(su.cost)}</PixelText>
+      </div>
+    </Html>
+  );
+}
+
 // 桌下圆毯
 export function Rug() {
   return (
@@ -1478,7 +1553,15 @@ function SceneContents({ look, freeCam = false }) {
 
         {/* 单人下注浮字层（交互 v3）:每个队伍圈上方=暂存注额（+保金）,中央=开掷 */}
         {single && state.phase === 'BETTING' && (
-          <SingleBetPrompts players={players} spots={spots} />
+          <>
+            <SingleBetPrompts players={players} spots={spots} />
+            <SingleSummonPrompt />
+          </>
+        )}
+
+        {/* 单人重掷决策（v3.1 技能准心化）:浮字挂硬币上方,准心瞄硬币 左键重掷/右键认输 */}
+        {single && state.phase === 'REFLIP' && (
+          <SingleReflipPrompts players={players} />
         )}
 
         {/* 组队期:准心指到的角色身旁浮出 3D 角色手册（瞄准即显,不退锁） */}

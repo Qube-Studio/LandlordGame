@@ -459,6 +459,10 @@ function BalanceHud() {
       <div className="bh-value" style={style}>
         <PixelText size={8} color={candleColor}>{T.fmt.currency}</PixelText>
         <PixelText size={9} color={numColor}>{String(display)}</PixelText>
+        {/* 资本家：个人资金右下方小字标注资金池（斜杠前缀，与个人资金底部齐平——用户裁决 2026-07-13） */}
+        {me.role === 'capitalist' && me.pool != null && (
+          <span className="bh-pool"><PixelText size={3} color="var(--ink-dim)">{`/${me.pool}`}</PixelText></span>
+        )}
       </div>
     </div>
   );
@@ -588,7 +592,8 @@ function GoalHud() {
 }
 
 // ---------- 资本家资金池 HUD（本人/观战可见） ----------
-// 始终填满的渐隐条：左区（绿）=个人资金/池=可挪用比例，右区（红）=下次税/池=税负比例；
+// 地主目标同款（用户裁决 2026-07-13）：外包薄有缝环=距下次征税回合数，
+// 内=无缝细条（满条=资金池，右端红区=下次税占池比例）。个人资金占比（旧绿区）不再显示；
 // 区宽随池涨跌阻尼变化。征税改间隔制（§8.6，每「农民人数」回合、按当前池），税额与倒计时服务端直发。
 function CapitalistHud() {
   const state = useGameStore(s => s.state);
@@ -598,9 +603,8 @@ function CapitalistHud() {
   const pool = Math.max(0, c.pool);
   const tax = c.taxNext ?? 0;
   const rtn = Math.max(0, c.taxRoundsToNext ?? 0);        // 距下次征税回合数（0=本回合征）
-  const taxLabel = rtn <= 0 ? T.hud.capitalist.taxNow : T.hud.capitalist.taxIn(rtn);
-  // 左区分子固定用开局个人资金（下注中 balance 暂时下探，占比不该跟着抖）
-  const personal = c.personalInitial ?? c.personal ?? 0;
+  const due = rtn <= 0;
+  const taxLabel = due ? T.hud.capitalist.taxNow : T.hud.capitalist.taxIn(rtn);
   // 被对质命中（§8.8）/被传唤（§8.9）：制约卡告警，持续到 FINALIZE 强制扣税落地。
   const la = state.lastAccusation;
   const summoned = state.lastSummon?.targetId === c.id;
@@ -608,12 +612,12 @@ function CapitalistHud() {
   const pairs = [[T.hud.capitalist.pool, pool], [taxLabel, tax, 'var(--danger)']];
   if (forced) pairs.push(summoned ? [T.hud.capitalist.summonedTag, T.hud.capitalist.summonedWarn, 'var(--danger)'] : [T.hud.capitalist.accusedTag, T.hud.capitalist.accusedWarn, 'var(--danger)']);
   return (
-    <div className={`goal-hud hud-card quest-card ${forced ? 'forced-hit' : ''}`}>
+    <div className={`goal-hud hud-card quest-card goal-fixed ${forced ? 'forced-hit' : ''}`}>
       <QuestLine bump={bump} pairs={pairs} />
-      <QuestFullBar
-        left={pool > 0 ? personal / pool : 0}
-        right={pool > 0 ? tax / pool : (tax > 0 ? 1 : 0)}
-      />
+      <div className={`quest-wrap ${due ? 'due miss' : ''}`}>
+        {!due && <QuestSegs total={c.taxInterval ?? 1} filled={rtn} className="quest-ring" />}
+        <QuestTrack ratio={1} cost={pool > 0 ? tax / pool : (tax > 0 ? 1 : 0)} />
+      </div>
     </div>
   );
 }
@@ -791,6 +795,23 @@ function RevealPanel() {
 }
 function ReflipPanel() {
   const state = useGameStore(s => s.state); const send = useGameStore(s => s.send); const me = state.me;
+  const singleWalk = useGameStore(s => s.state.mode === 'single' && s.singleCam === 'walk');
+  // 单人走动态:重掷决策准心化（瞄硬币 左键重掷/右键认输,浮字在 Scene3D）,底部面板让位
+  if (singleWalk) return null;
+  // 单人附身态:一人指挥全队——重掷经服务端自动路由到暴食者席位,操控席位无需是暴食者
+  if (state.mode === 'single') {
+    const glutton = state.players.find(p => p.role === 'glutton' && !p.bankrupt && (p.reflipsLeft ?? 0) > 0);
+    return (
+      <div className="phase-panel">
+        <p className="danger">{T.reflipPanel.farmersLost}</p>
+        <div className="role-pick">
+          <button className="btn primary" onClick={() => send({ type: 'request_reflip' })}>{T.reflipPanel.reflip(glutton?.reflipsLeft ?? 0)}</button>
+          <button className="btn" onClick={() => send({ type: 'pass_reflip' })}>{T.reflipPanel.pass}</button>
+        </div>
+        <p className="dim">{T.reflipPanel.note}</p>
+      </div>
+    );
+  }
   const isGlutton = me?.role === 'glutton' && !me?.spectator;
   const canReflip = isGlutton && (me.reflipsLeft ?? 0) > 0 && !me.passedReflip;
   return (

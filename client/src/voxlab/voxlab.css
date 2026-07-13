@@ -13,6 +13,12 @@
   padding: 3px 8px;
 }
 .voxlab-chip.on { color: var(--c-brass-hi, #e8c25a); border-color: var(--c-brass-hi, #e8c25a); }
+.voxlab-btn {
+  pointer-events: auto; cursor: pointer;
+  font-family: inherit;
+  color: var(--c-ink, #f6ecd8);
+}
+.voxlab-btn:hover { color: var(--c-brass-hi, #e8c25a); border-color: var(--c-brass-hi, #e8c25a); }
 
 .voxlab-unlock-hint {
   position: absolute; left: 50%; top: 56%; transform: translateX(-50%);
@@ -35,3 +41,26 @@
 .voxlab-help-title { color: var(--c-brass-hi, #e8c25a); margin-bottom: 4px; }
 .voxlab-help-dim { color: var(--c-ink-dim, #b8a585); margin-top: 4px; }
 .voxlab-help b { color: var(--c-brass-hi, #e8c25a); }
+
+/* 素材库面板(右上,未锁定时可点) */
+.voxlab-assets {
+  position: absolute; right: 14px; top: 52px; z-index: 30;
+  min-width: 220px;
+  font-size: 12.5px; line-height: 1.7; color: var(--c-ink, #f6ecd8);
+  background: rgba(20, 12, 6, 0.82);
+  border: 2px solid var(--c-wood-900, #1a100a);
+  box-shadow: inset 0 0 0 1px rgba(232, 194, 90, 0.25);
+  padding: 10px 12px;
+}
+.voxlab-asset-row { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+.voxlab-asset-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.voxlab-asset-name.on { color: var(--c-brass-hi, #e8c25a); }
+.voxlab-mini-btn {
+  font-family: inherit; font-size: 11.5px; cursor: pointer;
+  color: var(--c-ink, #f6ecd8);
+  background: rgba(20, 12, 6, 0.72);
+  border: 1px solid var(--c-wood-900, #1a100a);
+  padding: 1px 7px;
+}
+.voxlab-mini-btn:hover { color: var(--c-brass-hi, #e8c25a); border-color: var(--c-brass-hi, #e8c25a); }
+.voxlab-mini-btn.danger:hover { color: var(--c-danger, #e36262); border-color: var(--c-danger, #e36262); }

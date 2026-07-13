@@ -323,11 +323,12 @@ test('资本家税：按当前池 max(taxMin, round(当前池×10%))，pool≤0 
   assert.equal(computeTax(0, comp), 0);
   assert.equal(computeTax(-5, comp), 0);
 });
-test('资本家征税间隔 = 农民人数，round%interval===0 才扣（round≥1）', () => {
-  assert.equal(taxInterval(1), 1);
+test('资本家征税间隔 = max(2, 农民人数)，round%interval===0 才扣（round≥1）', () => {
+  assert.equal(taxInterval(1), 2);         // 1 农民 → 每隔一回合征（下限 2，不退化成每回合抽血）
   assert.equal(taxInterval(4), 4);
-  assert.equal(taxInterval(0), 1);         // clamp 到 ≥1
-  assert.equal(taxDueThisRound(1, 1), true);   // 1 农民 → 每回合征
+  assert.equal(taxInterval(0), 2);         // clamp 到 ≥2
+  assert.equal(taxDueThisRound(1, 1), false);  // 1 农民 → 回合 1 不征
+  assert.equal(taxDueThisRound(2, 1), true);   // 回合 2 征（每隔一回合）
   assert.equal(taxDueThisRound(1, 2), false);  // 2 农民 → 回合 1 不征
   assert.equal(taxDueThisRound(2, 2), true);   // 回合 2 征
   assert.equal(taxDueThisRound(4, 2), true);

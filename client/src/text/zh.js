@@ -197,7 +197,7 @@ const payout3d = {
   confirmed: '已确认',
   confirmedWaiting: '已确认 · 等待其他农民',
   dragHint: '拖钱牌/债务牌/对质票到队友圈',
-  dragHintSingle: '拖钱牌/债务牌到队友圈',   // 单人模式无对质票
+  dragHintSingle: '准心指队友圈 左键送1 右键取1 · 按ALT挪债务',   // 单人准心口径（按住 CTRL 仍可拖拽）
   undoConfirm: '撤销确认',
   confirmAlloc: '确认分配',
   take: '拿取',
@@ -768,9 +768,15 @@ const single = {
   standUp: '起身 [X]',
   switchHint: 'TAB 切席 · X 起身走动',
   walkHint: '准心指圈 左键+1 右键-1 · SHIFT+左键全押 · 空格开掷 · 按住CTRL放开鼠标',
+  walkHintReflip: '准心指硬币 左键重掷 右键认输',
+  walkHintNegotiate: '准心指队友圈 左键送1 右键取1 · 按ALT挪债务 · 空格确认',
   flip: '开掷',
   betHint: '左键+1 · 右键-1',
   pledgeTag: (n) => `保金 ${n}`,
+  // v3.1 技能准心化:重掷决策挂硬币上方、监管提示挂 Boss 头顶（瞄准即显）
+  reflipAim: (left) => `重掷（剩 ${left}）[左键]`,
+  reflipPass: '认输 [右键]',
+  summonAim: (cost) => `监管 ¥${cost} [左键]`,
 };
 
 // ---- 开发/测试专用（仅 import.meta.env.DEV 可见）----

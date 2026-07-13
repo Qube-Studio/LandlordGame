@@ -107,7 +107,7 @@ const capitalistLoss = mk({
     opp('g', '暴食李', 'glutton', { hasBet: false, bet: null }),
   ],
   me: { id: 'me', role: 'capitalist', balance: 12, pool: 13, bounds: { minStake: 1 } },
-  capitalist: { id: 'me', personal: 12, personalInitial: 12, pool: 13, poolInitial: 20, taxNext: 2, taxRate: 0.1, taxMin: 2 },
+  capitalist: { id: 'me', personal: 12, personalInitial: 12, pool: 13, poolInitial: 20, taxNext: 2, taxInterval: 2, taxRoundsToNext: 2, taxRate: 0.1, taxMin: 2 },
   history: [{
     round: 1, coinResult: 'tails', bets: { me: 3, f: 2, g: 2 }, pot: 7, deltas: { me: 0, f: 4, g: -2 },
     capitalistPool: 13, capitalistPoolDelta: -3, capitalistTax: 2,

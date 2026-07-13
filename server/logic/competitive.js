@@ -34,9 +34,10 @@ export function computeTax(pool, config) {
   return Math.min(pool, Math.max(t.taxMin, roundBy(pool * t.taxRate, config)));
 }
 
-// 资本家征税间隔 = 活跃农民阵营人数（至少 1）。人越多、征得越疏。
+// 资本家征税间隔 = 活跃农民阵营人数，下限 2。人越多、征得越疏；
+// 1 农民时保持每隔一回合征一次，不退化成每回合抽血（用户裁决 2026-07-13）。
 export function taxInterval(farmerCount) {
-  return Math.max(1, farmerCount || 1);
+  return Math.max(2, farmerCount || 1);
 }
 
 // 本回合是否征税：距锚点回合数为间隔整数倍（≥1）。与工资 wageDueThisRound 同构。
