@@ -218,3 +218,25 @@ MagicaVoxel 改完放回原路径**)。几何规格 `src/voxel/chandelierSpec.js
 
 **渐进换资产机制**:`labStore.SWAP_KEYS` 注册表——新体素资产 = 加一个 key + Stage 里一个三元。
 新渲染系统将来同样以开关进隔离区试跑。
+
+### A.1 · P0 渲染补课(2026-07-13,voxel 分支,已落地)
+
+用户报三问题:阴影残留(平行光视锥 ±9 < 房间 ±12,出锥物体贴图边缘 clamp 拉残影)、
+MagicaVoxel 手修发光不生效(MATL 块被丢弃)、材质质感均一(单一 roughness1 材质)。修复:
+1. **阴影视锥**(Stage.jsx):灯位 [4,9,3]→[8,18,6](2×,方向不变)、视锥 ±19 盖全房间、mapSize 2048(纹素密度持平)。
+2. **MATL 读写**(vox.js):DICT 编解码 + MATL 块;归一化 `{type, rough, metal, emitK=_emit×2^(_flux-1), alpha}`,
+   旧字段 _weight/_trans 兼容;writeVox 可写 MATL——**生成资产与手修资产同一条运行时路径**。
+3. **材质三桶**(greedy/voxload/VoxModel):main(diffuse+metal,粗糙/金属走 aRm 顶点属性,metal 钳 ≤0.75)/
+   emissive(aEmit 属性,辐射=顶点色×emitK×强度——**有色发光**)/ glass(独立桶,透明+不写深度);
+   玻璃可见性=邻居空或(邻居玻璃且自己非玻璃);hex 匹配保留为旧资产回退(与 MATL 并集),
+   IndexedDB 旧素材/E2E 零破坏。单测 30/30,E2E 19/19。
+4. **材质样板** `material-sampler.vox`(voxgen 第二资产):漫反射/金属/发光/玻璃四柱,
+   拖进 VoxLab 即验四质感,也是手修时的材质面板参照物。
+坑:同仓双会话共用工作区会互相切分支——voxel 工作已独立成 **voxel 分支**,冲突时用
+`git worktree add ../LandlordGame-dev dev` 分离目录。
+
+**渲染管线战略修订(2026-07-13,用户拍板)**:§7 的实时体素光照**降级为后备**——Teardown 自研
+光追的根本理由是"破坏",我们没有;改走**烘焙为主混合管线**(P1):静态酒馆离线路径追踪烘焙
+(GPU DDA 烘焙器,真弹射 GI;按灯分可见度通道 → 炉火闪烁/掷币压光=运行时调权重)+ 动态小物件
+(shadow map + 辐照度体积采样 + 接触 AO)+ VoxLab 改场景 500ms 去抖自动重烘(<2s 渐进)。
+完整设计见 `C:\Users\quberen\.claude\plans\bug-swift-unicorn.md`(P1 五步施工切法/数据结构预算/风险)。

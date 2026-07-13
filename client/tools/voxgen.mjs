@@ -7,7 +7,7 @@ import { writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { makeDense, writeVox, setPaletteColor } from '../src/voxel/vox.js';
-import { P, shade } from '../src/assets/palette.js';
+import { P, shade, PROP_COLORS } from '../src/assets/palette.js';
 import { CHAND } from '../src/voxel/chandelierSpec.js';
 
 const OUT_DIR = join(dirname(fileURLToPath(import.meta.url)), '../src/assets/vox');
@@ -255,10 +255,42 @@ function genChandelierDeluxe() {
   return { dense, pal, materials };
 }
 
+// ================= 材质样板(P0-3 验收道具 + MagicaVoxel 材质对照物) =================
+// 四根柱子立在木底座上:漫反射(粗糙 1)/ 金属(粗糙 0.25)/ 发光 / 玻璃——
+// 拖进 VoxLab 一眼验证四种质感;也是手修素材时的材质面板参照。
+function genMaterialSampler() {
+  const S = 0.015;
+  const dense = makeDense(96, 64, 40);
+  const p = new Painter(dense, S);
+  const { pal, reg } = makePalette();
+  const wood = reg(P.wood500);
+  const woodLine = reg(P.wood900);
+  const diffuse = reg(P.feltTable);
+  const metal = reg(P.brassHi);
+  const emit = reg(P.ember);
+  const glass = reg(PROP_COLORS.specGlass);
+  const materials = {
+    [metal]: { _type: '_metal', _metal: '0.7', _rough: '0.25' },
+    [emit]: { _type: '_emit', _emit: '1', _flux: '1' },
+    [glass]: { _type: '_glass', _alpha: '0.6' },
+  };
+  // 底座(带描边)
+  p.box(-0.7, 0.7, 0, 0.09, -0.28, 0.28, wood);
+  p.box(-0.7, 0.7, 0, 0.03, -0.28, 0.28, woodLine);
+  // 四柱(0.14 见方 × 0.72 高)
+  const cols = [diffuse, metal, emit, glass];
+  cols.forEach((ci, i) => {
+    const cx = -0.51 + i * 0.34;
+    p.box(cx - 0.07, cx + 0.07, 0.09, 0.81, -0.07, 0.07, ci);
+  });
+  return { dense, pal, materials };
+}
+
 // ================= 出盘 =================
 mkdirSync(OUT_DIR, { recursive: true });
 const assets = [
   ['chandelier-deluxe.vox', genChandelierDeluxe],
+  ['material-sampler.vox', genMaterialSampler],
 ];
 for (const [name, gen] of assets) {
   const { dense, pal, materials } = gen();
