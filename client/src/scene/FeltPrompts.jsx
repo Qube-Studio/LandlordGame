@@ -97,12 +97,18 @@ export default function FeltPrompts({ mySpot, players, spots, playerId }) {
     // 飞牌在途不抢戏，落定后浮现；下注操作中（bet==null）浮字由 HandLayer 负责。
     const flying = betFlight && betFlight.round === state.round;
     if (me.bet != null && !flying) lines = [{ text: T.felt.betPlaced(me.bet), color: 'var(--px-gold)' }];
+    // 下注倒计时（timing.betMs，到点未下注自动押最小注）：已下注跟在主浮字下；
+    // 下注操作中主浮字区归 HandLayer（圈正上方），倒计时挂东北副浮字避让，不与手牌提示叠字。
+    if (state.betDeadline) {
+      if (me.bet != null) lines.push({ deadline: state.betDeadline });
+      else secondary = [{ deadline: state.betDeadline }];
+    }
     // 检察官·传唤（§8.9）：东北副浮字（主浮字区归 HandLayer）——下注前可传，费用随次数 150% 递增。
     if (me.role === 'prosecutor' && !me.spectator) {
       if (me.canSummon) {
-        secondary = [{ text: T.felt.summonBtn(me.summonCost), k: 'C', color: 'var(--px-gold)', onClick: () => send({ type: 'summon' }) }];
+        secondary = [...(secondary ?? []), { text: T.felt.summonBtn(me.summonCost), k: 'C', color: 'var(--px-gold)', onClick: () => send({ type: 'summon' }) }];
       } else if (me.usedSummonThisRound) {
-        secondary = [{ text: T.felt.summoned, color: 'var(--ok)' }];
+        secondary = [...(secondary ?? []), { text: T.felt.summoned, color: 'var(--ok)' }];
       }
     }
   } else if (state.phase === 'CHALLENGE') {
@@ -154,6 +160,8 @@ export default function FeltPrompts({ mySpot, players, spots, playerId }) {
         { text: T.felt.revealGo, k: 'space', color: 'var(--px-gold)', onClick: () => send({ type: 'confirm_reveal' }) },
         { text: T.felt.confirmedCount(confirmed, active), color: 'var(--ink-dim)' },
       ];
+    // 确认倒计时（timing.revealConfirmMs）：到点自动全员确认进掷币。
+    if (state.revealDeadline) lines.push({ deadline: state.revealDeadline });
   }
   // 大厅里别的已准备玩家：在他们各自圈上显示绿字「已准备（身份）」（反馈②④）。用 local 姿态各自独立。
   const others = state.phase === 'LOBBY' && Array.isArray(players)

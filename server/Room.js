@@ -59,6 +59,8 @@ export class Room {
     this.settlement = null;
     this.allocation = null;        // {takes, debts} 协商中的方案
     this.negotiateDeadline = null;
+    this.betDeadline = null;       // 下注倒计时截止绝对时刻（timing.betMs；到点未下注自动押最小注）
+    this.revealDeadline = null;    // 揭牌确认倒计时截止绝对时刻（timing.revealConfirmMs；到点自动全员确认）
     this.payout = null;            // 桌面显式结算（§3.8）：{script, piles, taken, eligible, after, …}
     this._stepSeq = 0;             // 编导脚本步骤自增 id（每回合重置）
     this.landlordInitial = 0;      // 地主开局资金（首个相对目标的基准）
@@ -341,6 +343,8 @@ export class Room {
     this.settlement = null;
     this.allocation = null;
     this.negotiateDeadline = null;
+    this.betDeadline = null;
+    this.revealDeadline = null;
     this.payout = null;
     this._stepSeq = 0;
     this.winnerSide = null;
@@ -449,6 +453,8 @@ export class Room {
     this.settlement = null;
     this.allocation = null;
     this.negotiateDeadline = null;
+    this.betDeadline = null;
+    this.revealDeadline = null;
     this.payout = null;
     this._stepSeq = 0;
     for (const p of this.players.values()) {
@@ -519,7 +525,37 @@ export class Room {
     this.roundStartBalances = {};
     for (const p of this._activePlayers()) this.roundStartBalances[p.id] = p.balance;
     if (this._competitive) this._beginCompetitiveRound();
+    // 下注倒计时（timing.betMs）：到点仍未下注者自动押最小注，AFK 不拖全场（_setPhase 清计时器，不会跨相位误触发）。
+    const betMs = this.config.timing.betMs;
+    this.betDeadline = betMs > 0 ? Date.now() + betMs : null;
+    if (betMs > 0) this._after(betMs, () => this._forceBetPending());
     this._autoActOffline();
+    this._broadcastState();
+    this._checkAllBet();
+  }
+
+  // 给一名未下注玩家自动押最小注（强全押区间则全押）：离线代打与下注超时共用。
+  _autoBetMin(p) {
+    const bounds = betBounds({
+      balance: p.balance,
+      role: p.role,
+      farmerCount: this.roundFarmerIds.length,
+      config: this.config,
+      mode: this.mode,
+    });
+    const amount = bounds.forceAllIn ? bounds.allInAmount : bounds.min;
+    this.bets[p.id] = amount;
+    this.betCounts[p.id] = noteCount(amount);
+    p.balance -= amount;
+  }
+
+  // 下注超时：仍未下注的活跃玩家全部自动押最小注并推进。
+  _forceBetPending() {
+    if (this.phase !== 'BETTING') return;
+    const pending = this._activePlayers().filter(p => this.bets[p.id] === undefined);
+    if (pending.length === 0) return;
+    for (const p of pending) this._autoBetMin(p);
+    this._systemChat(SYS.betTimeout(pending.map(p => p.username).join('、')));
     this._broadcastState();
     this._checkAllBet();
   }
@@ -780,8 +816,18 @@ export class Room {
   _enterReveal() {
     this._setPhase('REVEAL');
     for (const p of this.players.values()) p.confirmed = false;
+    // 确认倒计时（timing.revealConfirmMs）：到点未确认的自动确认、直接进掷币——确认只是节奏闸门，不该拖场。
+    const ms = this.config.timing.revealConfirmMs;
+    this.revealDeadline = ms > 0 ? Date.now() + ms : null;
+    if (ms > 0) this._after(ms, () => this._forceConfirmReveal());
     this._broadcastState();
     this._checkGate('confirmed', () => this._enterCoinFlip());
+  }
+
+  _forceConfirmReveal() {
+    if (this.phase !== 'REVEAL') return;
+    for (const p of this._activePlayers()) p.confirmed = true;
+    this._enterCoinFlip();
   }
 
   confirmReveal(playerId) {
@@ -1567,6 +1613,9 @@ export class Room {
       players,
       me,
       pot: betsPublic ? Object.values(this.bets).reduce((s, v) => s + v, 0) : null,
+      // 下注/揭牌确认倒计时（公开的节奏信息；仅在各自相位内有意义）
+      betDeadline: this.phase === 'BETTING' ? this.betDeadline : null,
+      revealDeadline: this.phase === 'REVEAL' ? this.revealDeadline : null,
       coinResult: ['COIN_FLIP', 'REFLIP', ...PAYOUT_PHASES].includes(this.phase) ? this.coinResult : null,
       settlement: PAYOUT_PHASES.includes(this.phase) ? this.settlement : null,
       allocation: this.phase === 'NEGOTIATE' && canNegotiateView
@@ -1686,19 +1735,7 @@ export class Room {
     if (!this.config.autoActForOffline) return;
     if (this.phase === 'BETTING') {
       for (const p of this._activePlayers()) {
-        if (!p.online && this.bets[p.id] === undefined) {
-          const bounds = betBounds({
-            balance: p.balance,
-            role: p.role,
-            farmerCount: this.roundFarmerIds.length,
-            config: this.config,
-            mode: this.mode,
-          });
-          const amount = bounds.forceAllIn ? bounds.allInAmount : bounds.min;
-          this.bets[p.id] = amount;
-          this.betCounts[p.id] = noteCount(amount);
-          p.balance -= amount;
-        }
+        if (!p.online && this.bets[p.id] === undefined) this._autoBetMin(p);
       }
       this._checkAllBet();
     } else if (this.phase === 'DISCUSSION') {

@@ -319,6 +319,7 @@ export class SingleSession {
         } : {}),
       } : null,
       pot: betting ? null : pot,
+      betDeadline: null, revealDeadline: null,   // 单机不限时（多人下注/确认倒计时字段，形状对齐）
       coinResult: ['COIN_FLIP', 'REFLIP', 'NEGOTIATE'].includes(phase) ? this.coinResult : null,
       settlement: null,
       allocation: phase === 'NEGOTIATE' && plan
@@ -372,7 +373,7 @@ export class SingleSession {
       config: this.baseConfig,
       players,
       me: null,
-      pot: null, coinResult: null, settlement: null, allocation: null, payout: null,
+      pot: null, betDeadline: null, revealDeadline: null, coinResult: null, settlement: null, allocation: null, payout: null,
       roundFarmerIds: [],
       landlordGoal: null, capitalist: null, challenge: null, lastAccusation: null, lastSummon: null,
       history: [],

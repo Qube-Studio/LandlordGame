@@ -311,11 +311,13 @@ data/              运行时数据（gitignore）
 | surplusTieBreak | 'highestBet' | 余数单位归属 |
 | bankruptcyThreshold | 0 | balance ≤ 此值破产 |
 | minFarmers / maxFarmers | 1 / 4 | 人数 |
+| timing.betMs | 35000 | 下注倒计时：到点未下注的活跃玩家自动押最小注（强全押区间则全押），系统播报（0=不限时） |
 | timing.revealAnimMs | 2200 | 揭牌动画时长（之后等确认） |
+| timing.revealConfirmMs | 6000 | 揭牌确认倒计时：到点未确认的自动确认、直接进掷币（0=不限时） |
 | timing.coinAnimMs | 6000 | 硬币动画后自动进结算（须 ≥ 客户端 coinSim DURATION 6.0s；落定 ~3–5.2s：抛点高度不一 + 长摆动收尾） |
 | timing.settleViewMs | 5200 | 系统结算展示时长（须容纳聚拢→分堆→派送三拍演出，见 §3.8） |
 | timing.finalizeMs | 2600 | 全员拿取完成后 → 下一回合的收尾间隔 |
-| timing.negotiateTimeoutMs | 120000 | 协商超时（0=不超时） |
+| timing.negotiateTimeoutMs | 30000 | 协商超时（0=不超时） |
 | timing.takeTimeoutMs | 45000 | FINALIZE 拿取超时，到点全员自动拿取（0=不超时） |
 | timing.takeAutoDelayMs | 2600 | 进入拿取阶段后，代离线玩家自动拿取的延迟（让观众看完演出） |
 | reconnectGraceSec | 0 | 断线保座；0=永久保座（永不超时降级），>0=超时降级观战 |
@@ -459,8 +461,8 @@ competitive: {
 **比较基准**：敌方暗注 vs **农民阵营本回合总注**（Σ 农民 stake，不含投资人保费）。对质窗**对农民/观战公开阵营总额**（个人注仍隐藏到揭牌），不公开给地主。
 
 **时序**（子状态由 `Room.accusation` 是否为 null 区分）：
-- **决定窗（IDLE，默认 `timing.challengeMs`=15s）**：农民可 `accuse` 或 `challenge_skip`。全体活跃农民同意跳过（离线自动满足）或到点无人指控 → 揭牌。
-- **交流窗（DELIBERATING，≤`timing.accuseDeliberateMs`=120s 上限）**：发起后开，等发起者 `accuse_resolve`（选 more/less）或 `accuse_cancel`（票不退、回决定窗、重置 15s）。超时 → 自动取消并直接揭牌（整段硬上限）。
+- **决定窗（IDLE，默认 `timing.challengeMs`=30s）**：农民可 `accuse` 或 `challenge_skip`。全体活跃农民同意跳过（离线自动满足）或到点无人指控 → 揭牌。
+- **交流窗（DELIBERATING，≤`timing.accuseDeliberateMs`=25s 上限）**：发起后开，等发起者 `accuse_resolve`（选 more/less）或 `accuse_cancel`（票不退、回决定窗、重置决定窗计时）。超时 → 自动取消并直接揭牌（整段硬上限）。
 
 **结果**（服务端在 `accuse_resolve` 即判定右/错，惩罚在 **FINALIZE** 落地，复用现有检查点数学）：
 - **猜对**：置 `_forceGoalCheckpoint`（地主）/ `_forceTax`（资本家）。FINALIZE 时地主额外评估一次目标（门控 `scheduledGoalDue || _forceGoalCheckpoint`，罚金平分农民）但**不重定基**（不重置间隔）；资本家额外 `computeTax` 扣一次。同回合排期+强制 = 只评估一次、走排期重定基，**不双罚**。目标被 config 关闭 / 资本家池空 → 命中但无实质（边界，接受）。相等注 → 判错。

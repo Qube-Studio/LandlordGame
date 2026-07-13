@@ -122,6 +122,7 @@ export const ERR = {
 // ---- 系统聊天播报（_systemChat）----
 export const SYS = {
   challengeSkipped: '本回合无农民能发起对质（票不足/已传唤），跳过对质窗',
+  betTimeout: (names) => `${names} 超时未下注，自动押上最小注`,
   summon: (name, cost, target, roleLabel) =>
     `${name} 花 ¥${cost} 传唤 ${target}（${roleLabel}）——本回合强制双倍结算，罚款上缴国库`,
   accuse: (name, cost, target, roleLabel) =>

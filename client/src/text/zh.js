@@ -218,11 +218,13 @@ const discussionPanel = {
 const bettingPanel = {
   spectating: '观战中：等待玩家下注…',
   waiting: '已下注，等待其他玩家…',
+  autoSuffix: '后自动押最小注',
 };
 const revealPanel = {
   confirmed: (c, a) => `已确认 ${c}/${a}`,
   confirmedWaiting: '已确认，等待其他玩家…',
   go: '看清了，掷硬币！',
+  autoSuffix: '后自动掷币',
 };
 const reflipPanel = {
   farmersLost: '正面朝上，农民阵营输了！',

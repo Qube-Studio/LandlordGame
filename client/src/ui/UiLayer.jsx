@@ -759,8 +759,20 @@ function BettingPanel() {
   // 3D 模式底部无面板（阶段五①）：下注在场景里做，已下注等待改走聊天系统提示（useWaitHints）
   if (IS_3D_INPUT) return null;
   if (me?.spectator || !factionOf(me?.role)) return <div className="phase-panel"><p className="dim">{T.bettingPanel.spectating}</p></div>;
-  if (me.bet != null) return <div className="phase-panel"><p className="ok">{T.bettingPanel.waiting}</p></div>;
-  return <MoneyHand key={`${state.round}-${me.balance}`} />;
+  if (me.bet != null) {
+    return (
+      <div className="phase-panel">
+        <p className="ok">{T.bettingPanel.waiting}</p>
+        {state.betDeadline && <Countdown deadline={state.betDeadline} suffix={T.bettingPanel.autoSuffix} />}
+      </div>
+    );
+  }
+  return (
+    <>
+      <MoneyHand key={`${state.round}-${me.balance}`} />
+      {state.betDeadline && <div className="phase-panel"><Countdown deadline={state.betDeadline} suffix={T.bettingPanel.autoSuffix} /></div>}
+    </>
+  );
 }
 // REVEAL：3D 模式确认提示在圈上（FeltPrompts），面板退役
 function RevealPanel() {
@@ -773,6 +785,7 @@ function RevealPanel() {
       <p className="dim">{T.revealPanel.confirmed(confirmedCount, activeCount)}</p>
       {me?.spectator ? null : me?.confirmed ? <p className="ok">{T.revealPanel.confirmedWaiting}</p>
         : <button className="btn primary wide" onClick={() => send({ type: 'confirm_reveal' })}>{T.revealPanel.go} <span className="keycap">{T.common.keySpace}</span></button>}
+      {state.revealDeadline && <Countdown deadline={state.revealDeadline} suffix={T.revealPanel.autoSuffix} />}
     </div>
   );
 }

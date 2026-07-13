@@ -30,6 +30,7 @@ import { expressionFor } from './expression';
 import { P } from '../assets/palette';
 import { tex } from '../assets/texlib';
 import { T } from '../text';
+import { SINGLE_TABLE, SINGLE_TEAM_SEATS, SINGLE_BOSS_SEAT, singleSpotOf } from './singleLayout';
 
 const PAYOUT_PHASES = ['SETTLE', 'NEGOTIATE', 'FINALIZE'];
 
@@ -75,19 +76,13 @@ const spotOf = (seat) => {
 const rotFor = (seat) => -Math.atan2(seat.x, seat.z);
 
 // ---- 单人长桌（§9.6 交互 v2）：两阵营对坐,不复用多人环桌 ----
-// 桌 X 拉长(毡面 8.6×4.0),玩家队 4 个固定槽位沿 +z 长边一字排开(槽位=组队期所选,players[].seat),
-// Boss 独坐 -z 对面。场景不再按「我的座位」旋转(rot=0)——全局走动视角下房间是恒定的。
-const SINGLE_TABLE = { w: 8.6, d: 4.0 };
-const SINGLE_TEAM_SEATS = [-2.85, -0.95, 0.95, 2.85].map((x) => ({ x, z: 2.65 }));
-const SINGLE_BOSS_SEAT = { x: 0, z: -2.65 };
+// 布局常量抽到 scene/singleLayout.js(与 voxlab 体素隔离验证区共享;fast-refresh 规则要求组件文件只导出组件)。
 const singleSeatOf = (p) => (p.id === 'L' ? SINGLE_BOSS_SEAT : (SINGLE_TEAM_SEATS[p.seat] ?? SINGLE_TEAM_SEATS[0]));
-// 下注圈:队侧沿长边一排(x 内收 0.8),Boss 圈在对侧中线。圈 r=0.42,到中央双环(0.6)/缝线(z≈1.86)间距≥0.18。
-const singleSpotOf = (seat) => (seat.z < 0 ? { x: 0, z: -1.22 } : { x: seat.x * 0.8, z: 1.22 });
 
 // 大号靠背椅(每个入座玩家一张,反馈⑦):坐面沿用旧凳(y=0.46、0.52 见方,坐姿不用重调),
 // 外侧两立柱升到 ~1.35 + 三根横板,靠背略后仰。立柱/横板都收在 |x|≤0.24、z≤-0.2,
 // 与坐姿身体(背面 z=-0.15)和摆臂(|x|≥0.30)都留有间隙,不穿模。
-function Chair({ x, z, ry = 0 }) {
+export function Chair({ x, z, ry = 0 }) {
   const wood = tex('wood', { tone: P.wood500 });
   return (
     <group position={[x, 0, z]} rotation={[0, ry, 0]}>
@@ -634,7 +629,7 @@ function CoinBurst({ tableTop }) {
 }
 
 // ---- 酒馆房间(ART_BIBLE §1.4):内翻盒 24×10×24,墙贴烘焙酒馆纹理(酒架/画框/鹿角剪影都在纹理里,零几何) ----
-function Room() {
+export function Room() {
   const wall = tex('wall', {}, 3, 1);
   const floor = tex('floor', {}, 6, 6);
   const ceil = tex('wood', { tone: P.wood700 }, 4, 4);
@@ -679,7 +674,7 @@ function Room() {
 
 // 壁炉(反馈⑦升级):石材拱形炉膛(stone 纹理,压暗低对比)+ 炉台木梁(摆杯/烛)+ 炉内交叉圆木
 // + 双交叉火焰面片(3 帧预烘纹理做 map 引用轮换,400ms,永不重画;火焰与 FireLight 逻辑不动)
-function Fireplace() {
+export function Fireplace() {
   const flameMat = useRef([]);
   const frames = useMemo(() => [0, 1, 2].map(f => tex('flame', { frame: f })), []);
   useFrame((st) => {
@@ -740,7 +735,7 @@ function Fireplace() {
 }
 
 // 沿墙酒桶 ×3(圆柱侧面裹桶板纹理)
-function Barrels() {
+export function Barrels() {
   const t = tex('barrel');
   return [[-9, 0.75, -8], [-10, 0.75, -4], [9.5, 0.75, -7]].map((pos, i) => (
     <mesh key={i} position={pos} rotation={[0, i * 1.3, 0]}>
@@ -756,7 +751,7 @@ function Barrels() {
 // 前墙(z+):酒馆大门+门上硬币挂牌+衣帽钩+长凳+烛台×2
 // 左墙(x-):第二扇月光窗+酒瓶搁板+烛台   右墙(x+):飞镖盘+陶杯搁板+烛台
 // 地面角落:小圆桌配双椅(前右)、酒桶+木箱(前左)
-function Decor() {
+export function Decor() {
   const wood7 = tex('wood', { tone: P.wood700 });
   const wood5 = tex('wood', { tone: P.wood500 });
   const crate = tex('wood', { tone: P.wood300, plankW: 5 });
@@ -936,7 +931,7 @@ function chandChordR(a) {
   const m = (((a - Math.PI / 8) % seg) + seg) % seg;
   return CHAND_R / Math.cos(m > seg / 2 ? m - seg : m);
 }
-function Chandelier() {
+export function Chandelier() {
   const wood = tex('wood', { tone: P.wood700 });
   const brass = tex('brass');
   const frames = useMemo(() => [0, 1, 2].map(f => tex('flame', { frame: f })), []);
@@ -1080,7 +1075,7 @@ function SingleBetPrompts({ players, spots }) {
 }
 
 // 桌下圆毯
-function Rug() {
+export function Rug() {
   return (
     <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.01, 0]} receiveShadow>
       <circleGeometry args={[5, 24]} />
@@ -1092,7 +1087,7 @@ function Rug() {
 // 赌桌(ART_BIBLE §1.4):毡面烘金描线下注区(与钱堆落点同源对位)+ 橡木框 + 黄铜嵌线 + 横撑
 // size 缺省=多人 6 座桌(毡面盒 6.0×4.0、纹理映射保持历史 6.6 口径不动观感);
 // 单人长桌传 SINGLE_TABLE(8.6×4.0),此时纹理映射=盒尺寸,圈与钱堆严格对位。
-function Table({ spots = [], size = null }) {
+export function Table({ spots = [], size = null }) {
   const w = size?.w ?? 6.0, d = size?.d ?? 4.0;
   const feltTex = useMemo(
     () => tex('tableFelt', size ? { spots, dims: { w, d } } : { spots }),
@@ -1180,7 +1175,7 @@ function FactionBarriers() {
 
 // 炉火点光:双正弦叠加闪烁(每帧只写 1 个 number,零分配)。
 // 画质设置「动态光效」关 / prefers-reduced-motion → 静态强度(反馈①)。
-function FireLight() {
+export function FireLight() {
   const lightAnim = useSettingsStore(s => s.lightAnim);
   const ref = useRef();
   useFrame((st) => {

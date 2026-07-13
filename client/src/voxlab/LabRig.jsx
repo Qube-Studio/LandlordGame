@@ -1,0 +1,255 @@
+// VoxLab 行走 rig:复刻单人模式 SingleRig 的 walk 态(Scene3D.jsx §9.6)——
+// 指针锁定 + 中央准心、WASD 惯性(加速快/滑停慢)、步伐颠簸 + 横移侧倾、碰撞软推出。
+// 隔离区差异:全屋可走(无阵营半场夹紧)、准心路由=摆放/删除人物(不发任何 WS 消息)。
+// 保留原版三条硬规则:①锁定后首帧 mousemove 尖峰吞掉+ >200px 钳制;②CTRL 按住放锁、
+// 松开回锁,ESC 退锁后任意按键/点画布静默回锁;③监听器只挂一次,活值经 ref 读。
+/* eslint-disable react-hooks/immutability */
+import { useEffect, useRef } from 'react';
+import { useFrame, useThree } from '@react-three/fiber';
+import * as THREE from 'three';
+import { SINGLE_TEAM_SEATS } from '../scene/singleLayout';
+import { useLabStore, aimLive } from './labStore';
+
+const WALK_EYE = 2.35, WALK_SPEED = 3.6;
+const BOUND = 10.6;                       // 全屋走动界(墙在 ±12,留身位)
+const _dir = new THREE.Vector3();
+
+// 场景碰撞体(对位 Stage 的单人长桌造景;全屋开放,比单人模式多出 Boss 侧/壁炉/后墙摆设的碰撞)
+const BOXES = [
+  { x0: -4.8, x1: 4.8, z0: -2.5, z1: 2.5 },                        // 长桌桌体(框 ±4.5/±2.2 + 身位)
+  ...SINGLE_TEAM_SEATS.map(({ x }) => ({ x0: x - 0.56, x1: x + 0.56, z0: 2.1, z1: 3.22 })),      // 队伍椅
+  { x0: -0.56, x1: 0.56, z0: -3.22, z1: -2.1 },                    // Boss 椅
+  { x0: -8.0, x1: -6.7, z0: 7.35, z1: 8.65 },                      // 前左角木箱
+  { x0: -9.4, x1: -7.3, z0: -11.2, z1: -9.6 },                     // 后左角木箱堆
+  { x0: -1.9, x1: 1.9, z0: -12.0, z1: -10.6 },                     // 壁炉石台
+];
+const CIRCLES = [
+  { cx: 8.3, cz: 6.8, r: 1.05 },   // 前右角小圆桌
+  { cx: 7.25, cz: 5.85, r: 0.6 },  // 圆桌双椅
+  { cx: 9.3, cz: 7.75, r: 0.6 },
+  { cx: -8.6, cz: 7.2, r: 0.88 },  // 前左角酒桶
+  { cx: -9, cz: -8, r: 0.85 },     // 沿墙酒桶 ×3
+  { cx: -10, cz: -4, r: 0.85 },
+  { cx: 9.5, cz: -7, r: 0.85 },
+];
+function clampWalk(p) {
+  p.x = THREE.MathUtils.clamp(p.x, -BOUND, BOUND);
+  p.z = THREE.MathUtils.clamp(p.z, -BOUND, BOUND);
+  for (let pass = 0; pass < 2; pass++) {
+    for (const b of BOXES) {
+      if (p.x <= b.x0 || p.x >= b.x1 || p.z <= b.z0 || p.z >= b.z1) continue;
+      const dx = Math.min(p.x - b.x0, b.x1 - p.x);
+      const dz = Math.min(p.z - b.z0, b.z1 - p.z);
+      if (dx < dz) p.x = (p.x - b.x0 < b.x1 - p.x) ? b.x0 : b.x1;
+      else p.z = (p.z - b.z0 < b.z1 - p.z) ? b.z0 : b.z1;
+    }
+    for (const c of CIRCLES) {
+      const dx = p.x - c.cx, dz = p.z - c.cz;
+      const d = Math.hypot(dx, dz);
+      if (d >= c.r || d === 0) continue;
+      p.x = c.cx + (dx / d) * c.r;
+      p.z = c.cz + (dz / d) * c.r;
+    }
+  }
+  p.x = THREE.MathUtils.clamp(p.x, -BOUND, BOUND);
+  p.z = THREE.MathUtils.clamp(p.z, -BOUND, BOUND);
+}
+
+// 射线 ∩ 轴对齐盒(slab 法;同 Scene3D#rayHitsBox)
+function rayHitsBox(origin, dir, cx, cz, y0, y1, hx, hz) {
+  let tmin = 0, tmax = 30;
+  const axes = [
+    [origin.x, dir.x, cx - hx, cx + hx],
+    [origin.y, dir.y, y0, y1],
+    [origin.z, dir.z, cz - hz, cz + hz],
+  ];
+  for (const [o, d, lo, hi] of axes) {
+    if (Math.abs(d) < 1e-9) { if (o < lo || o > hi) return Infinity; continue; }
+    let t0 = (lo - o) / d, t1 = (hi - o) / d;
+    if (t0 > t1) { const tt = t0; t0 = t1; t1 = tt; }
+    tmin = Math.max(tmin, t0); tmax = Math.min(tmax, t1);
+    if (tmin > tmax) return Infinity;
+  }
+  return tmin;
+}
+
+// 准心目标:优先站立人物包围盒(y 0..2.15,半宽 0.45),其次地面点(可摆放,界内且不进碰撞体)
+function aimTargetOf(camera, chars) {
+  const fwd = camera.getWorldDirection(_dir);
+  let best = null;
+  for (const c of chars) {
+    const t = rayHitsBox(camera.position, fwd, c.x, c.z, 0, 2.15, 0.45, 0.45);
+    if (t < 12 && (!best || t < best.t)) best = { c, t };
+  }
+  if (best) return { kind: 'char', id: best.c.id };
+  if (fwd.y < -0.05) {
+    const t = -camera.position.y / fwd.y;
+    if (t > 0.5 && t < 12) {
+      const x = camera.position.x + fwd.x * t;
+      const z = camera.position.z + fwd.z * t;
+      if (Math.abs(x) < BOUND && Math.abs(z) < BOUND) return { kind: 'floor', x, z };
+    }
+  }
+  return null;
+}
+
+export default function LabRig() {
+  const { camera, gl } = useThree();
+  const pos = useRef(new THREE.Vector3(0, WALK_EYE, 7.6));
+  const vel = useRef({ x: 0, z: 0 });
+  const smSpeed = useRef(0);
+  const yaw = useRef(0);          // yaw=0 面向 -z(桌心)
+  const pitch = useRef(-0.14);
+  const roll = useRef(0);
+  const bob = useRef(0);
+  const keys = useRef({});
+
+  // WASD(输入框让路;窗口失焦清键防卡键漂移)
+  useEffect(() => {
+    const typing = () => {
+      const el = document.activeElement;
+      return el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA');
+    };
+    const down = (e) => { if (!typing()) keys.current[e.code] = true; };
+    const up = (e) => { keys.current[e.code] = false; };
+    const blur = () => { keys.current = {}; };
+    window.addEventListener('keydown', down);
+    window.addEventListener('keyup', up);
+    window.addEventListener('blur', blur);
+    return () => {
+      window.removeEventListener('keydown', down);
+      window.removeEventListener('keyup', up);
+      window.removeEventListener('blur', blur);
+    };
+  }, []);
+
+  // 指针锁 + 准心路由(监听器只挂一次;活值经 getState/aimLive 读)
+  useEffect(() => {
+    const canvas = gl.domElement;
+    const ctrl = { held: false };
+    const requestLock = () => { try { canvas.requestPointerLock?.()?.catch?.(() => {}); } catch { /* 浏览器拒绝忽略 */ } };
+    const isLocked = () => document.pointerLockElement === canvas;
+    const spike = { skip: false };
+    const onLockChange = () => {
+      if (isLocked()) spike.skip = true;
+      useLabStore.getState().setLocked(isLocked());
+    };
+    const onMove = (e) => {
+      if (!isLocked()) return;
+      if (spike.skip) { spike.skip = false; return; }
+      if (Math.abs(e.movementX) > 200 || Math.abs(e.movementY) > 200) return;
+      yaw.current -= e.movementX * 0.0026;
+      pitch.current = THREE.MathUtils.clamp(pitch.current - e.movementY * 0.0022, -0.9, 0.7);
+    };
+    const onKeyDown = (e) => {
+      if (e.key === 'Control') { ctrl.held = true; if (isLocked()) document.exitPointerLock(); return; }
+      const el = document.activeElement;
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) return;
+      const st = useLabStore.getState();
+      // 功能键(锁定与否都生效)
+      if (e.code === 'KeyV') st.toggleSwap('chandelier');
+      else if (e.code === 'KeyH') st.toggleHelp();
+      else if (e.code === 'KeyR') st.cycleRole(e.shiftKey ? -1 : 1);
+      else if (e.code === 'KeyX') st.clearChars();
+      if (!isLocked() && !ctrl.held) requestLock();     // ESC 退锁后任意按键静默回锁
+    };
+    const onKeyUp = (e) => { if (e.key === 'Control') { ctrl.held = false; requestLock(); } };
+    const onDown = (e) => {
+      if (!isLocked()) { if (e.target === canvas) requestLock(); return; }
+      const st = useLabStore.getState();
+      const aim = aimLive.current;
+      if (!aim) return;
+      if (e.button === 0 && aim.kind === 'floor') {
+        // 面向摆放者站好
+        const ry = Math.atan2(camera.position.x - aim.x, camera.position.z - aim.z);
+        st.placeChar(aim.x, aim.z, ry);
+      } else if (e.button === 2 && aim.kind === 'char') {
+        st.removeChar(aim.id);
+      }
+    };
+    const onWheel = (e) => {
+      if (!isLocked()) return;
+      useLabStore.getState().cycleRole(e.deltaY > 0 ? 1 : -1);
+    };
+    const onCtx = (e) => { if (document.pointerLockElement) e.preventDefault(); };
+    document.addEventListener('pointerlockchange', onLockChange);
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mousedown', onDown);
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    window.addEventListener('wheel', onWheel);
+    window.addEventListener('contextmenu', onCtx);
+    return () => {
+      document.removeEventListener('pointerlockchange', onLockChange);
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mousedown', onDown);
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+      window.removeEventListener('wheel', onWheel);
+      window.removeEventListener('contextmenu', onCtx);
+      if (isLocked()) document.exitPointerLock();
+      useLabStore.getState().setLocked(false);
+    };
+  }, [gl, camera]);
+
+  useFrame((st, delta) => {
+    // Teardown 手感:目标速度 + 指数趋近惯性 + 碰撞软推出(法向吸收/切向保留) + 步伐颠簸
+    const dt = Math.min(delta, 0.05);
+    const k = keys.current;
+    const f = (k.KeyW ? 1 : 0) - (k.KeyS ? 1 : 0);
+    const r = (k.KeyD ? 1 : 0) - (k.KeyA ? 1 : 0);
+    const sy = Math.sin(yaw.current), cy = Math.cos(yaw.current);
+    let tx = 0, tz = 0;
+    if (f || r) {
+      const n = f && r ? Math.SQRT1_2 : 1;
+      tx = (-sy * f + cy * r) * n * WALK_SPEED;
+      tz = (-cy * f - sy * r) * n * WALK_SPEED;
+    }
+    const kAcc = 1 - Math.exp(-(f || r ? 9 : 6.5) * dt);
+    vel.current.x += (tx - vel.current.x) * kAcc;
+    vel.current.z += (tz - vel.current.z) * kAcc;
+    const px = pos.current.x + vel.current.x * dt;
+    const pz = pos.current.z + vel.current.z * dt;
+    pos.current.x = px; pos.current.z = pz;
+    clampWalk(pos.current);
+    const cxn = pos.current.x - px, czn = pos.current.z - pz;
+    const cl = Math.hypot(cxn, czn);
+    if (cl > 1e-6) {
+      const soft = Math.min(1, 20 * dt);
+      pos.current.x = px + cxn * soft;
+      pos.current.z = pz + czn * soft;
+      const nnx = cxn / cl, nnz = czn / cl;
+      const vn = vel.current.x * nnx + vel.current.z * nnz;
+      if (vn < 0) { vel.current.x -= nnx * vn; vel.current.z -= nnz * vn; }
+    }
+    const rawSpeed = Math.hypot(vel.current.x, vel.current.z);
+    smSpeed.current += (rawSpeed - smSpeed.current) * Math.min(1, 9 * dt);
+    const speed = smSpeed.current;
+    const sf = Math.min(1, speed / WALK_SPEED);
+    bob.current += speed * dt * 3.1;
+    const bobY = Math.sin(bob.current * 2) * 0.017 * sf;
+    const bobS = Math.sin(bob.current) * 0.012 * sf;
+    const rollTarget = -r * 0.014 * sf + Math.sin(bob.current) * 0.006 * sf;
+    roll.current += (rollTarget - roll.current) * Math.min(1, 10 * dt);
+    camera.position.set(
+      pos.current.x + cy * bobS,
+      WALK_EYE + bobY,
+      pos.current.z - sy * bobS,
+    );
+    camera.rotation.order = 'YXZ';
+    camera.rotation.set(pitch.current, yaw.current, roll.current);
+    // 准心:精确坐标进 aimLive(逐帧),类型进 store(变化才写,喂 HUD 准心张开)
+    const labSt = useLabStore.getState();
+    const aim = labSt.locked ? aimTargetOf(camera, labSt.chars) : null;
+    aimLive.current = aim;
+    labSt.setAimKind(aim?.kind ?? null);
+    // 自动化探针(同 __walkRig 先例)
+    if (import.meta.env.DEV) {
+      window.__voxlab = {
+        locked: labSt.locked, aim, yaw: yaw.current, pitch: pitch.current,
+        pos: [pos.current.x, pos.current.z], chars: labSt.chars.length, swaps: labSt.swaps, role: labSt.role,
+      };
+    }
+  });
+  return null;
+}

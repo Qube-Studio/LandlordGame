@@ -32,6 +32,7 @@ const FAST = {
   timing: {
     revealAnimMs: 1, coinAnimMs: 20, settleViewMs: 20, finalizeMs: 20,
     negotiateTimeoutMs: 60000, takeTimeoutMs: 60000, takeAutoDelayMs: 20,
+    betMs: 60000, revealConfirmMs: 60000, // 下注/确认倒计时留大：测试全手动驱动（超时用例单独覆盖）
   },
 };
 
@@ -585,6 +586,38 @@ await test('检察官传唤资本家（§8.9）：双倍税 + 税钟锚点归零
   // 回合 3：距锚 2 回合 → 征税 max(2, round(2.9)) = 3。tails 输 1 → 29 − 3 = 26
   await playRoundThrough(room, ids, { [C]: 1, [P]: 1, [A]: 1 }, 'tails');
   assert.equal(room.players.get(C).pool, 26);
+  room.destroy();
+});
+
+await test('下注超时（timing.betMs）：到点未下注全员自动押最小注并推进 + 系统播报', async () => {
+  const { room, L, fids: [A, B] } = setupRoom({ farmers: 2, config: { timing: { betMs: 50 } } });
+  for (const p of [L, A, B]) room.setReady(p);
+  assert.equal(room.phase, 'BETTING');
+  assert.equal(typeof room.viewFor(A).betDeadline, 'number');          // 倒计时对客户端可见
+  await until(() => room.phase !== 'BETTING', '下注超时自动推进');
+  assert.equal(room.phase, 'REVEAL');
+  assert.deepEqual(room.bets, { [L]: 2, [A]: 1, [B]: 1 });             // 地主最小注=农民数×1，农民=1
+  assert.equal(room.players.get(L).balance, 19 - 2);
+  assert.equal(room.players.get(A).balance, 8 - 1);
+  assert.ok(room.chatLog.some(m => m.system && m.text.includes('超时未下注')));
+  assert.equal(room.viewFor(A).betDeadline, null);                     // 出相位即隐藏
+  room.destroy();
+});
+
+await test('揭牌确认超时（timing.revealConfirmMs）：到点自动全员确认、直接进掷币', async () => {
+  const { room, L, fids: [A, B] } = setupRoom({ farmers: 2, config: { timing: { revealConfirmMs: 50 } } });
+  for (const p of [L, A, B]) room.setReady(p);
+  for (const p of [L, A, B]) assert.equal(room.placeBet(p, p === L ? 2 : 1).ok, true);
+  assert.equal(room.phase, 'REVEAL');
+  assert.equal(typeof room.viewFor(A).revealDeadline, 'number');
+  forceCoin('tails');
+  room.confirmReveal(A);                                               // 只有一人确认，其余靠超时代确认
+  assert.equal(room.phase, 'REVEAL');
+  await until(() => room.phase !== 'REVEAL', '确认超时自动掷币');
+  assert.equal(room.phase, 'COIN_FLIP');
+  await until(() => room.phase !== 'COIN_FLIP', '硬币动画结束');
+  restoreCoin();
+  assert.equal(room.phase, 'SETTLE');
   room.destroy();
 });
 
