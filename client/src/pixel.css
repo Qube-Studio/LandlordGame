@@ -235,21 +235,42 @@ img, svg, canvas { -webkit-user-drag: none; user-drag: none; }
 .hud-icon-btn:active { transform: translateY(1px); }
 .hud-icon-btn.danger:hover { color: var(--danger); }
 
-/* 规则面板：i 按钮下拉（与设置面板同范式），长文可滚动 */
+/* 教程面板（章节模式）：i 按钮下拉（与设置面板同范式），左章节树 + 右正文 */
 .rules-root { position: relative; display: inline-flex; }
 .rules-panel.goal-hud.hud-card {
   position: absolute; top: calc(100% + 8px); right: 0;
-  width: min(420px, 82vw);
+  width: min(620px, 92vw);
   align-items: stretch;
   z-index: 60;
   animation: ui-rise var(--t-ui) var(--e-enter) both;
 }
-.rules-body {
-  max-height: min(58vh, 480px);
+.tut-split {
+  display: flex; align-items: stretch;
+  height: min(52vh, 400px);
+}
+.tut-nav {
+  flex: none; width: 158px;
+  overflow-y: auto; padding: 6px 0;
+  border-right: 2px solid rgba(255, 255, 255, 0.08);
+}
+.tut-nav-item {
+  display: flex; align-items: center; gap: 7px;
+  padding: 7px 10px;
+  cursor: pointer;
+  user-select: none;
+}
+.tut-nav-item:hover { background: rgba(255, 255, 255, 0.06); }
+.tut-nav-item.sel { background: rgba(232, 194, 90, 0.10); box-shadow: inset 2px 0 0 var(--px-gold); }
+.tut-tri { flex: none; color: var(--ink-dim); }
+.tut-nav-item.sel .tut-tri { color: var(--px-gold); }
+.tut-tri-pad { flex: none; width: 8px; }
+.tut-content {
+  flex: 1; min-width: 0;
   overflow-y: auto;
   padding: 8px 12px 10px;
   display: flex; flex-direction: column; gap: 7px;
 }
+.tut-content-title { padding-bottom: 2px; border-bottom: 1px solid rgba(255, 255, 255, 0.08); }
 .rules-p {
   margin: 0;
   font-family: var(--font-cjk); font-size: 13px; line-height: 1.66;

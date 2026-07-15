@@ -1,0 +1,24 @@
+{
+  "chapters": [
+    {
+      "id": "rules",
+      "title": "规则",
+      "body": ["规则章节总览（占位）。点击左侧展开的子章节查看具体内容。"],
+      "children": [
+        { "id": "rules-1", "title": "1", "body": ["规则 · 子章节 1（占位内容，支持 **金字高亮** 与「- 」开头的缩进行）。"], "children": [] },
+        { "id": "rules-2", "title": "2", "body": ["规则 · 子章节 2（占位内容）。"], "children": [] },
+        { "id": "rules-3", "title": "3", "body": ["规则 · 子章节 3（占位内容）。"], "children": [] }
+      ]
+    },
+    {
+      "id": "roles",
+      "title": "角色",
+      "body": ["角色章节总览（占位）。"],
+      "children": [
+        { "id": "roles-1", "title": "1", "body": ["角色 · 子章节 1（占位内容）。"], "children": [] },
+        { "id": "roles-2", "title": "2", "body": ["角色 · 子章节 2（占位内容）。"], "children": [] },
+        { "id": "roles-3", "title": "3", "body": ["角色 · 子章节 3（占位内容）。"], "children": [] }
+      ]
+    }
+  ]
+}
