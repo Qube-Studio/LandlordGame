@@ -243,18 +243,42 @@ function PxExit({ size = 15 }) {
     </svg>
   );
 }
+// 像素眼睛符号（隐藏 UI 切换；杏仁形轮廓环 + 居中瞳孔,中间镂空=眼白；off=UI 已隐藏时叠一道斜杠）
+function PxEye({ size = 15, off = false }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 14 14" fill="currentColor" shapeRendering="crispEdges" aria-hidden="true">
+      {/* 轮廓环（上下弧向两侧张开的杏仁眼） */}
+      <rect x="5" y="2" width="4" height="1" />
+      <rect x="3" y="3" width="2" height="1" /><rect x="9" y="3" width="2" height="1" />
+      <rect x="2" y="4" width="1" height="2" /><rect x="11" y="4" width="1" height="2" />
+      <rect x="1" y="6" width="1" height="2" /><rect x="12" y="6" width="1" height="2" />
+      <rect x="2" y="8" width="1" height="2" /><rect x="11" y="8" width="1" height="2" />
+      <rect x="3" y="10" width="2" height="1" /><rect x="9" y="10" width="2" height="1" />
+      <rect x="5" y="11" width="4" height="1" />
+      {/* 瞳孔（居中方块，去四角更圆） */}
+      <rect x="5" y="5" width="4" height="4" />
+      <rect x="4" y="6" width="1" height="2" /><rect x="9" y="6" width="1" height="2" />
+      {off && <rect x="0.5" y="6.2" width="13" height="1.6" transform="rotate(-40 7 7)" />}
+    </svg>
+  );
+}
 function TopBar() {
   const state = useGameStore(s => s.state);
   const leaveRoom = useGameStore(s => s.leaveRoom);
+  const hideUi = useGameStore(s => s.hideUi);
+  const toggleHideUi = useGameStore(s => s.toggleHideUi);
 
   const inGame = !['LOBBY', 'ENDED', 'SINGLE_SETUP'].includes(state.phase);
   const exit = () => {
     if (inGame && !window.confirm(T.topbar.exitConfirm)) return;
     leaveRoom();
   };
+  const hideLabel = hideUi ? T.topbar.showUi : T.topbar.hideUi;
   return (
     <div className="hud-top">
       <div className="hud-top-right">
+        {/* 隐藏 UI 切换：.hud-hide-toggle 在 ui-hidden 态仍保留可见,好切回来 */}
+        <button className="hud-icon-btn hud-hide-toggle" onClick={toggleHideUi} title={hideLabel} aria-label={hideLabel}><PxEye size={16} off={hideUi} /></button>
         {IS_3D_INPUT && <RulesPanel />}
         <SettingsPanel bare={IS_3D_INPUT} />
         {IS_3D_INPUT

@@ -98,6 +98,8 @@ const skill = {
 const topbar = {
   exitConfirm: '游戏进行中，退出将视为弃局。确定退出？',
   exit: '退出',
+  hideUi: '隐藏界面',
+  showUi: '显示界面',
 };
 const banner = {
   round: (n) => `第 ${n} 回合`,

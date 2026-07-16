@@ -10,13 +10,14 @@ import { T } from '../text';
 export default function GameScreen() {
   const state = useGameStore(s => s.state);
   const connected = useGameStore(s => s.connected);
+  const hideUi = useGameStore(s => s.hideUi);
 
   if (!state) {
     return <div className="center-screen dim">{connected ? T.game.entering : T.common.connecting}</div>;
   }
   const single = state.mode === 'single';
   return (
-    <div className="game-screen">
+    <div className={`game-screen ${hideUi ? 'ui-hidden' : ''}`}>
       <Scene3D />
       <UiLayer />
       {/* 单人：无他人可聊，聊天让位给席位条（Tab 也让给切席，§9.6） */}

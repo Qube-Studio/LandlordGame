@@ -23,6 +23,7 @@ export const useGameStore = create((set, get) => ({
   myStack: null,     // 自己实际放到桌上的牌（与飞出去的是同一批）：{round, notes:[{id,value,slot}]}
   looks: {},         // 其他玩家头部朝向（任务⑦，高频瞬态，不走全量 state）：{ playerId: {yaw, pitch} }
   panel: null,       // 桌沿抽屉（HUD 2.0）：当前升起的面板 'roles' | 'ledger' | null（收起）
+  hideUi: false,     // 隐藏 UI 开关（右上角眼睛按钮）：隐藏全部 HUD/聊天/席位条,只留场景与该按钮(便于观景/截图)
   singleCam: 'walk', // 单人相机（§9.6 交互 v2）：'walk' 全局走动 | 'seat' 附身当前席位（纯表现状态）
   walkLocked: false, // 走动模式指针锁（MC 心智）：锁定=鼠标直接转视角+中央准心；ESC 释放后可点 UI
   walkAim: null,     // 准心指向的可交互目标（'circle:s0'|'coin'|'seat:s1'|'sheet:slot0'|null）→ 十字张开;也供 E2E 断言
@@ -97,6 +98,7 @@ export const useGameStore = create((set, get) => ({
   // 桌沿抽屉：呼出/收起选角墙与账本（纯表现状态，不进服务器）。
   setPanel(v) { set({ panel: v }); },
   togglePanel(v) { set(s => ({ panel: s.panel === v ? null : v })); },
+  toggleHideUi() { set(s => ({ hideUi: !s.hideUi })); },
 
   // 下注：记录这批牌（同一批既用于 3D 飞行，飞行结束后留在桌上作为 myStack）
   startBetFlight({ round, items }) {
