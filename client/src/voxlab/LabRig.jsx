@@ -171,6 +171,9 @@ export default function LabRig() {
       const st = useLabStore.getState();
       // 功能键(锁定与否都生效;Q/E 吃键盘自动重复=按住连转)
       if (e.code === 'KeyV') st.toggleSwap('chandelier');
+      else if (e.code === 'KeyB') st.toggleSwap('table');
+      else if (e.code === 'KeyN') st.toggleSwap('chairs');
+      else if (e.code === 'KeyM') st.toggleSwap('room');
       else if (e.code === 'KeyH') st.toggleHelp();
       else if (e.code === 'KeyR') st.cycleBrush(e.shiftKey ? -1 : 1);
       else if (e.code === 'KeyX') st.clearChars();

@@ -10,7 +10,7 @@ import { useLabStore, SWAP_KEYS, brushImport, hydrateLab } from './labStore';
 import Stage from './Stage';
 import LabRig from './LabRig';
 
-const SWAP_LABEL = { chandelier: '吊灯' };
+const SWAP_LABEL = { chandelier: '吊灯', table: '桌', chairs: '椅', room: '墙梁' };
 
 async function importVoxFiles(files) {
   const st = useLabStore.getState();
@@ -103,7 +103,8 @@ function Hud() {
           <div>左键 摆放(地面/桌面/横梁/天花板) · 右键 移除</div>
           <div>R 切换笔刷:<b>{brushLabel}</b></div>
           <div>Q/E 旋转 · 滚轮 缩放(×{ghostScale.toFixed(2)})</div>
-          <div>V 切换吊灯(体素↔现有) · X 清空摆放</div>
+          <div>体素↔现有:V 吊灯 · B 桌 · N 椅 · M 墙梁</div>
+          <div>X 清空摆放</div>
           <div>导入素材:顶栏按钮 或 拖 .vox 进窗口</div>
           <div>CTRL 按住释放鼠标(管理素材库) · H 收起本卡</div>
           <div className="voxlab-help-dim">已摆放 {charCount} 个模型 · 摆放与素材均已持久保存</div>

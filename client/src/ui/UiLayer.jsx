@@ -105,8 +105,19 @@ function useGameKeys() {
   const localSys = useGameStore(s => s.localSys);
 
   const setSpaceHeld = useGameStore(s => s.setSpaceHeld);
+  const cine = useGameStore(s => s.cine);
   const spaceDownRef = useRef(false); // 空格物理按住中（真实按键态；store spaceHeld 只是延迟后的视觉按下态）
   const pressTimerRef = useRef(0);
+
+  // 掷币分镜开场即复位空格按键态（同 onBlur）：分镜期 keyup 被捕获层吞掉、根本到不了这里——
+  // 不复位则 spaceDownRef/按下态视觉卡住贯穿整段分镜，且陈旧的 spaceDownRef 会让分镜后的
+  // 第一次松键被误判成完整点击而触发动作（对抗审查确认项）。
+  useEffect(() => {
+    if (cine === 'off') return;
+    spaceDownRef.current = false;
+    clearTimeout(pressTimerRef.current);
+    setSpaceHeld(false);
+  }, [cine, setSpaceHeld]);
 
   useEffect(() => {
     const typingNow = () => {
@@ -140,6 +151,7 @@ function useGameKeys() {
       }
     };
     const onKey = (e) => {
+      if (useGameStore.getState().cine !== 'off') return; // 掷币分镜期（§3.4）：全部游戏快捷键封锁
       if (typingNow() || chatOpen) return;      // 输入/聊天聚焦时，游戏快捷键让位
       if (e.repeat) return;
 
@@ -177,6 +189,7 @@ function useGameKeys() {
       pressTimerRef.current = setTimeout(() => { if (spaceDownRef.current) setSpaceHeld(true); }, 100);
     };
     const onKeyUp = (e) => {
+      if (useGameStore.getState().cine !== 'off') return; // 掷币分镜期：松开也不触发动作
       if (e.key !== ' ') return;
       if (state.phase === 'BETTING') return;    // 同上：不消费 HandLayer 的按键态（曾吞掉确认下注）
       if (!spaceDownRef.current) return;        // 未经过按下（如聊天中按的）不触发

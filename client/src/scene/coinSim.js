@@ -77,7 +77,7 @@ function simulate(seed, tableTop) {
   const totalFrames = Math.round(DURATION * FPS);
   const frames = [];
   let mode = 'air';                      // 'air' 滞空翻飞 → 'rock' 贴台翻滚/摇摆 → 'rest' 躺平
-  let restRx = 0, result = null, prevS = 0;
+  let restRx = 0, result = null, prevS = 0, restAt = DURATION; // restAt=落定时刻(秒),分镜相机据此自适应时长
 
   for (let i = 0; i < totalFrames; i++) {
     if (mode === 'air') {
@@ -121,6 +121,7 @@ function simulate(seed, tableTop) {
         rx = restRx;
         y = restBase + COIN_H;
         mode = 'rest';
+        restAt = i * DT;
       }
     } else {
       // ③ 已躺平：完全静止
@@ -138,7 +139,7 @@ function simulate(seed, tableTop) {
     last.p[1] = restBase + COIN_H;
     last.r[0] = k * Math.PI;
   }
-  return { frames, result, dt: DT, durationMs: DURATION * 1000 };
+  return { frames, result, dt: DT, durationMs: DURATION * 1000, restAt };
 }
 
 let POOLS = null; // { heads:[anim...], tails:[anim...] }，惰性构建并缓存
@@ -179,3 +180,9 @@ export function restTransform(anim) {
 // rest 模式读取最近一次 flip 发布的落定变换，使「静置硬币」恰好出现在 flip 落定处（无跳变归位）。
 export function setCoinRest(t) { lastRest = t; }
 export function getCoinRest() { return lastRest; }
+
+// 掷币分镜相机（CineRig）的实时通道：flip 硬币每帧发布世界坐标位姿与时间轴，
+// 相机导演据此跟拍/预知落定时刻；卸载时清空（null = 无飞行中的硬币）。
+let flightLive = null; // { x, y, z, t, restAt }
+export function setCoinFlightLive(v) { flightLive = v; }
+export function getCoinFlightLive() { return flightLive; }

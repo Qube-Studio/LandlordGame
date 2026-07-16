@@ -1,12 +1,13 @@
 // 豪华体素吊灯(VOXEL_PLAN P2 首件预演,VoxLab 首个体素资产):
-// 体素轮体/链条/铜冠 = chandelier-deluxe.vox(可进 MagicaVoxel 手修);
+// 体素轮体/链条/铜冠 = props/chandelier-deluxe.vox(素材批次 3.6cm 版,附录 C;可进 MagicaVoxel 手修);
 // 火苗 = 交叉自发光面片(体素化明确不做,VOXEL_PLAN §2.2/§5-5);琥珀吊坠 = ember 色自发光子网格。
 // 吊装(吊杆+两梁横杆)沿用常规网格——房梁体系是 Room 的,不属于资产本体。
-// 烛位与体素几何同源(chandelierSpec),castShadow=false 对齐现有吊灯(别给桌毡添乱影)。
+// 烛位与体素几何同源(chandelierSpec 世界坐标,与体素尺度无关);castShadow=false 对齐现有吊灯。
 import * as THREE from 'three';
 import { useMemo } from 'react';
-import chandUrl from '../assets/vox/chandelier-deluxe.vox?url';
+import chandUrl from '../assets/vox/props/chandelier-deluxe.vox?url';
 import VoxModel from './VoxModel';
+import { PROP_VOXEL_SIZE } from './propsSpec';
 import { CHAND, flamePoints } from './chandelierSpec';
 import { P } from '../assets/palette';
 import { tex } from '../assets/texlib';
@@ -18,7 +19,7 @@ export default function VoxChandelier() {
   return (
     <group position={[0, CHAND.mountY, 0]}>
       {/* 吊坠 emissive 0.85:1.5 会被 Bloom(阈值 0.72)打成白热,琥珀色相全丢 */}
-      <VoxModel url={chandUrl} emissiveColors={[P.ember]} emissiveIntensity={0.85} castShadow={false} />
+      <VoxModel url={chandUrl} scale={PROP_VOXEL_SIZE} emissiveColors={[P.ember]} emissiveIntensity={0.85} castShadow={false} />
       {/* 火苗:交叉面片,帧位错开(静帧;整灯明暗交给点光闪烁,同现有吊灯手法) */}
       {pts.map((pt, i) => (
         [0, Math.PI / 2].map((ry, k) => (

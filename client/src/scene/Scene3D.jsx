@@ -19,6 +19,7 @@ import MinecraftPlayer from './MinecraftPlayer';
 import PixelText from '../assets/pixelfont/PixelText';
 import { RoleDetailBody } from '../ui/RoleWall';
 import Coin from './Coin';
+import CineRig from './CineRig';
 import PayoutLayer from './PayoutLayer';
 import HandLayer from './HandLayer';
 import FeltPrompts from './FeltPrompts';
@@ -1394,6 +1395,14 @@ function SceneContents({ look, freeCam = false }) {
   // 第一人称落座相机基准(反馈⑥):我的座位旋转后必在 +z 近侧,距离=座距+微退
   const camZ = Math.hypot(mySeat.x, mySeat.z) + CAM_BACK;
 
+  // 掷币分镜演出（§3.4）：进 COIN_FLIP 即收 UI + CineRig 接管相机（多人、非自由相机、非减动效）。
+  // cine 状态机其余的推进在别处：CineRig 归位完成/卸载 → 'enter'，GameScreen 计时/任意键 → 'off'。
+  const cine = useGameStore(s => s.cine);
+  const cineEligible = !single && !freeCam && !REDUCED;
+  useEffect(() => {
+    if (state.phase === 'COIN_FLIP' && cineEligible) useGameStore.getState().setCine('hide');
+  }, [state.phase, cineEligible]);
+
   // 单人长桌:重力枪拖拽的毡面夹紧范围放宽到长桌(模块级单例,卸载还原多人口径)
   useEffect(() => {
     if (!single) return undefined;
@@ -1459,7 +1468,9 @@ function SceneContents({ look, freeCam = false }) {
         ? <OrbitControls target={[0, 1.05, 0]} makeDefault />
         : single
           ? <SingleRig mode={possessed ? 'seat' : 'walk'} seat={possessed ? mySeat : null} shakeRef={shakeRef} />
-          : <CameraRig look={look} shakeRef={shakeRef} camZ={camZ} />}
+          : cine === 'hide'
+            ? <CineRig camZ={camZ} eyeY={EYE_Y} lookY={LOOK_Y} rot={rot} tableTop={TABLE_TOP} />
+            : <CameraRig look={look} shakeRef={shakeRef} camZ={camZ} />}
       <Projector />
 
       {/* 场景旋转组:把「我的座位」转到 +z 近侧——不同玩家看到自己坐在桌边不同位置(反馈⑫)。

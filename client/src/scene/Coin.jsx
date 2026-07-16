@@ -8,8 +8,10 @@ import { useMemo, useRef, useLayoutEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { coinFaceTexture, coinEdgeTexture } from './textures';
-import { pickFlip, restTransform, setCoinRest, getCoinRest, COIN_R, COIN_H, COIN_SEGMENTS } from './coinSim';
+import { pickFlip, restTransform, setCoinRest, getCoinRest, setCoinFlightLive, COIN_R, COIN_H, COIN_SEGMENTS } from './coinSim';
 import { PROP_COLORS } from '../assets/palette';
+
+const _wp = new THREE.Vector3(); // 每帧发布世界位姿用的临时向量（硬币在旋转组内,分镜相机要世界系）
 
 export default function Coin({ result = 'heads', mode = 'flip', tableTop = 1.0 }) {
   const ref = useRef();
@@ -35,6 +37,12 @@ export default function Coin({ result = 'heads', mode = 'flip', tableTop = 1.0 }
   useLayoutEffect(() => {
     if (mode === 'flip' && anim) setCoinRest(restTransform(anim));
   }, [mode, anim]);
+
+  // 分镜相机实时通道：flip 期间每帧发布世界位姿（见 useFrame 末尾）,卸载即清空。
+  useLayoutEffect(() => {
+    if (mode !== 'flip') return undefined;
+    return () => setCoinFlightLive(null);
+  }, [mode]);
 
   useFrame((st) => {
     const c = ref.current;
@@ -66,6 +74,9 @@ export default function Coin({ result = 'heads', mode = 'flip', tableTop = 1.0 }
     // mirror 翻转水平漂移、yaw 绕竖轴整体偏航：均不改变朝上的面，仅为每次回放增加视觉多样性。
     c.position.set(lerp(a.p[0], b.p[0]) * anim.mirror, lerp(a.p[1], b.p[1]), lerp(a.p[2], b.p[2]));
     c.rotation.set(lerp(a.r[0], b.r[0]), lerp(a.r[1], b.r[1]) + anim.yaw, lerp(a.r[2], b.r[2]));
+    // 发布世界位姿 + 时间轴给分镜相机（§3.4 演出）：restAt=该轨迹的落定时刻
+    c.getWorldPosition(_wp);
+    setCoinFlightLive({ x: _wp.x, y: _wp.y, z: _wp.z, t, restAt: anim.restAt ?? 4.2 });
   });
 
   return (

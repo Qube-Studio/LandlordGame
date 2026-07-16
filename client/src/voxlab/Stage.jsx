@@ -12,6 +12,7 @@ import { SINGLE_TABLE, SINGLE_TEAM_SEATS, SINGLE_BOSS_SEAT, singleSpotOf } from 
 import MinecraftPlayer from '../scene/MinecraftPlayer';
 import VoxChandelier from '../voxel/VoxChandelier';
 import VoxModel, { VOXEL_SIZE } from '../voxel/VoxModel';
+import { VoxRoom, VoxTable, VoxChair } from './VoxProps';
 import { loadVox } from '../voxel/voxload';
 import { P } from '../assets/palette';
 import { ROLE_LABEL } from '../game/roles';
@@ -141,7 +142,7 @@ function GhostPreview() {
 export default function Stage() {
   const chars = useLabStore(s => s.chars);
   const imports = useLabStore(s => s.imports);
-  const voxChandelier = useLabStore(s => s.swaps.chandelier);
+  const swaps = useLabStore(s => s.swaps);
 
   return (
     <>
@@ -160,18 +161,21 @@ export default function Stage() {
       <LabChandelierLight />
       <directionalLight position={[-6, 4, 6]} intensity={0.30} color={P.coolFill} />
 
-      {/* 造景(全部现有资产) + 吊灯按开关换体素版 */}
-      <Room />
+      {/* 造景:体素资产经 swaps 逐项换入(V 吊灯 / B 桌 / N 椅 / M 墙梁),现有资产随时可切回 */}
+      {swaps.room ? <VoxRoom /> : <Room />}
       <Fireplace />
       <FireLight />
       <Barrels />
       <Decor />
-      {voxChandelier ? <VoxChandelier /> : <Chandelier />}
+      {swaps.chandelier ? <VoxChandelier /> : <Chandelier />}
       <Rug />
-      <Table spots={SPOTS} size={SINGLE_TABLE} />
-      {SEATS.map((seat, i) => (
-        <Chair key={i} x={seat.x} z={seat.z} ry={Math.atan2(-seat.x, -seat.z)} />
-      ))}
+      {swaps.table ? <VoxTable /> : <Table spots={SPOTS} size={SINGLE_TABLE} />}
+      {SEATS.map((seat, i) => {
+        const ry = Math.atan2(-seat.x, -seat.z);
+        return swaps.chairs
+          ? <VoxChair key={i} x={seat.x} z={seat.z} ry={ry} />
+          : <Chair key={i} x={seat.x} z={seat.z} ry={ry} />;
+      })}
 
       {/* 摆放物:角色(站姿 idle,名牌=角色名) / 导入的 .vox 素材(加载后回填准心包围盒,原始尺寸不乘缩放) */}
       {chars.map((c, i) => {

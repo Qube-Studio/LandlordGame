@@ -19,6 +19,9 @@ import { ROLE_LABEL } from '../src/game/roles';
 import { insStackStyle } from '../src/game/notes';
 import { useGameStore } from '../src/store/gameStore';
 
+// 截图/自动化探针：暴露真实 store 实例（与 preview.jsx 同款；HMR 时间戳会让外部 import 拿到另一份模块）
+window.__gameStore = useGameStore;
+
 const MoneyNote = getArt('moneyNote');
 
 // ---------- mock state 基底 ----------

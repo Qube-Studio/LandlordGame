@@ -249,6 +249,76 @@ img, svg, canvas { -webkit-user-drag: none; user-drag: none; }
 .hud-hide-toggle.hud-icon-btn { opacity: 0.55; }
 .game-screen.ui-hidden .hud-hide-toggle.hud-icon-btn { opacity: 0.85; }
 
+/* ---------- 掷币分镜演出（§3.4）：COIN_FLIP 收起全部 UI（右上角与断线警示除外），配电影黑边 ----------
+   .cine-hide 分镜播放中：目标元素淡出 0.35s 后保持隐藏（transition 只写在该态,收起有动画、
+   移除类时瞬间恢复——被任意键打断的语义正是「立即就位」）；只用 opacity,不与 hud-veiled/
+   hud-reveal 等已有 transform 动画打架。pointer-events 一并封掉。
+   .cine-enter UI 出场：keyframes 只写 from{opacity:0}——终值取各元素自身的计算透明度
+   （半透明聊天条不会被抬到 1）。500ms 计时/打断由 GameScreen 驱动。 */
+.game-screen.cine-hide .mc-chat,
+.game-screen.cine-hide .insurance-drop,
+.game-screen.cine-hide .hud > *:not(.hud-top):not(.hud-disconnect),
+.game-screen.cine-hide .hud-top > *:not(.hud-top-right),
+.game-screen.cine-hide .r3f-scene > div > div:not(:has(canvas)),
+.game-screen.cine-hide .dev-hud {
+  opacity: 0 !important;
+  /* 淡出完成后 visibility 才翻 hidden：既保留 0.35s 收起动画，又把命中测试/焦点彻底摘掉——
+     HUD 靠「祖先 pointer-events:none / 子孙 auto」工作，只给容器设 none 会被子孙的 auto 重新打开 */
+  visibility: hidden !important;
+  transition: opacity 0.35s ease, visibility 0s linear 0.35s !important;
+  pointer-events: none !important;
+}
+.game-screen.cine-enter .mc-chat,
+.game-screen.cine-enter .insurance-drop,
+.game-screen.cine-enter .hud > *:not(.hud-top):not(.hud-disconnect),
+.game-screen.cine-enter .hud-top > *:not(.hud-top-right),
+.game-screen.cine-enter .r3f-scene > div > div:not(:has(canvas)),
+.game-screen.cine-enter .dev-hud {
+  animation: cine-ui-in 0.5s ease both;
+  pointer-events: none !important;
+}
+@keyframes cine-ui-in { from { opacity: 0; } }
+/* HUD 的交互靠「祖先 none/子孙 auto」——上面两态只封子树根会被子孙的 auto 重新打开，
+   后代也一并压掉：收起态是 visibility 的双保险,出场 500ms 内则全靠这一条挡鼠标（键盘由捕获层挡） */
+.game-screen.cine-hide .mc-chat *,
+.game-screen.cine-hide .hud > *:not(.hud-top):not(.hud-disconnect) *,
+.game-screen.cine-hide .hud-top > *:not(.hud-top-right) *,
+.game-screen.cine-hide .r3f-scene > div > div:not(:has(canvas)) *,
+.game-screen.cine-enter .mc-chat *,
+.game-screen.cine-enter .hud > *:not(.hud-top):not(.hud-disconnect) *,
+.game-screen.cine-enter .hud-top > *:not(.hud-top-right) *,
+.game-screen.cine-enter .r3f-scene > div > div:not(:has(canvas)) * {
+  pointer-events: none !important;
+}
+/* 电影黑边：常驻挂载、常态收在画外（有滑入/滑出过渡）；分镜期滑入。压在场景上、HUD 之下,
+   右上角按钮浮在黑边上仍可点。 */
+.cine-bar {
+  position: absolute; left: 0; right: 0; height: 11vh;
+  background: #000;
+  z-index: 5;
+  pointer-events: none;
+  transition: transform 0.45s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.cine-bar-top { top: 0; transform: translateY(-101%); }
+.cine-bar-bottom { bottom: 0; transform: translateY(101%); }
+.game-screen.cine-hide .cine-bar-top,
+.game-screen.cine-hide .cine-bar-bottom { transform: translateY(0); }
+@media (prefers-reduced-motion: reduce) {
+  .cine-bar { transition: none; }
+  .game-screen.cine-hide .mc-chat,
+  .game-screen.cine-hide .insurance-drop,
+  .game-screen.cine-hide .hud > *:not(.hud-top):not(.hud-disconnect),
+  .game-screen.cine-hide .hud-top > *:not(.hud-top-right),
+  .game-screen.cine-hide .r3f-scene > div > div:not(:has(canvas)),
+  .game-screen.cine-hide .dev-hud { transition: none !important; }
+  .game-screen.cine-enter .mc-chat,
+  .game-screen.cine-enter .insurance-drop,
+  .game-screen.cine-enter .hud > *:not(.hud-top):not(.hud-disconnect),
+  .game-screen.cine-enter .hud-top > *:not(.hud-top-right),
+  .game-screen.cine-enter .r3f-scene > div > div:not(:has(canvas)),
+  .game-screen.cine-enter .dev-hud { animation-duration: 0.01s; }
+}
+
 /* 教程面板（章节模式）：i 按钮打开 → 居中大框 + 背景高斯模糊遮罩；左章节树 + 右正文 */
 .rules-root { position: relative; display: inline-flex; }
 /* 全屏遮罩：模糊游戏画面、暗化，点空白处收起（面板本体挡住不透传） */
@@ -358,6 +428,12 @@ img, svg, canvas { -webkit-user-drag: none; user-drag: none; }
 .rules-p .hi { color: var(--px-gold); }
 .rules-p.li { padding-left: 14px; position: relative; }
 .rules-p .rules-dash { position: absolute; left: 2px; color: var(--ink-dim); }
+/* 教程段落字号档位（编辑器可选 小/大/特大；标准段是纯字符串走 13px 基准） */
+.rules-p.fs-s { font-size: 11px; }
+.rules-p.fs-l { font-size: 16px; }
+.rules-p.fs-xl { font-size: 20px; }
+/* 空字符串段落 = 排版空行（配合 .tut-content 的 7px gap ≈ 一个空行） */
+.rules-gap { flex: none; height: 9px; }
 @media (prefers-reduced-motion: reduce) {
   .rules-panel.goal-hud.hud-card { animation: none; }
   .rules-overlay { animation: none; }

@@ -5,15 +5,22 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>教程内容编辑器</title>
 <style>
-  /* 像素/Minecraft 主题（取自游戏 pixel.css 配色，独立复刻，不依赖客户端构建） */
+  /* 像素/Minecraft 主题（取自游戏 pixel.css 配色，独立复刻，不依赖客户端构建）。
+     字体与游戏同源：服务端把打包的 Fusion Pixel woff2 伺服在 /font.woff2，
+     字体栈与 pixel.css 的 --font-cjk 一致；风格走平面化（只留描边，无立体内阴影）。 */
+  @font-face {
+    font-family: 'Fusion Pixel 12px SC';
+    src: url('/font.woff2') format('woff2');
+    font-display: swap;
+  }
   :root {
     --gold: #e8c25a; --ink: #f6ecd8; --ink-dim: #b8a585; --ink-faint: #6d6047;
     --body-ink: #ece7d6; --grass: #a0c468; --danger: #d86a5a;
     --panel: #2a1d15; --panel-2: #1c130c; --dark: #1c130c; --darker: #120b06;
     --stone: #7a5a3e; --line: rgba(255,255,255,0.08);
-    --bevel-l: rgba(255,224,170,0.20); --bevel-d: rgba(0,0,0,0.55);
-    --font-ui: "MiSans","PingFang SC","Microsoft YaHei",ui-monospace,"Cascadia Mono",Consolas,monospace;
-    --font-cjk: "MiSans","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+    --font-cjk: 'Zpix', 'Fusion Pixel 12px SC', 'Ark Pixel 12px SC', 'Cubic 11',
+                'WenQuanYi Bitmap Song', '宋体', 'SimSun', monospace;
+    --font-ui: var(--font-cjk);
   }
   * { box-sizing: border-box; }
   html, body { height: 100%; margin: 0; }
@@ -36,24 +43,27 @@
   .toolbar .title { color: var(--gold); font-weight: 700; letter-spacing: 1px; }
   .toolbar .filepath { color: var(--ink-faint); font-size: 12px; }
   .toolbar .spacer { flex: 1; }
-  .dot { width: 9px; height: 9px; background: var(--grass); box-shadow: inset 1px 1px 0 var(--bevel-l); }
+  .dot { width: 9px; height: 9px; background: var(--grass); }
   .dot.dirty { background: var(--gold); }
   .status { color: var(--ink-dim); font-size: 12px; min-width: 8ch; }
 
-  /* 按钮（石块风） */
+  /* 按钮（平面石块：只留描边，按下变深） */
   .btn {
-    background: var(--stone); color: var(--ink); border: 3px solid var(--darker);
+    background: var(--stone); color: var(--ink); border: 2px solid var(--darker);
     padding: 5px 12px; cursor: pointer; font-size: 12px; line-height: 1.2;
-    box-shadow: inset 2px 2px 0 var(--bevel-l), inset -2px -2px 0 var(--bevel-d);
   }
   .btn:hover:not(:disabled) { background: #8d6a48; }
-  .btn:active:not(:disabled) { box-shadow: inset 2px 2px 0 var(--bevel-d), inset -2px -2px 0 var(--bevel-l); }
+  .btn:active:not(:disabled) { background: #5f4630; }
   .btn:disabled { opacity: .45; cursor: default; }
   .btn.primary { background: #3c7a3a; }
   .btn.primary:hover:not(:disabled) { background: #489046; }
   .btn.ghost { background: var(--panel); }
   .btn.sm { padding: 2px 7px; font-size: 11px; border-width: 2px; }
   .btn.danger:hover:not(:disabled) { background: var(--danger); }
+  .btn.on { background: #b4913f; color: #1c130c; }
+  .block .blk-add { opacity: 0; }
+  .block:hover .blk-add { opacity: 1; }
+  .add-row .spacer { flex: 1; }
 
   /* 三栏 */
   .cols { flex: 1; display: grid; grid-template-columns: 264px minmax(320px, 1fr) minmax(300px, 1fr); min-height: 0; }
@@ -68,7 +78,14 @@
   .col-body { flex: 1; overflow: auto; padding: 8px; }
 
   /* 章节树 */
+  .tree-tools {
+    flex: none; display: flex; align-items: center; gap: 6px;
+    padding: 6px 8px; background: var(--panel-2); border-bottom: 2px solid var(--darker);
+  }
+  .tree-tools input { flex: 1; min-width: 0; padding: 4px 6px; font-size: 12px; }
   .tree { display: flex; flex-direction: column; }
+  .node-title.hit { color: var(--grass); }
+  .node-row.sel .node-title.hit { color: var(--gold); }
   .node-row {
     display: flex; align-items: center; gap: 6px; padding: 5px 6px;
     cursor: pointer; user-select: none; position: relative; border: 2px solid transparent;
@@ -101,14 +118,12 @@
   input.text, textarea.text {
     background: var(--panel-2); color: var(--ink); border: 2px solid var(--darker);
     padding: 6px 8px; font-family: var(--font-cjk); font-size: 13px; outline: none; width: 100%;
-    box-shadow: inset 1px 1px 0 var(--bevel-d);
   }
   input.text:focus, textarea.text:focus { border-color: var(--gold); }
   textarea.text { resize: vertical; min-height: 46px; line-height: 1.55; }
 
   .block {
     border: 2px solid var(--darker); background: rgba(0,0,0,0.18); margin-bottom: 8px;
-    box-shadow: inset 1px 1px 0 var(--bevel-l), inset -1px -1px 0 var(--bevel-d);
   }
   .block.dragging { opacity: .4; }
   .block.drop-before { box-shadow: 0 -3px 0 var(--gold); }
@@ -136,7 +151,6 @@
   .preview {
     background: rgba(0,0,0,0.28); border: 2px solid var(--darker); padding: 12px 14px;
     display: flex; flex-direction: column; gap: 7px; min-height: 100%;
-    box-shadow: inset 2px 2px 0 var(--bevel-l), inset -2px -2px 0 var(--bevel-d);
   }
   .prev-title { color: var(--gold); font-family: var(--font-cjk); font-size: 15px; font-weight: 700;
     padding-bottom: 3px; border-bottom: 1px solid var(--line); }
@@ -145,6 +159,7 @@
   .prev-p.li { padding-left: 14px; position: relative; }
   .prev-p .dash { position: absolute; left: 2px; color: var(--ink-dim); }
   .prev-img { max-width: 100%; image-rendering: pixelated; border: 2px solid #000; align-self: flex-start; }
+  .prev-gap { flex: none; height: 9px; }
   .prev-img.missing { padding: 10px; color: var(--ink-faint); border: 2px dashed var(--ink-faint); font-size: 11px; }
   .toast {
     position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
@@ -153,6 +168,26 @@
   }
   .toast.show { opacity: 1; }
   .toast.err { color: var(--danger); }
+
+  /* 图库选择器（模态） */
+  .modal { position: fixed; inset: 0; background: rgba(0,0,0,0.55); z-index: 40;
+    display: flex; align-items: center; justify-content: center; }
+  .modal[hidden] { display: none; }
+  .modal-box {
+    width: min(760px, 92vw); max-height: 80vh; display: flex; flex-direction: column;
+    background: var(--panel); border: 2px solid var(--darker);
+  }
+  .modal-head { display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+    border-bottom: 2px solid var(--darker); color: var(--gold); font-size: 13px; }
+  .modal-head .spacer { flex: 1; }
+  .modal-grid { overflow: auto; padding: 10px; display: grid; gap: 10px;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+  .pick-cell { border: 2px solid var(--darker); background: rgba(0,0,0,0.25);
+    cursor: pointer; padding: 6px; display: flex; flex-direction: column; gap: 4px; }
+  .pick-cell:hover { border-color: var(--gold); background: rgba(232,194,90,0.08); }
+  .pick-thumb { width: 100%; height: 90px; object-fit: contain; background: #000; image-rendering: pixelated; }
+  .pick-name { font-size: 10.5px; color: var(--ink-dim); word-break: break-all; font-family: var(--font-cjk); }
+  .block.drop-file { border-color: var(--gold); background: rgba(232,194,90,0.08); }
 </style>
 </head>
 <body>
@@ -172,7 +207,13 @@
     <div class="col">
       <div class="col-head">
         <span>章节树</span><span class="spacer"></span>
+        <button class="btn sm" id="expand-all" title="全部展开">全开</button>
+        <button class="btn sm" id="collapse-all" title="全部收起">全收</button>
         <button class="btn sm" id="add-top">+ 顶层章节</button>
+      </div>
+      <div class="tree-tools">
+        <input class="text" id="search" placeholder="搜索标题 / 正文…" />
+        <button class="btn sm" id="search-clear" title="清除搜索" hidden>✕</button>
       </div>
       <div class="col-body">
         <div class="tree" id="tree"></div>
@@ -194,11 +235,22 @@
   <div class="toast" id="toast"></div>
   <input type="file" id="filepick" accept="image/*" style="display:none" />
 
+  <div class="modal" id="imgpick" hidden>
+    <div class="modal-box">
+      <div class="modal-head">
+        <span>图库（client/public/tutorial/）</span><span class="spacer"></span>
+        <button class="btn sm" id="imgpick-close">✕</button>
+      </div>
+      <div class="modal-grid" id="imgpick-grid"></div>
+    </div>
+  </div>
+
 <script>
 "use strict";
 // ============ 状态 ============
-const S = { data: { chapters: [] }, path: '', selectedId: null, dirty: false, open: new Set() };
+const S = { data: { chapters: [] }, path: '', selectedId: null, dirty: false, open: new Set(), query: '' };
 let uploadTarget = null; // {node, index} 待接收上传的图片块
+let lastSavedAt = null;  // 最近一次保存成功的时间（状态栏显示）
 
 // ============ 撤回/重做（快照栈）============
 // 每次“离散操作”前把整棵 S.data(+选中项) 深拷贝压入 past；连续打字用 key + 时间窗合并成一步。
@@ -229,6 +281,15 @@ function updateHistUI() { $('undo').disabled = !past.length; $('redo').disabled 
 const $ = (id) => document.getElementById(id);
 const el = (tag, cls, txt) => { const e = document.createElement(tag); if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; };
 
+// ============ 段落形态 ============
+// 段落 = 字符串（普通段；空串=排版空行）| {text, size}（字号段）| {img, alt}（图片段）。
+// 字号档位像素值与游戏内 pixel.css 的 .rules-p / .fs-* 一致，预览所见即所得。
+const SIZES = [['s', '小'], ['m', '标准'], ['l', '大'], ['xl', '特大']];
+const SIZE_PX = { s: 11, m: 13, l: 16, xl: 20 };
+const SIZE_LABEL = Object.fromEntries(SIZES);
+const textOf = (it) => (typeof it === 'string' ? it : (it && typeof it === 'object' && !('img' in it) ? String(it.text ?? '') : null));
+const sizeOf = (it) => ((it && typeof it === 'object' && !('img' in it) && (it.size === 's' || it.size === 'l' || it.size === 'xl')) ? it.size : 'm');
+
 // ============ 树工具 ============
 function* walk(nodes) { for (const n of nodes) { yield n; yield* walk(n.children || []); } }
 function findNode(id, nodes = S.data.chapters) {
@@ -255,7 +316,7 @@ function markDirty(v = true) {
   S.dirty = v;
   $('dot').classList.toggle('dirty', v);
   $('save').disabled = !v;
-  $('status').textContent = v ? '未保存' : '已保存';
+  $('status').textContent = v ? '未保存' : ('已保存' + (lastSavedAt ? ' ' + lastSavedAt : ''));
 }
 function renderAll() { renderTree(); renderEditor(); renderPreview(); }
 
@@ -267,13 +328,40 @@ function TriSvg(open, leaf) {
     : '<svg width="9" height="9" viewBox="0 0 8 8" fill="currentColor"><rect x="2" y="1" width="2" height="6"/><rect x="4" y="2" width="1" height="4"/><rect x="5" y="3" width="1" height="2"/></svg>');
   return s;
 }
+// 搜索命中：标题或正文（含图片 URL/alt）含关键词（大小写不敏感）
+function matchNode(n, q) {
+  if ((n.title || '').toLowerCase().includes(q)) return true;
+  for (const b of n.body || []) {
+    const s = typeof b === 'string' ? b : `${b.img || ''} ${b.alt || ''} ${b.text || ''}`;
+    if (s.toLowerCase().includes(q)) return true;
+  }
+  return false;
+}
 function renderTree() {
   const root = $('tree'); root.innerHTML = '';
   if (!S.data.chapters.length) { root.appendChild(el('div', 'empty-hint', '还没有章节。点右上「+ 顶层章节」开始。')); return; }
+  // 搜索模式：只显示命中节点 + 其祖先链（祖先强制展开）
+  const q = S.query.trim().toLowerCase();
+  let keep = null, forceOpen = null, hits = null;
+  if (q) {
+    keep = new Set(); forceOpen = new Set(); hits = new Set();
+    const mark = (nodes, ancestors) => {
+      for (const n of nodes) {
+        if (matchNode(n, q)) {
+          hits.add(n.id); keep.add(n.id);
+          ancestors.forEach((a) => { keep.add(a.id); forceOpen.add(a.id); });
+        }
+        mark(n.children || [], [...ancestors, n]);
+      }
+    };
+    mark(S.data.chapters, []);
+    if (!keep.size) { root.appendChild(el('div', 'empty-hint', `没有匹配「${S.query.trim()}」的章节。`)); return; }
+  }
   const rec = (nodes, depth, container) => {
     nodes.forEach((n) => {
+      if (keep && !keep.has(n.id)) return;
       const kids = n.children || [];
-      const open = S.open.has(n.id);
+      const open = keep ? forceOpen.has(n.id) : S.open.has(n.id);
       const row = el('div', 'node-row' + (S.selectedId === n.id ? ' sel' : ''));
       row.style.paddingLeft = (6 + depth * 14) + 'px';
       row.draggable = true; row.dataset.id = n.id;
@@ -282,7 +370,7 @@ function renderTree() {
       tri.addEventListener('click', (e) => { e.stopPropagation(); if (kids.length) { if (open) S.open.delete(n.id); else S.open.add(n.id); renderTree(); } });
       row.appendChild(tri);
 
-      row.appendChild(el('span', 'node-title', n.title || '(无标题)'));
+      row.appendChild(el('span', 'node-title' + (hits && hits.has(n.id) ? ' hit' : ''), n.title || '(无标题)'));
       row.appendChild(el('span', 'node-meta', (n.body ? n.body.length : 0) + '段'));
 
       const add = el('button', 'btn sm node-add', '+子');
@@ -354,6 +442,19 @@ function addTop() {
   S.selectedId = S.data.chapters[S.data.chapters.length - 1].id;
   markDirty(); renderAll();
 }
+// 复制章节：整棵子树深拷贝、全员换新 id，插到原位之后
+function duplicateNode(node) {
+  const loc = locate(node.id); if (!loc) return;
+  pushHistory();
+  const used = new Set([...walk(S.data.chapters)].map(n => n.id));
+  const gen = () => { for (let i = 1; ; i++) { const id = 'c' + i; if (!used.has(id)) { used.add(id); return id; } } };
+  const clone = JSON.parse(JSON.stringify(node));
+  (function reid(n) { n.id = gen(); (n.children || []).forEach(reid); })(clone);
+  clone.title = (clone.title || '') + '（副本）';
+  loc.list.splice(loc.index + 1, 0, clone);
+  S.selectedId = clone.id;
+  markDirty(); renderAll();
+}
 function deleteNode(node) {
   const count = [...walk(node.children || [])].length;
   if (!confirm(`删除「${node.title || '(无标题)'}」` + (count ? `及其 ${count} 个子章节？` : '？'))) return;
@@ -368,7 +469,7 @@ function deleteNode(node) {
 function renderEditor() {
   const box = $('editor'); box.innerHTML = '';
   const node = selectedNode();
-  $('body-hint').textContent = node ? `**金字高亮**　「- 」开头=缩进列表项` : '';
+  $('body-hint').textContent = node ? `**金字**　「- 」列表　Enter拆段　空行=留白　Ctrl+V贴图` : '';
   if (!node) { box.appendChild(el('div', 'empty-hint', '选择左侧章节以编辑其正文。')); return; }
 
   // 标题行 + 删除
@@ -377,6 +478,10 @@ function renderEditor() {
   const ti = el('input', 'text'); ti.value = node.title || '';
   ti.addEventListener('input', () => { pushHistory('title:' + node.id); node.title = ti.value; markDirty(); renderTreeTitle(node.id, ti.value); renderPreview(); });
   tf.appendChild(ti);
+  const dup = el('button', 'btn sm', '复制章节');
+  dup.title = '复制本章节及其全部子章节，插到其后';
+  dup.addEventListener('click', () => duplicateNode(node));
+  tf.appendChild(dup);
   const del = el('button', 'btn sm danger', '删除章节');
   del.addEventListener('click', () => deleteNode(node));
   tf.appendChild(del);
@@ -389,7 +494,9 @@ function renderEditor() {
   const addRow = el('div', 'add-row');
   const bt = el('button', 'btn', '+ 文字段落'); bt.addEventListener('click', () => { pushHistory(); node.body.push(''); markDirty(); renderEditor(); renderPreview(); focusLastTextarea(); });
   const bi = el('button', 'btn', '+ 图片段落'); bi.addEventListener('click', () => { pushHistory(); node.body.push({ img: '' }); markDirty(); renderEditor(); renderPreview(); });
-  addRow.appendChild(bt); addRow.appendChild(bi);
+  const bg = el('button', 'btn', '+ 空行'); bg.title = '排版留白：渲染为一个空行';
+  bg.addEventListener('click', () => { pushHistory(); node.body.push(''); markDirty(); renderEditor(); renderPreview(); });
+  addRow.appendChild(bt); addRow.appendChild(bi); addRow.appendChild(bg);
   box.appendChild(addRow);
 }
 // 只改树里某节点标题文本（避免打字时重建整棵树丢焦点）
@@ -398,6 +505,13 @@ function renderTreeTitle(id, title) {
   if (row) row.textContent = title || '(无标题)';
 }
 function focusLastTextarea() { const ts = $('editor').querySelectorAll('textarea.text'); ts[ts.length - 1]?.focus(); }
+// 聚焦第 index 个段落块里的输入框（textarea 或图片 URL 输入），可指定光标位置
+function focusBlockInput(index, caret = 0) {
+  const inp = $('editor').querySelector(`.block[data-index="${index}"] textarea.text, .block[data-index="${index}"] input.text`);
+  if (!inp) return;
+  inp.focus();
+  try { inp.setSelectionRange(caret, caret); } catch { /* 非文本控件忽略 */ }
+}
 
 function blockEl(node, item, i) {
   const isImg = item && typeof item === 'object' && 'img' in item;
@@ -407,8 +521,23 @@ function blockEl(node, item, i) {
   const handle = el('span', 'drag-handle', '⠿'); handle.title = '拖动排序'; handle.draggable = true;
   attachBlockDnD(handle, wrap, node, i);
   head.appendChild(handle);
-  head.appendChild(el('span', 'block-kind', isImg ? '图片' : '文字'));
+  const kindLabel = () => {
+    if (isImg) return '图片';
+    const t = textOf(item) ?? '', sz = sizeOf(item);
+    return !t.trim() ? '空行' : ('文字' + (sz !== 'm' ? '·' + SIZE_LABEL[sz] : ''));
+  };
+  const kindEl = el('span', 'block-kind', kindLabel());
+  head.appendChild(kindEl);
   head.appendChild(el('span', 'spacer'));
+  // 快速插入（悬停显现）：在本段之后插入文字段 / 空行 / 图片段
+  const mkAdd = (label, title, value, focus) => {
+    const b = el('button', 'btn sm blk-add', label); b.title = title;
+    b.addEventListener('click', () => insertAfter(node, i, value, focus));
+    return b;
+  };
+  head.appendChild(mkAdd('+段', '在本段后插入文字段落', () => '', true));
+  head.appendChild(mkAdd('+空行', '在本段后插入空行（排版留白）', () => '', false));
+  head.appendChild(mkAdd('+图', '在本段后插入图片段落', () => ({ img: '' }), false));
   const up = el('button', 'btn sm', '↑'); up.disabled = i === 0; up.addEventListener('click', () => moveBlock(node, i, i - 1));
   const down = el('button', 'btn sm', '↓'); down.disabled = i === node.body.length - 1; down.addEventListener('click', () => moveBlock(node, i, i + 1));
   const rm = el('button', 'btn sm danger', '✕'); rm.title = '删除段落'; rm.addEventListener('click', () => { pushHistory(); node.body.splice(i, 1); markDirty(); renderEditor(); renderPreview(); });
@@ -425,22 +554,87 @@ function blockEl(node, item, i) {
     urlIn.addEventListener('input', () => { pushHistory('img:' + node.id + ':' + i); item.img = urlIn.value; markDirty(); swapThumb(thumb, item.img); renderPreview(); });
     const altIn = el('input', 'text'); altIn.placeholder = '替代文字（可选）'; altIn.value = item.alt || '';
     altIn.addEventListener('input', () => { pushHistory('alt:' + node.id + ':' + i); if (altIn.value) item.alt = altIn.value; else delete item.alt; markDirty(); renderPreview(); });
+    const btns = el('div', 'add-row');
     const upBtn = el('button', 'btn sm', '上传图片…');
     upBtn.addEventListener('click', () => { uploadTarget = { node, index: i }; $('filepick').value = ''; $('filepick').click(); });
-    fields.appendChild(urlIn); fields.appendChild(altIn); fields.appendChild(upBtn);
+    const libBtn = el('button', 'btn sm', '图库…');
+    libBtn.title = '从已入库图片（client/public/tutorial/）中选择';
+    libBtn.addEventListener('click', () => openImagePicker(node, i));
+    btns.appendChild(upBtn); btns.appendChild(libBtn);
+    fields.appendChild(urlIn); fields.appendChild(altIn); fields.appendChild(btns);
     row.appendChild(fields);
     bd.appendChild(row);
+    // 把图片文件直接拖到本块上 = 入库并填入（与段落排序拖拽互不干扰：那边走 blockDrag，这边只认 Files）
+    wrap.addEventListener('dragover', (e) => {
+      if (blockDrag || !e.dataTransfer?.types?.includes('Files')) return;
+      e.preventDefault(); wrap.classList.add('drop-file');
+    });
+    wrap.addEventListener('dragleave', () => wrap.classList.remove('drop-file'));
+    wrap.addEventListener('drop', (e) => {
+      wrap.classList.remove('drop-file');
+      if (blockDrag) return;
+      const f = e.dataTransfer?.files?.[0];
+      if (f && f.type.startsWith('image/')) { e.preventDefault(); uploadTarget = { node, index: i }; doUpload(f); }
+    });
   } else {
-    const ta = el('textarea', 'text'); ta.value = String(item); ta.rows = Math.max(2, String(item).split('\n').length);
+    // 普通段=纯字符串；调过字号=({text,size})。mk() 按当前字号把文本装回正确形态。
+    const curSize = () => sizeOf(node.body[i]);
+    const mk = (t, sz = curSize()) => (sz === 'm' ? t : { text: t, size: sz });
+    const setText = (v) => { node.body[i] = mk(v); kindEl.textContent = kindLabel2(v); };
+    const kindLabel2 = (t) => (!t.trim() ? '空行' : ('文字' + (curSize() !== 'm' ? '·' + SIZE_LABEL[curSize()] : '')));
+    const ta = el('textarea', 'text'); ta.value = textOf(item) ?? ''; ta.rows = 2;
     autoGrow(ta);
-    ta.addEventListener('input', () => { pushHistory('text:' + node.id + ':' + i); node.body[i] = ta.value; markDirty(); autoGrow(ta); renderPreview(); });
+    ta.addEventListener('input', () => { pushHistory('text:' + node.id + ':' + i); setText(ta.value); markDirty(); autoGrow(ta); renderPreview(); });
+    // 段落即条目：Enter=在光标处拆成两段（Shift+Enter 才是真换行——渲染器会把换行当空格吞掉）；
+    // 行首 Backspace=并入上一文字段（沿用上一段的字号）。与 RulesPanel「每个条目=一段」的渲染约定一致。
+    ta.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault(); pushHistory();
+        const before = ta.value.slice(0, ta.selectionStart), after = ta.value.slice(ta.selectionEnd);
+        node.body[i] = mk(before); node.body.splice(i + 1, 0, mk(after));
+        markDirty(); renderEditor(); renderPreview(); focusBlockInput(i + 1, 0);
+      } else if (e.key === 'Backspace' && ta.selectionStart === 0 && ta.selectionEnd === 0 && i > 0 && textOf(node.body[i - 1]) !== null) {
+        e.preventDefault(); pushHistory();
+        const prevT = textOf(node.body[i - 1]), prevSz = sizeOf(node.body[i - 1]);
+        node.body[i - 1] = prevSz === 'm' ? prevT + ta.value : { text: prevT + ta.value, size: prevSz };
+        node.body.splice(i, 1);
+        markDirty(); renderEditor(); renderPreview(); focusBlockInput(i - 1, prevT.length);
+      }
+    });
+    // 粘贴多行文字 → 按行拆成多个段落（首尾空行去掉；**中间空行保留 = 排版空行**）
+    ta.addEventListener('paste', (e) => {
+      const txt = e.clipboardData?.getData('text/plain') ?? '';
+      if (!/\r|\n/.test(txt)) return;
+      e.preventDefault(); pushHistory();
+      const merged = ta.value.slice(0, ta.selectionStart) + txt + ta.value.slice(ta.selectionEnd);
+      let parts = merged.split(/\r?\n/).map((s) => s.trim());
+      while (parts.length && !parts[0]) parts.shift();
+      while (parts.length && !parts[parts.length - 1]) parts.pop();
+      if (!parts.length) parts = [''];
+      node.body.splice(i, 1, ...parts.map((p) => (p ? mk(p) : '')));
+      markDirty(); renderEditor(); renderPreview();
+      focusBlockInput(i + parts.length - 1, parts[parts.length - 1].length);
+    });
     bd.appendChild(ta);
     const tools = el('div', 'add-row');
     const bold = el('button', 'btn sm', '** 金字 **'); bold.title = '把选中文字包成 **…**';
-    bold.addEventListener('click', () => { pushHistory(); wrapSelection(ta, '**', '**'); node.body[i] = ta.value; markDirty(); renderPreview(); });
+    bold.addEventListener('click', () => { pushHistory(); wrapSelection(ta, '**', '**'); setText(ta.value); markDirty(); renderPreview(); });
     const li = el('button', 'btn sm', '列表项'); li.title = '在行首插入「- 」';
-    li.addEventListener('click', () => { pushHistory(); if (!ta.value.startsWith('- ')) ta.value = '- ' + ta.value; node.body[i] = ta.value; markDirty(); autoGrow(ta); renderPreview(); ta.focus(); });
+    li.addEventListener('click', () => { pushHistory(); if (!ta.value.startsWith('- ')) ta.value = '- ' + ta.value; setText(ta.value); markDirty(); autoGrow(ta); renderPreview(); ta.focus(); });
     tools.appendChild(bold); tools.appendChild(li);
+    // 字号档位（游戏内 .rules-p.fs-* 同像素值）
+    tools.appendChild(el('span', 'spacer'));
+    SIZES.forEach(([k, label]) => {
+      const b = el('button', 'btn sm' + (curSize() === k ? ' on' : ''), label);
+      b.title = '字号：' + label + '（' + SIZE_PX[k] + 'px）';
+      b.addEventListener('click', () => {
+        if (curSize() === k) return;
+        pushHistory();
+        node.body[i] = mk(textOf(node.body[i]) ?? '', k);
+        markDirty(); renderEditor(); renderPreview();
+      });
+      tools.appendChild(b);
+    });
     bd.appendChild(tools);
   }
   wrap.appendChild(bd);
@@ -459,6 +653,13 @@ function wrapSelection(ta, pre, post) {
   const sel = v.slice(s, e) || '文字';
   ta.value = v.slice(0, s) + pre + sel + post + v.slice(e);
   ta.focus(); ta.selectionStart = s + pre.length; ta.selectionEnd = s + pre.length + sel.length;
+}
+// 在第 i 段之后插入新段落（value 为工厂函数，避免共享同一个对象引用）
+function insertAfter(node, i, value, focus = true) {
+  pushHistory();
+  node.body.splice(i + 1, 0, value());
+  markDirty(); renderEditor(); renderPreview();
+  if (focus) focusBlockInput(i + 1, 0);
 }
 function moveBlock(node, from, to) {
   if (to < 0 || to >= node.body.length) return;
@@ -508,8 +709,11 @@ function renderPreview() {
       img.onerror = () => { const ph = el('div', 'prev-img missing', '（图片加载失败：' + item.img + '）'); img.replaceWith(ph); };
       box.appendChild(img); return;
     }
-    const t = String(item); const li = t.startsWith('- '); const text = li ? t.slice(2) : t;
+    const t = textOf(item) ?? '';
+    if (!t.trim()) { box.appendChild(el('div', 'prev-gap')); return; }   // 空段=排版空行（与游戏内 .rules-gap 一致）
+    const li = t.startsWith('- '); const text = li ? t.slice(2) : t;
     const p = el('p', 'prev-p' + (li ? ' li' : ''));
+    const sz = sizeOf(item); if (sz !== 'm') p.style.fontSize = SIZE_PX[sz] + 'px';
     if (li) p.appendChild(el('span', 'dash', '-'));
     parseRuns(text).forEach(r => { const s = el('span', r.hi ? 'hi' : null, r.t); p.appendChild(s); });
     box.appendChild(p);
@@ -531,20 +735,68 @@ async function save() {
     const r = await fetch('/api/tutorial', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(S.data) });
     const j = await r.json();
     if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+    lastSavedAt = new Date().toLocaleTimeString('zh-CN', { hour12: false });
     markDirty(false); toast('已保存 → ' + S.path);
   } catch (e) { $('save').disabled = false; $('status').textContent = '保存失败'; toast('保存失败：' + e.message, true); }
 }
-async function doUpload(file) {
+async function doUpload(file, withHistory = true) {
   if (!uploadTarget) return;
   const { node, index } = uploadTarget;
   try {
     const r = await fetch('/api/upload?name=' + encodeURIComponent(file.name), { method: 'POST', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file });
     const j = await r.json(); if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
     const item = node.body[index];
-    if (item && typeof item === 'object') { pushHistory(); item.img = j.url; markDirty(); renderEditor(); renderPreview(); toast('已入库 → public' + j.url); }
+    if (item && typeof item === 'object') { if (withHistory) pushHistory(); item.img = j.url; markDirty(); renderEditor(); renderPreview(); toast('已入库 → public' + j.url); }
   } catch (e) { toast('上传失败：' + e.message, true); }
   uploadTarget = null;
 }
+// 剪贴板贴图（Ctrl+V 截图）：焦点在某图片块内 → 换掉该块的图；否则在当前章节末尾追加图片段。
+// 剪贴板文件名千篇一律（image.png），换成时间戳名防互相覆盖。
+function pasteName(file) {
+  const d = new Date(), p = (n) => String(n).padStart(2, '0');
+  const ext = (file.type.split('/')[1] || 'png').replace('jpeg', 'jpg').replace('svg+xml', 'svg');
+  return `paste-${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}.${ext}`;
+}
+window.addEventListener('paste', (e) => {
+  const file = [...(e.clipboardData?.items || [])]
+    .map((it) => (it.kind === 'file' ? it.getAsFile() : null))
+    .find((f) => f && f.type.startsWith('image/'));
+  if (!file) return;
+  const node = selectedNode(); if (!node) return;
+  e.preventDefault();
+  node.body ||= [];
+  const blk = document.activeElement?.closest?.('.block');
+  let index = -1;
+  if (blk) { const bi = Number(blk.dataset.index); const it = node.body[bi]; if (it && typeof it === 'object' && 'img' in it) index = bi; }
+  let withHistory = true;
+  if (index < 0) { pushHistory(); node.body.push({ img: '' }); index = node.body.length - 1; markDirty(); renderEditor(); withHistory = false; } // 追加块+填图=一步撤回
+  uploadTarget = { node, index };
+  doUpload(new File([file], pasteName(file), { type: file.type }), withHistory);
+});
+
+// ---- 图库选择器 ----
+let pickTarget = null; // {node, index}
+async function openImagePicker(node, index) {
+  pickTarget = { node, index };
+  const grid = $('imgpick-grid'); grid.innerHTML = '';
+  $('imgpick').hidden = false;
+  try {
+    const r = await fetch('/api/images'); const j = await r.json();
+    if (!j.images?.length) { grid.appendChild(el('div', 'empty-hint', '图库为空——先用「上传图片…」或 Ctrl+V 贴图入库。')); return; }
+    for (const im of j.images) {
+      const cell = el('div', 'pick-cell'); cell.title = im.name;
+      const img = el('img', 'pick-thumb'); img.src = im.url; img.loading = 'lazy';
+      cell.appendChild(img); cell.appendChild(el('div', 'pick-name', im.name));
+      cell.addEventListener('click', () => {
+        const it = pickTarget?.node?.body?.[pickTarget.index];
+        if (it && typeof it === 'object') { pushHistory(); it.img = im.url; markDirty(); renderEditor(); renderPreview(); }
+        closeImagePicker();
+      });
+      grid.appendChild(cell);
+    }
+  } catch (e) { grid.appendChild(el('div', 'empty-hint', '图库加载失败：' + e.message)); }
+}
+function closeImagePicker() { $('imgpick').hidden = true; pickTarget = null; }
 
 let toastTimer = null;
 function toast(msg, err) {
@@ -554,6 +806,16 @@ function toast(msg, err) {
 
 // ============ 绑定 ============
 $('add-top').addEventListener('click', addTop);
+$('search').addEventListener('input', () => {
+  S.query = $('search').value;
+  $('search-clear').hidden = !S.query;
+  renderTree();
+});
+$('search-clear').addEventListener('click', () => { $('search').value = ''; S.query = ''; $('search-clear').hidden = true; renderTree(); });
+$('expand-all').addEventListener('click', () => { for (const n of walk(S.data.chapters)) if (n.children?.length) S.open.add(n.id); renderTree(); });
+$('collapse-all').addEventListener('click', () => { S.open.clear(); renderTree(); });
+$('imgpick-close').addEventListener('click', closeImagePicker);
+$('imgpick').addEventListener('click', (e) => { if (e.target === $('imgpick')) closeImagePicker(); });
 $('undo').addEventListener('click', undo);
 $('redo').addEventListener('click', redo);
 $('save').addEventListener('click', save);
@@ -567,11 +829,21 @@ $('root-drop').addEventListener('drop', (e) => {
 });
 window.addEventListener('keydown', (e) => {
   const ctrl = e.ctrlKey || e.metaKey, k = e.key.toLowerCase();
+  if (e.key === 'Escape') {
+    if (!$('imgpick').hidden) { closeImagePicker(); return; }
+    if (document.activeElement === $('search') && S.query) { $('search').value = ''; S.query = ''; $('search-clear').hidden = true; renderTree(); return; }
+  }
+  if (ctrl && k === 'f') { e.preventDefault(); $('search').focus(); $('search').select(); return; } // 定位搜索框
   if (ctrl && k === 's') { e.preventDefault(); if (S.dirty) save(); return; }
   if (ctrl && k === 'z' && !e.shiftKey) { e.preventDefault(); undo(); return; }   // 撤回（含在输入框内）
   if (ctrl && ((k === 'z' && e.shiftKey) || k === 'y')) { e.preventDefault(); redo(); return; } // 重做
 });
 window.addEventListener('beforeunload', (e) => { if (S.dirty) { e.preventDefault(); e.returnValue = ''; } });
+
+// 像素字体加载失败要喊出来（最常见原因：编辑器服务是旧进程、没有 /font.woff2 路由 → 回落宋体）
+document.fonts.load("13px 'Fusion Pixel 12px SC'").then((faces) => {
+  if (!faces.length) toast('像素字体加载失败（/font.woff2）——请重启编辑器服务（npm run tutorial）', true);
+}).catch(() => {});
 
 load();
 </script>

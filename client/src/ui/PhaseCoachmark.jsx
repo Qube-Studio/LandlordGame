@@ -30,6 +30,9 @@ export default function PhaseCoachmark() {
   useEffect(() => {
     if (!show) return undefined;
     const onKey = (e) => {
+      // 掷币分镜期（§3.4）让位：这里的 stopImmediatePropagation 会抢在 GameScreen 的封锁/打断之前
+      // 吃掉按键——'enter' 期玩家的第一颗打断键不能被讲解卡静默吞掉
+      if (useGameStore.getState().cine !== 'off') return;
       if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return; // 放行浏览器/系统组合键，不当作跳过
       if (e.key === 'Shift' || e.key === 'Control' || e.key === 'Alt' || e.key === 'Meta') return; // 纯修饰键不算
       const el = document.activeElement;

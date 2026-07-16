@@ -13,8 +13,8 @@ export const ghostLive = { rawHeight: 2.0 };
 
 export const LAB_ROLES = ['landlord', 'capitalist', 'farmer', 'investor', 'glutton', 'prosecutor', 'none'];
 
-// 可切换资产注册表:key → 两套渲染。目前一项(吊灯);后续体素资产逐个追加。
-export const SWAP_KEYS = ['chandelier'];
+// 可切换资产注册表:key → 两套渲染(体素↔现有)。props 素材批次(附录 C)逐个追加。
+export const SWAP_KEYS = ['chandelier', 'table', 'chairs', 'room'];
 
 let charSeq = 0;
 let importSeq = 0;
@@ -81,7 +81,7 @@ export const useLabStore = create((set, get) => ({
   removeChar: (id) => set((s) => ({ chars: s.chars.filter(c => c.id !== id) })),
   clearChars: () => set({ chars: [] }),
 
-  swaps: { chandelier: true },            // true=体素资产,false=现有资产
+  swaps: { chandelier: true, table: true, chairs: true, room: true }, // true=体素资产,false=现有资产
   toggleSwap: (key) => set((s) => ({ swaps: { ...s.swaps, [key]: !s.swaps[key] } })),
 
   help: true,

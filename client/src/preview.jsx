@@ -47,6 +47,7 @@ if (phase === 'SETTLE') {
   base.coinResult = 'heads';
   base.settlement = { events: [{ type: 'landlord_win', target: 5, surplus: 0 }], landlordTake: 5, takes: { p3: 2 }, debts: {} };
 }
+if (phase === 'COIN_FLIP') base.coinResult = 'heads'; // 掷币分镜演出（§3.4）截图核对
 if (phase === 'LOBBY') {
   base.players = players.map(p => ({ ...p, hasBet: false, bet: null }));
   base.me = base.players[0];

@@ -182,6 +182,9 @@ class Director {
   pump() {
     if (this.running) return;
     if (this.holds > 0) { this.at(80, () => this.pump()); return; }  // 拖拽中：整条队列等牌落回账上
+    // 掷币分镜演出（§3.4）没完全播完（相机归位 + UI 出场/打断）前，资金分配演出整条队列原地等——
+    // 聚拢/分堆开播时玩家必然已回到自己的视角。分镜状态机有 10s 兜底，不会锁死；无分镜时恒为 'off'。
+    if (useGameStore.getState().cine !== 'off') { this.at(100, () => this.pump()); return; }
     const task = this.queue.shift();
     if (!task) { this.bump(); return; }
     this.running = true;

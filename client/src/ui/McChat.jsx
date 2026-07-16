@@ -276,6 +276,8 @@ export default function McChat() {
   // 系统频道输入框禁用、失焦时元素级监听接不到键，Esc 也必须在此处理否则只读频道下关不掉聊天。
   useEffect(() => {
     const onKey = (e) => {
+      // 掷币分镜期（§3.4）：本监听在捕获阶段且先于 GameScreen 的封锁注册,须自行让位
+      if (useGameStore.getState().cine !== 'off') return;
       if (e.key === 'Tab') {
         e.preventDefault();     // 收起态也拦掉浏览器焦点循环
         if (e.repeat) return;   // 长按 Tab 不鬼畜连切
