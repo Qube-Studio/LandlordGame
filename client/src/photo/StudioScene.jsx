@@ -279,6 +279,12 @@ export default function StudioScene() {
   const showEdit = arrange && !uiHidden && !capturing;
   // 点选=单选；Ctrl+点=切换（r3f 事件透传原生修饰键）
   const onSelect = (id, e) => { if (e?.ctrlKey || e?.metaKey) toggleSelect(id); else select(id); };
+  // 坐标轴只借给可拖的物（P③ outliner 可把 locked/hidden 物选进"管理选择"——看选框/改属性，
+  // 但锁=「拖拽全跳过」（§2.1），hidden 不在注册表：两者都不给 gizmo 摆布）
+  const gizmoIds = selection.filter(id => {
+    const it = items.find(i => i.id === id);
+    return it && !it.locked && !it.hidden;
+  });
 
   return (
     <>
@@ -311,8 +317,8 @@ export default function StudioScene() {
       <Interactions />
 
       {/* 坐标轴：单选=物体本尊，多选=pivot 空组（两者互斥，gizmoRef 只有一份） */}
-      {showEdit && selection.length === 1 && !!pid && <SingleGizmo id={pid} />}
-      {showEdit && selection.length > 1 && <MultiGizmo ids={selection} />}
+      {showEdit && gizmoIds.length === 1 && <SingleGizmo id={gizmoIds[0]} />}
+      {showEdit && gizmoIds.length > 1 && <MultiGizmo ids={gizmoIds} />}
       {/* 选中 Box3 线框：主选金、次选灰白 */}
       {showEdit && selection.map(id => <SelectionBox key={id} id={id} primary={id === pid} />)}
 

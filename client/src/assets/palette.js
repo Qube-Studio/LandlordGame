@@ -80,8 +80,9 @@ export const PROP_COLORS = {
   drumSkin: '#c9a36a', drumBone: '#8a5a30',   // 暴食者鸡腿
   procNavy: '#2e3a52', procNavy2: '#26304a',  // 检察官制帽（深藏青帽墙/平顶；金徽复用 crown）
   wax: P.wax,                                 // 火漆印章/酱渍（真源已提升进 P）
-  coinGold: '#e8bf3c', coinTails: '#5f9ec2',  // 硬币双面底色
+  coinGold: '#e8bf3c', coinTails: '#5f9ec2',  // 硬币双面底色（游戏内 2D/3D 币）
   coinGlow: '#6a4a10',                        // 硬币常驻微 emissive
+  coinSilver: '#c2c6cb',                      // 体素硬币本体：银/镍流通币色（冷中性，暖光下自然染暖，非金）
 };
 
 // 面额(bg/ink/accent)——pixelnote(2D+3D 钞票)唯一色源。

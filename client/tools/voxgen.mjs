@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url';
 import { makeDense, writeVox } from '../src/voxel/vox.js';
 import { P, shade, PROP_COLORS } from '../src/assets/palette.js';
 import { CHAND, TIERED } from '../src/voxel/chandelierSpec.js';
+import { CROWN, WHEAT } from '../src/scene/coinArt.js';
 import { PROP_VOXEL_SIZE as PROP_S, WALL_SEG, BEAM_SEG } from '../src/voxel/propsSpec.js';
 import { MAT, makePalette, mulberry32, hash2, Painter, d8, hollow } from './voxkit.mjs';
 import { charAssets } from './voxchars.mjs';
@@ -956,6 +957,68 @@ function genCoatrack() {
   return { dense, pal, mats };
 }
 
+// ================= 硬币(0.015 细档,手部道具尺寸):银质本体 + 正反阴纹彩标 =================
+// 用户规格(2026-07-17):本体=正常硬币色(coinSilver 银/镍,**不是金币**)、材质真实、
+// 正反两面阴纹地主/农民标且标可彩色。图案点阵与 coinFaceTexture 同源(scene/coinArt.js);
+// 阴纹=场面层挖 1 格、露出下层彩珐琅(地主=火漆红王冠+玻璃红宝石,农民=阵营绿麦穗);
+// 银本体冷中性 → 红/绿彩标对比更跳。边=reeded 直齿双色 + 顶/底凸缘圈;缘环刻线/内圈描环。
+// 仅素材(§4:游戏内硬币不体素化——coinSim 连续旋转约束不变,这是素材库/MagicaVoxel 件)。
+function genCoin() {
+  const S = 0.015;
+  const R = 17.5 * S;                    // 直径 0.525 ≈ 游戏 COIN_R 0.26×2
+  const dense = makeDense(36, 6, 36);
+  const p = new Painter(dense, S);
+  const { pal, reg, mats } = makePalette();
+  const base = PROP_COLORS.coinSilver;   // 银/镍本体(银币反射强,metal 高)
+  const silver = reg(base, MAT.metal({ metal: 0.9, rough: 0.24 }));
+  const silverLit = reg(shade(base, 12), MAT.metal({ metal: 0.9, rough: 0.15 }));
+  const silverDim = reg(shade(base, -20), MAT.metal({ metal: 0.85, rough: 0.32 }));
+  const silverDeep = reg(shade(base, -34), MAT.metal({ metal: 0.85, rough: 0.4 }));
+  const waxE = [reg(P.wax), reg(shade(P.wax, 25)), reg(shade(P.wax, -20))];          // 王冠珐琅三调
+  const grassE = [reg(P.grass), reg(shade(P.grass, 20)), reg(shade(P.grass, -22))];  // 麦穗珐琅三调
+  const ruby = reg(PROP_COLORS.ruby, MAT.glass({ alpha: 0.6, rough: 0.15 }));
+  const rubyHi = reg(shade(PROP_COLORS.ruby, 20), MAT.glass({ alpha: 0.6, rough: 0.1 }));
+
+  const CELL = 2 * S;                    // 1 图案格 = 2 体素(35 体素面 ≈ 贴图 128px/6px 格同比例)
+  const inCells = (cells, cx, cy) => cells.some(([x, y, w = 1, h = 1]) => cx >= x && cx < x + w && cy >= y && cy < y + h);
+  // 面内偏移 → 图案格 → 珐琅色(0=不在图案内)
+  const glyph = (m, dx, dy) => {
+    const cx = Math.floor(dx / CELL + m.ox), cy = Math.floor(dy / CELL + m.oy);
+    if (!inCells(m.main, cx, cy)) return 0;
+    if (m.gem && inCells(m.gem, cx, cy)) return inCells(m.gemHi, cx, cy) ? rubyHi : ruby;
+    const e = m === CROWN ? waxE : grassE;
+    return inCells(m.hi, cx, cy) ? e[1] : inCells(m.sh, cx, cy) ? e[2] : e[0];
+  };
+
+  p.scan(-R - S, R + S, 0, 6 * S, -R - S, R + S, (x, y, z) => {
+    const px = x + S / 2, pz = z + S / 2;          // 体素中心
+    const d = Math.hypot(px, pz);
+    if (d > R) return 0;
+    // 侧壁 reeded 直齿(48 条双色竖纹,全高)
+    if (d > R - 1.2 * S) {
+      const stripe = Math.floor(((Math.atan2(pz, px) + Math.PI) / (Math.PI * 2)) * 48);
+      return stripe % 2 === 0 ? silverLit : silverDim;
+    }
+    const iy = Math.round(y / S);
+    // 顶/底凸缘圈(其余挖空——场面比缘低一格,真实硬币立边)
+    if (iy === 5 || iy === 0) return d > R - 2.6 * S ? (iy === 5 ? silverLit : silver) : 0;
+    // 场面层(iy4=王冠面,iy1=麦穗面):阴纹挖空 + 缘环刻线 + 内圈描环 + 细块噪
+    if (iy === 4 || iy === 1) {
+      // 底面画布 y 取 -pz:翻面查看(绕 x 翻转)时图案立正
+      if (glyph(iy === 4 ? CROWN : WHEAT, px, iy === 4 ? pz : -pz)) return 0;
+      if (d > R - 3.4 * S) return silverDeep;               // 缘环刻线(对齐贴图外描边)
+      if (Math.abs(d - 14 * S) < 0.6 * S) return silverDim; // 内圈描环
+      const h = hash2(Math.floor(px / (2 * S)) * 3, Math.floor(pz / (2 * S)));
+      return h > 0.85 ? silverLit : h < 0.15 ? silverDim : silver;
+    }
+    // 芯层(iy3 承王冠彩 / iy2 承麦穗彩):阴纹洞露出的珐琅体素,其余银
+    const m2 = iy === 3 ? CROWN : WHEAT;
+    return glyph(m2, px, iy === 3 ? pz : -pz) || silver;
+  });
+  hollow(dense);
+  return { dense, pal, mats };
+}
+
 // ================= 出盘 =================
 mkdirSync(join(OUT_DIR, 'props'), { recursive: true });
 mkdirSync(join(OUT_DIR, 'props/char'), { recursive: true });
@@ -982,6 +1045,7 @@ const assets = [
   ['props/sconce.vox', genSconce],
   ['props/table-round.vox', genTableRound],
   ['props/coatrack.vox', genCoatrack],
+  ['props/coin.vox', genCoin],
   ...charAssets,   // 人物批次(tools/voxchars.mjs:头壳/身臂腿×7 角色/帽×5)
 ];
 for (const [name, gen] of assets) {

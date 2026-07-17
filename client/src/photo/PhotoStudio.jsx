@@ -5,13 +5,15 @@ import { Canvas } from '@react-three/fiber';
 import StudioScene from './StudioScene';
 import { selectionLock } from './selectionLock';
 import { interaction } from './interaction';
-import { dropSelectedToFloor } from './placement';
+import { dropSelectedToFloor, focusSelection, spawnPointFor, buildMoneyStack } from './placement';
 import FlyRig from './FlyRig';
-import { usePhotoStore } from './photoStore';
+import { usePhotoStore, primaryOf } from './photoStore';
 import { ROLE_LABEL } from '../game/roles';
 
 const ROLES = ['landlord', 'capitalist', 'farmer', 'investor', 'prosecutor', 'glutton', 'none'];
 const DENOMS = [10, 5, 2, 1];
+const KIND_NAME = { note: '钞票', coin: '硬币', char: '人物' };
+const KIND_ICON = { note: '¥', coin: '◎', char: '人' };   // outliner 行首的种类图标（纯字符，扁平）
 // 人物表情（荧幕脸的五种可辨字符眼；idle/ready 同脸，取 idle）：
 // 平静 ▮▮ · 下注 $$ · 胜 ^^ · 负 TT · 破产 ✕✕（破产脸=只换眼、身体不变；要灰皮歪身另勾「破产瘫倒」）
 const EXPRS = [

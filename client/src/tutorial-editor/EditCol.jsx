@@ -391,6 +391,9 @@ export default function EditCol({ chapter }) {
       // 选择：Ctrl 点切换、Shift 沿 body 序范围（锚=当前主选）、平点单选（不抢输入焦点）
       blockDown: (e, uid) => {
         if (e.button !== 0) return; // 右键选择交给 onContextMenu
+        // 选块=剪贴板语境移到块：Ctrl/Shift 点会 preventDefault（不落文字光标），焦点可能还留在
+        // 树容器里——那样 Ctrl+C 会误走章节信封（window 级裁决器先查树持焦）。主动卸掉树焦点。
+        if (document.activeElement?.closest?.('.ted-tree')) document.activeElement.blur();
         const s = st();
         const cur = s.selBlks;
         if (e.ctrlKey || e.metaKey) {

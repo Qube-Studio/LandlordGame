@@ -40,7 +40,9 @@ export default function Interactions() {
       g.startPos = {};
       for (const sid of sel) {
         const it = store.items.find((i) => i.id === sid);
-        if (it) g.startPos[sid] = [...it.pos];
+        // P③ outliner 可把 locked/hidden 物选进"管理选择"——表面拖拽（指针驱动）按 §2.1
+        // 「锁=拖拽全跳过」把它们从跟随组剔除；显式命令（Del/复制/落底）仍作用于全选择集
+        if (it && !it.locked && !it.hidden) g.startPos[sid] = [...it.pos];
       }
       g.sel = sel.filter((sid) => g.startPos[sid]);
       g.meshes = collectSurfaceMeshes(new Set(sel));  // 一次收集，期间复用（选中全排除防自命中上浮）

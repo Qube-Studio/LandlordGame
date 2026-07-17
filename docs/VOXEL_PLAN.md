@@ -256,6 +256,7 @@ MagicaVoxel 改完放回原路径**)。几何规格 `src/voxel/chandelierSpec.js
 | `shelf.vox` | 双层搁板(端头竖挡板;瓶/杯为独立素材实例) | 漫反射 |
 | `bench.vox` / `door.vox` / `coatrack.vox` | 门边长凳/酒馆大门/衣帽钩排 | 门铜把手=金属 |
 | `dartboard.vox` / `sconce.vox` / `table-round.vox` | 飞镖盘/墙面烛台/角落小圆桌 | 靶心=金属 |
+| `coin.vox` | **硬币**(36×6×36,**0.015 细档**;coinSilver **银/镍本体**(非金币,用户 2026-07-17 纠正)+reeded 直齿边+凸缘圈,正反**阴纹彩标**:王冠=火漆红珐琅+玻璃红宝石/麦穗=阵营绿珐琅,凹 1 格填彩,银底令红绿对比更跳;图案点阵=scene/coinArt.js 与 coinFaceTexture 单一真源)。**仅素材**——§4 决策不变,游戏内硬币仍走 coinSim,不接线 | 本体银×4=金属,宝石=玻璃 |
 
 **批次共享规格 = `src/voxel/propsSpec.js`**(生成器与运行时单一真源):`PROP_VOXEL_SIZE`、
 桌顶对齐 `PROP_TABLE_Y`、墙段/梁段尺寸。墙按段拼装:每面 4 段(6.048m 相邻微互叠免缝,

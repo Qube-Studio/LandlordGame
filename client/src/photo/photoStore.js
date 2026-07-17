@@ -85,6 +85,7 @@ export const usePhotoStore = create((set, get) => ({
   marquee: null,         // 框选矩形 {x1,y1,x2,y2}（屏幕 px；纯瞬态——不入历史不落盘，PhotoStudio 画 overlay）
   help: true,
   preset: null,          // 机位请求 {name, nonce}，FlyRig 消费
+  focusReq: null,        // F 聚焦请求 {center:[x,y,z], radius, nonce}，FlyRig 消费（§2.1：退距反解视角）
   camRestore: null,      // 导入时回灌相机 {pose, nonce}，FlyRig 消费
   past: [], future: [],  // 撤回/重做快照栈（只含 items+selection）
   toast: null,           // 短暂提示 {text, err, nonce}
@@ -113,17 +114,35 @@ export const usePhotoStore = create((set, get) => ({
     persistNow(get().items);
   },
 
-  addItem(kind, props = {}) {
+  // pos 由调用方传（PhotoStudio 用 placement.spawnPointFor 算视野射线出生点）——
+  // store 不 import three/placement（placement 反向 import 本 store，塞进来就成环）
+  addItem(kind, props = {}, pos = null) {
     get().pushHistory();
     const id = freshId();
     const seed = (get().items.length * 1.7 + 0.3) % 6.28;
     const item = {
       id, kind, props: { ...DEFAULTS[kind], ...props },
-      pos: spawnPos(kind), rot: [0, 0, 0], scale: [1, 1, 1], seed,
+      pos: pos ?? spawnPos(kind), rot: [0, 0, 0], scale: [1, 1, 1], seed,
       name: '', hidden: false, locked: false,
     };
     const items = [...get().items, item];
     set({ items, selection: [id], mode: 'arrange' });
+    persistNow(items);
+  },
+
+  // 一摞钱生成器（§2.1）：notes 由 placement.buildMoneyStack 用 cardLocal/cardYaw 同源槽位算好，
+  // 这里只负责入库——一次生成=一步撤回，生成后整组全选成组可拖（末位=主选）。
+  addMoneyStack(notes) {
+    if (!notes?.length) return;
+    get().pushHistory();
+    const add = notes.map(n => ({
+      id: freshId(), kind: 'note',
+      props: { ...DEFAULTS.note, ...(n.props ?? {}) },
+      pos: n.pos, rot: n.rot ?? [0, 0, 0], scale: [1, 1, 1],
+      seed: 0, name: '', hidden: false, locked: false,
+    }));
+    const items = [...get().items, ...add];
+    set({ items, selection: add.map(a => a.id), mode: 'arrange' });
     persistNow(items);
   },
 
@@ -182,6 +201,14 @@ export const usePhotoStore = create((set, get) => ({
     get().pushHistory();                // 属性点击=离散一步
     const items = get().items.map(it => (it.id === id ? { ...it, props: { ...it.props, ...patch } } : it));
     set({ items }); persistNow(items);
+  },
+  // 批量属性（Inspector 多选态，§2.1：全同类时的批量控件）：一次点击=一步撤回，写全部选中物
+  setPropsSelected(patch) {
+    const { items, selection } = get();
+    if (!selection.length) return;
+    get().pushHistory();
+    const next = items.map(it => (selection.includes(it.id) ? { ...it, props: { ...it.props, ...patch } } : it));
+    set({ items: next }); persistNow(next);
   },
   // 物性/命名（outliner 的 store 侧接口）：离散一步撤回。
   // 隐藏/锁定即时把该物请出选择集——隐藏物不渲染不进注册表，锁定物不该继续被坐标轴摆布。
@@ -254,6 +281,8 @@ export const usePhotoStore = create((set, get) => ({
   toggleOverhead() { set({ hideOverhead: !get().hideOverhead }); },
   toggleHelp() { set({ help: !get().help }); },
   requestPreset(name) { set({ preset: { name, nonce: (get().preset?.nonce ?? 0) + 1 } }); },
+  // F 聚焦请求（center/radius 由 placement.focusSelection 从注册表合并 Box3 算出）
+  requestFocus(center, radius) { set({ focusReq: { center, radius, nonce: (get().focusReq?.nonce ?? 0) + 1 } }); },
 }));
 
 // 自动化探针（同 __voxlab 先例）：E2E/截图脚本经此驱动摆放与读状态

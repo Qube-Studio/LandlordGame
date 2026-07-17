@@ -33,6 +33,7 @@ export default function CineRig({ camZ, eyeY, lookY, rot, tableTop }) {
     start: null,
     shot: -1,
     aim: new THREE.Vector3(0, tableTop + 1.2, 0),   // 阻尼注视点（切镜时快照到位）
+    anchor: { x: 0, z: 0 },                          // 跟拍锚点（硬币 xz 的阻尼跟随）
     restAt: null,                                    // 闩存的落定时刻（硬币卸载后时间轴不回跳）
     rushT4: null,                                    // REFLIP 加速归位的提前 t4（一次性闩存）
     pulsed: false,                                   // 揭示镜的币面金光脉冲只点一次火
@@ -56,6 +57,8 @@ export default function CineRig({ camZ, eyeY, lookY, rot, tableTop }) {
       rig.start = st.clock.elapsedTime;
       rig.side = Math.random() < 0.5 ? 1 : -1;
       rig.azi0 = (Math.random() - 0.5) * 0.9;
+      const lv = getCoinFlightLive();
+      rig.anchor.x = lv?.x ?? 0; rig.anchor.z = lv?.z ?? 0; // 锚点直接落在抛掷起点
     }
     const t = st.clock.elapsedTime - rig.start;
 
@@ -71,11 +74,15 @@ export default function CineRig({ camZ, eyeY, lookY, rot, tableTop }) {
     const restX = rl ? rl.x * cr + rl.z * sr : 0;
     const restZ = rl ? -rl.x * sr + rl.z * cr : 0;
 
+    // 跟拍锚点：硬币 xz 的阻尼跟随——弹跳的横向抖动不直传镜头（真实尺寸硬币位移小而快）
+    rig.anchor.x += (coinX - rig.anchor.x) * damp(0.02, delta);
+    rig.anchor.z += (coinZ - rig.anchor.z) * damp(0.02, delta);
+
     // 分镜时刻表（随落定时刻伸缩）：t1 起抛→侧跟, t2 侧跟→特写, t3 特写→升起, t4 升起→归位, t5 归位完成
-    const t1 = 1.05;
-    const t2 = Math.max(t1 + 0.5, restAt - 1.15);
-    const t3 = restAt + 0.7;
-    let t4 = restAt + 1.45;
+    const t1 = 0.85;
+    const t2 = Math.max(t1 + 0.4, restAt - 0.9);
+    const t3 = restAt + 0.55;
+    let t4 = restAt + 1.3;
     // 提前归位（rushT4 一次性闩存）：
     // ① REFLIP/NEGOTIATE/FINALIZE 需要玩家交互——相位一到就压掉剩余镜头，UI 尽快回场；
     // ② 其他相位若在本地时间轴早期(<5.5s)就离开了 COIN_FLIP，说明是中途接入（重连/晚挂载：
@@ -90,33 +97,35 @@ export default function CineRig({ camZ, eyeY, lookY, rot, tableTop }) {
 
     const shot = t >= t4 ? 4 : t < t1 ? 0 : t < t2 ? 1 : t < t3 ? 2 : 3;
     if (glintRef.current && shot !== 3) glintRef.current.intensity = 0; // 打光闪只活在末镜④
+    // 调试/截图探针（同 __payoutDir 先例）：分镜时间轴与镜号,供 E2E 对时
+    if (import.meta.env.DEV && typeof window !== 'undefined') window.__cineDbg = { t, shot, restAt, glint: glintRef.current?.intensity ?? 0 };
 
-    // 本帧的目标位置/注视/视场
+    // 本帧的目标位置/注视/视场（真实尺寸硬币 Ø5cm → 全部微距机位）
     let px, py, pz, ax, ay, az, fovT, aimK;
     if (shot === 0) {
-      // ① 仰拍起抛：贴桌低机位，视线越过毡面仰望翻落的硬币；缓慢横移
-      const azi = rig.azi0 + rig.side * 0.12 * t;
-      px = Math.sin(azi) * 1.55; py = tableTop + 0.18; pz = Math.cos(azi) * 1.55;
+      // ① 仰拍起抛：贴毡低机位仰望翻落的硬币（锚点阻尼跟随抛掷漂移）；缓慢横移
+      const azi = rig.azi0 + rig.side * 0.18 * t;
+      px = rig.anchor.x + Math.sin(azi) * 0.55; py = tableTop + 0.10; pz = rig.anchor.z + Math.cos(azi) * 0.55;
       ax = coinX; ay = coinY; az = coinZ;
-      fovT = 63; aimK = 0.002;
+      fovT = 58; aimK = 0.002;
     } else if (shot === 1) {
-      // ② 低机位侧跟：桌面高度侧面环绕，跟拍弹跳（注视阻尼放软，弹跳不甩镜头）。
-      // 轨道半径须避开下注圈环带（SPOT 半长轴 2.05，圈上有注堆）——取 1.72 从环内掠过。
-      const azi = rig.azi0 + rig.side * (1.35 + 0.26 * (t - t1));
-      px = Math.sin(azi) * 1.72; py = tableTop + 0.42; pz = Math.cos(azi) * 1.72;
-      ax = coinX; ay = Math.min(coinY, tableTop + 0.8); az = coinZ;
-      fovT = 50; aimK = 0.01;
+      // ② 微距侧跟：贴桌高度近距环绕，跟拍弹跳与缘立滚摆（注视阻尼放软，弹跳不甩镜头）
+      const azi = rig.azi0 + rig.side * (1.35 + 0.4 * (t - t1));
+      px = rig.anchor.x + Math.sin(azi) * 0.38; py = tableTop + 0.075; pz = rig.anchor.z + Math.cos(azi) * 0.38;
+      ax = coinX; ay = Math.min(coinY, tableTop + 0.25); az = coinZ;
+      fovT = 48; aimK = 0.01;
     } else if (shot === 2 || shot === 3) {
-      // ③④ 锚定落点的特写→升机位揭示：③ 半径缓推 1.05→0.82、微降；④ 升到俯视缓拉开
-      const aziC = rig.azi0 + rig.side * (2.2 + 0.06 * (t - t2));
+      // ③④ 锚定落点的微距特写→升机位揭示：③ 半径缓推 0.30→0.21、微降——看进动颤摆收干；
+      //     ④ 升到俯视 0.45 高缓拉开——币面读结果
+      const aziC = rig.azi0 + rig.side * (2.2 + 0.08 * (t - t2));
       let r, h;
       if (shot === 2) {
         const u = smooth((t - t2) / (t3 - t2));
-        r = 1.05 - 0.23 * u; h = 0.44 - 0.08 * u;
+        r = 0.30 - 0.09 * u; h = 0.15 - 0.05 * u;
         fovT = 44;
       } else {
         const u = smooth((t - t3) / (t4 - t3));
-        r = 0.82 + 0.13 * u; h = 0.36 + 0.99 * u;
+        r = 0.21 + 0.06 * u; h = 0.10 + 0.35 * u;
         fovT = 44 + 3 * u;
         // 末镜「闪亮一下」（进揭示镜即刻，双管齐下保证肉眼可见）：
         // ① 币面金光脉冲——躺平的硬币「接住」光闪一下（Coin 消费 requestCoinPulse）；
@@ -124,14 +133,16 @@ export default function CineRig({ camZ, eyeY, lookY, rot, tableTop }) {
         //    一汪光池又熄灭。攻 ~0.1/衰 ~0.5（按镜④进度 u 计），扫掠方向随环绕侧向。
         if (!rig.pulsed) { rig.pulsed = true; requestCoinPulse(); }
         if (glintRef.current) {
-          const g = ss((u - 0.03) / 0.1) * (1 - ss((u - 0.28) / 0.5));
-          const phi = aziC + rig.side * (1.15 - 2.3 * u);
-          glintRef.current.position.set(restX + Math.sin(phi) * 0.7, tableTop + 0.85, restZ + Math.cos(phi) * 0.7);
-          glintRef.current.intensity = 30 * g;
+          // 包络用镜④的**线性**进度（u 是给机位用的 smootherstep,开局压得太慢,曾把攻期拖没）
+          const ul = Math.min(1, Math.max(0, (t - t3) / (t4 - t3)));
+          const g = ss((ul - 0.03) / 0.1) * (1 - ss((ul - 0.28) / 0.5));
+          const phi = aziC + rig.side * (1.15 - 2.3 * ul);
+          glintRef.current.position.set(restX + Math.sin(phi) * 0.2, tableTop + 0.32, restZ + Math.cos(phi) * 0.2);
+          glintRef.current.intensity = 2.2 * g;
         }
       }
       px = restX + Math.sin(aziC) * r; py = tableTop + h; pz = restZ + Math.cos(aziC) * r;
-      ax = restX; ay = tableTop + 0.05; az = restZ;
+      ax = restX; ay = tableTop + 0.005; az = restZ;
       aimK = 0.0005;
     } else {
       // ⑤ 归位：进段瞬间快照当前位姿，smootherstep 混合到落座中性位（正对桌心）——
@@ -164,9 +175,9 @@ export default function CineRig({ camZ, eyeY, lookY, rot, tableTop }) {
       }
     }
 
-    // 手持微晃：①②明显、③④收敛、⑤随混合归零
-    const wob = shot === 0 ? 0.018 : shot === 1 ? 0.014 : shot <= 3 ? 0.005
-      : 0.005 * (1 - smooth((t - t4) / (t5 - t4)));
+    // 手持微晃：①②明显、③④收敛、⑤随混合归零（微距机位下振幅同步缩小）
+    const wob = shot === 0 ? 0.006 : shot === 1 ? 0.0045 : shot <= 3 ? 0.0018
+      : 0.0018 * (1 - smooth((t - t4) / (t5 - t4)));
     px += (Math.sin(t * 1.9) + 0.6 * Math.sin(t * 3.7 + 1.3)) * wob;
     py += Math.cos(t * 2.3 + 0.7) * wob * 0.7;
 

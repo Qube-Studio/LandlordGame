@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { noteCanvas } from '../assets/pixelnote';
 import { PROP_COLORS, shade } from '../assets/palette';
 import { TICKET_GRID, TICKET_COLS, TICKET_ROWS, ticketCellColor } from '../assets/ticketArt';
+import { CROWN, WHEAT } from './coinArt';
 
 function pixelTexture(draw, size = 16) {
   const c = document.createElement('canvas');
@@ -59,46 +60,7 @@ function fillCells(ctx, cells, color, ox, oy, cell, dx = 0, dy = 0) {
   for (const [x, y, w = 1, h = 1] of cells) ctx.fillRect(ox + (x + dx) * cell, oy + (y + dy) * cell, w * cell, h * cell);
 }
 
-// 王冠(heads/地主):三尖冠 + 冠带 + 中央宝石,12 格宽 × 9 格高(16 格坐标系)。
-// 金面上的同色浮雕看不出轮廓 → 冠体用 shade(+10)「抛光受光面」整体提亮(压铸凸起比底板更亮)。
-const CROWN = {
-  lift: 10, // 主体相对底色的抛光提亮
-  main: [
-    [2, 3, 2, 3], [7, 3, 2, 3], [12, 3, 2, 3], // 三尖(3 格高)
-    [2, 6, 3, 1], [6, 6, 4, 1], [11, 6, 3, 1], // 尖底加宽,留 1 格谷
-    [2, 7, 12, 3],                             // 冠身
-    [2, 10, 12, 1], [3, 11, 10, 1],            // 冠带(底边内收 1 格)
-  ],
-  hi: [ // 左上受光:每尖顶行 + 左缘格,冠身/冠带左缘
-    [2, 3, 2, 1], [2, 4, 1, 2], [7, 3, 2, 1], [7, 4, 1, 2], [12, 3, 2, 1], [12, 4, 1, 2],
-    [2, 7, 1, 3], [2, 10, 1, 1],
-  ],
-  sh: [ // 冠身/冠带分界刻线
-    [2, 9, 12, 1],
-  ],
-  gem: [[7, 9, 2, 2]], gemHi: [[7, 9, 1, 1]], // 中央红宝石(压住刻线) + 左上高光
-  ox: 8, oy: 7.5, // 居中锚(格):图案占 2..13 列 / 3..11 行
-};
-
-// 麦穗(tails/农民):顶粒 + 居中麦秆 + 3 对麦粒(与秆留 1 格缝)+ 底部两片小叶,15 格坐标系 × 13 格高
-const WHEAT = {
-  main: [
-    [7, 0, 1, 2],                 // 顶粒
-    [7, 2, 1, 11],                // 麦秆(贯穿到底)
-    [4, 2, 2, 2], [9, 2, 2, 2],   // 麦粒对 ×3(纵向间隔 1 格)
-    [4, 5, 2, 2], [9, 5, 2, 2],
-    [4, 8, 2, 2], [9, 8, 2, 2],
-    [6, 10, 1, 1], [5, 11, 1, 1], // 左叶(贴秆斜向外)
-    [8, 10, 1, 1], [9, 11, 1, 1], // 右叶
-  ],
-  hi: [ // 每颗麦粒左上角 + 顶粒首格
-    [7, 0, 1, 1], [4, 2, 1, 1], [9, 2, 1, 1], [4, 5, 1, 1], [9, 5, 1, 1], [4, 8, 1, 1], [9, 8, 1, 1],
-  ],
-  sh: [ // 每颗麦粒右下角 + 秆底格
-    [5, 3, 1, 1], [10, 3, 1, 1], [5, 6, 1, 1], [10, 6, 1, 1], [5, 9, 1, 1], [10, 9, 1, 1], [7, 12, 1, 1],
-  ],
-  ox: 7.5, oy: 6.5, // 居中锚(格):图案占 4..10 列 / 0..12 行
-};
+// 王冠/麦穗压铸图案点阵已抽到 scene/coinArt.js(纯数据单一真源,tools/voxgen 体素硬币共用)。
 
 export function coinFaceTexture(face = 'heads') {
   if (COIN_CACHE.has(face)) return COIN_CACHE.get(face);

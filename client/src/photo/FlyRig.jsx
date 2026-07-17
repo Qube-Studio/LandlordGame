@@ -34,12 +34,13 @@ export default function FlyRig() {
   const speed = useRef(5);
   const keys = useRef({});
 
-  // 由 pos → 注视桌心，反解 yaw/pitch（yaw=0 面向 -z；fwd=(-sinYaw·cosPitch, sinPitch, -cosYaw·cosPitch)）
-  const lookAtTarget = () => {
-    const d = new THREE.Vector3().subVectors(LOOK_AT, pos.current).normalize();
+  // 由 pos → 注视 target，反解 yaw/pitch（yaw=0 面向 -z；fwd=(-sinYaw·cosPitch, sinPitch, -cosYaw·cosPitch)）
+  const lookAtPoint = (target) => {
+    const d = new THREE.Vector3().subVectors(target, pos.current).normalize();
     pitch.current = THREE.MathUtils.clamp(Math.asin(THREE.MathUtils.clamp(d.y, -1, 1)), -1.535, 1.535);
     yaw.current = Math.atan2(-d.x, -d.z);
   };
+  const lookAtTarget = () => lookAtPoint(LOOK_AT);
   const applyPreset = (name) => {
     const p = PRESETS[name]; if (!p) return;
     pos.current.set(p[0], p[1], p[2]);
@@ -53,6 +54,20 @@ export default function FlyRig() {
   const preset = usePhotoStore(s => s.preset);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { if (preset?.name) applyPreset(preset.name); }, [preset]);
+
+  // 消费 F 聚焦请求（§2.1）：dist = radius / tan(fov/2) × 1.2，沿**当前视线**反方向退 dist——
+  // 视角朝向不变、只挪机位，聚焦不会让人晕头转向；再 lookAt center 反解一次（消浮点漂移+钳俯仰）。
+  const focusReq = usePhotoStore(s => s.focusReq);
+  useEffect(() => {
+    const f = focusReq; if (!f) return;
+    const center = new THREE.Vector3(f.center[0], f.center[1], f.center[2]);
+    const dist = f.radius / Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2) * 1.2;
+    const cp = Math.cos(pitch.current), sp = Math.sin(pitch.current);
+    const cy = Math.cos(yaw.current), sy = Math.sin(yaw.current);
+    pos.current.copy(center).addScaledVector(new THREE.Vector3(-sy * cp, sp, -cy * cp), -dist);
+    lookAtPoint(center);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusReq]);
 
   // 消费相机回灌（导入场景时把保存的机位灌回来）
   const camRestore = usePhotoStore(s => s.camRestore);
