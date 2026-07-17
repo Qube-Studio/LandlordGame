@@ -39,3 +39,7 @@ export const listImages = () => request(`${BASE}/images`);
 // 图片入库（同名覆盖，与 legacy 一致）。→ {url, name}
 export const uploadImage = (name, blob) =>
   request(`${BASE}/upload?name=${encodeURIComponent(name)}`, { method: 'POST', body: blob });
+
+// 图库删除（磁盘 unlink，**不可撤回**——调用方须先 confirm 并提示引用处）。→ {ok, name}
+export const deleteImage = (name) =>
+  request(`${BASE}/images?name=${encodeURIComponent(name)}`, { method: 'DELETE' });

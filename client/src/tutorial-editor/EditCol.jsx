@@ -9,9 +9,9 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import {
   useTedStore, findByUid,
-  isImgData, isBarData, textOf, sizeOf, normBar, newBar,
+  isImgData, isBarData, textOf, sizeOf, normBar, newBar, imgUsage,
 } from './store';
-import { listImages } from './api';
+import { listImages, deleteImage } from './api';
 import { doUpload, confirmDeleteChapters, copyBlocksToClipboard, pasteFromClipboardAfterBlock, countRender } from './helpers';
 import { parseRuns } from '../game/richtext';
 
@@ -97,11 +97,16 @@ function ImgBody({ chUid, block, onUploadTo }) {
   const d = block.data;
   // 记「加载失败的那个 URL」而非布尔：URL 一变自然不等于失败记录 → 直接重试，无需 effect 重置
   const [brokenUrl, setBrokenUrl] = useState(null);
+  const [nat, setNat] = useState(null); // 原图像素尺寸（缩略图 onLoad 读 naturalWidth/Height）
   const st = () => useTedStore.getState();
+  const setW = (v, key) => st().setBlockWidth(chUid, block.uid, v, key ? { key } : {});
+  const curW = Number.isFinite(Number(d.width)) && Number(d.width) > 0 ? Math.round(Number(d.width)) : null;
+  const stepFrom = curW ?? nat?.w ?? 200; // 未设宽度时以原图宽为步进基准（点 + 即从原图尺寸开始调）
   return (
     <div className="ted-img-row">
       {d.img && brokenUrl !== d.img
-        ? <img className="ted-img-thumb" src={d.img} alt="" onError={() => setBrokenUrl(d.img)} />
+        ? <img className="ted-img-thumb" src={d.img} alt="" onError={() => setBrokenUrl(d.img)}
+            onLoad={(e) => setNat({ w: e.target.naturalWidth, h: e.target.naturalHeight })} />
         : <div className="ted-img-thumb missing">{d.img ? '加载失败' : '无图'}</div>}
       <div className="ted-img-fields">
         <input
@@ -116,6 +121,22 @@ function ImgBody({ chUid, block, onUploadTo }) {
           value={d.alt || ''}
           onChange={(e) => st().setBlockAlt(chUid, block.uid, e.target.value)}
         />
+        {/* 宽度精调：空=原图尺寸（不落 width 键）。拖拽调节在右侧预览的把手上（所见即所得） */}
+        <div className="ted-row ted-imgw">
+          <label className="ted-lab">宽度</label>
+          <button type="button" className="ted-btn sm" title="减 10px" onClick={() => setW(stepFrom - 10)}>−</button>
+          <input
+            className="ted-input ted-num"
+            placeholder={nat ? String(nat.w) : '原图'}
+            value={curW ?? ''}
+            onChange={(e) => setW(e.target.value, 'imgw:' + block.uid)}
+          />
+          <button type="button" className="ted-btn sm" title="加 10px" onClick={() => setW(stepFrom + 10)}>+</button>
+          <span className="ted-dim">px</span>
+          <button type="button" className={`ted-btn sm ${curW ? '' : 'on'}`} title="清除宽度 = 按原图尺寸显示"
+            onClick={() => setW(null)}>原图</button>
+          {nat && <span className="ted-dim" title="原图像素尺寸">{nat.w}×{nat.h}</span>}
+        </div>
         <div className="ted-row">
           <button type="button" className="ted-btn sm" onClick={() => onUploadTo(block.uid)}>上传图片…</button>
           <button type="button" className="ted-btn sm" title="从已入库图片（client/public/tutorial/）中选择" onClick={() => st().openPicker(chUid, block.uid)}>图库…</button>
@@ -288,22 +309,40 @@ const Block = memo(function Block(props) {
 // ---- 图库选择器（模态） ----
 function ImagePicker() {
   const picker = useTedStore((s) => s.picker);
-  // 结果里带上 for（对应哪次打开）：渲染期用 for!==picker 推导「载入中」，effect 里不做同步 setState
-  const [result, setResult] = useState({ for: null, status: 'ready', images: [], error: null });
+  // 结果里带上 for/gen（对应哪次打开+第几次刷新）：渲染期用它们 !== 当前值推导「载入中」，
+  // effect 里不做同步 setState
+  const [gen, setGen] = useState(0);
+  const [result, setResult] = useState({ for: null, gen: -1, status: 'ready', images: [], error: null });
   useEffect(() => {
     if (!picker) return undefined;
     let alive = true;
     listImages()
-      .then((j) => { if (alive) setResult({ for: picker, status: 'ready', images: j.images ?? [], error: null }); })
-      .catch((e) => { if (alive) setResult({ for: picker, status: 'error', images: [], error: e.message }); });
+      .then((j) => { if (alive) setResult({ for: picker, gen, status: 'ready', images: j.images ?? [], error: null }); })
+      .catch((e) => { if (alive) setResult({ for: picker, gen, status: 'error', images: [], error: e.message }); });
     return () => { alive = false; };
-  }, [picker]);
+  }, [picker, gen]);
   if (!picker) return null;
-  const state = result.for === picker ? result : { status: 'loading', images: [], error: null };
+  const state = (result.for === picker && result.gen === gen) ? result : { status: 'loading', images: [], error: null };
   const st = useTedStore.getState();
   const pick = (im) => {
     st.setBlockImg(picker.chUid, picker.uid, im.url); // 离散一步撤回
     st.closePicker();
+  };
+  // 删除图库文件：先查全文引用（删了引用处会变坏图，但不替用户改文档——校验面板会标出来）。
+  // 磁盘 unlink 不进撤回栈，confirm 里明说。
+  const del = async (im) => {
+    const used = imgUsage(useTedStore.getState().chapters, im.url);
+    const warn = used.length
+      ? `「${im.name}」正被 ${used.length} 处引用（${used.slice(0, 3).join('、')}${used.length > 3 ? '…' : ''}）。\n删除后这些图片段会变成坏图。\n\n`
+      : `删除「${im.name}」？\n\n`;
+    if (!window.confirm(warn + '文件将从磁盘移除，此操作无法撤回。')) return;
+    try {
+      await deleteImage(im.name);
+      st.showToast(`已删除 ${im.name}`);
+      setGen((g) => g + 1); // 刷新列表
+    } catch (e) {
+      st.showToast('删除失败：' + e.message, true);
+    }
   };
   return (
     <div className="ted-modal-mask" onClick={(e) => { if (e.target === e.currentTarget) st.closePicker(); }}>
@@ -323,6 +362,10 @@ function ImagePicker() {
             <div key={im.name} className="ted-pick-cell" title={im.name} onClick={() => pick(im)}>
               <img className="ted-pick-thumb" src={im.url} alt="" loading="lazy" />
               <div className="ted-pick-name">{im.name}</div>
+              <button
+                type="button" className="ted-pick-del" title="从图库删除（磁盘文件，不可撤回）"
+                onClick={(e) => { e.stopPropagation(); del(im); }}
+              >✕</button>
             </div>
           ))}
         </div>

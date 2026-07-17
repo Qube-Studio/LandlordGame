@@ -19,6 +19,7 @@ import EditCol from './EditCol';
 import ContextMenu from './Menu';
 import ValidationPanel from './Validation';
 import TutorialContent from '../ui/TutorialContent';
+import ImgResizer from './ImgResizer';
 import PixelText from '../assets/pixelfont/PixelText';
 
 // 409 冲突对话框：磁盘被他人（legacy 编辑器/另一窗口）改过——不覆盖不丢内存态，交用户裁决
@@ -335,8 +336,10 @@ export default function TutorialEditor() {
           onEnd={persistCols}
         />
 
-        {/* 预览：完整游戏骨架，宽度/字距与游戏逐像素一致（入场动画由 editor.css 反污染关闭） */}
+        {/* 预览：完整游戏骨架，宽度/字距与游戏逐像素一致（入场动画由 editor.css 反污染关闭）。
+            选中图片段时 ImgResizer 在此浮出缩放把手（编辑器 chrome，不进共享渲染器） */}
         <div className="ted-preview" ref={previewRef}>
+          <ImgResizer previewRef={previewRef} />
           <div className="goal-hud hud-card rules-panel">
             <div className="goal-line hud-card-title">
               <PixelText size={2} color="var(--px-gold)">教程</PixelText>

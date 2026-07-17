@@ -8,6 +8,7 @@
 //   ① m 档字号存纯字符串（setBlockText/setBlockSize 经 mkText 归一）
 //   ② alt 空时删键（setBlockAlt）
 //   ③ 旧式属性条 {value,max} 仅在用户编辑该块时固化为 {width,fill}（setBarProps 先 fossilize）
+//   ④ 图片宽度未设/清空时删 width 键（setBlockWidth）——无 width = 原图尺寸，存量图片段零字节变动
 import { create } from 'zustand';
 import { getDoc, putDoc } from './api';
 
@@ -136,6 +137,21 @@ export const sizeOf = (d) =>
 export const mkText = (t, sz = 'm') => (sz === 'm' ? t : { text: t, size: sz });
 
 export const BAR_W = { lo: 24, hi: 400, def: 144 };
+// 图片显示宽度（px）。上下限与 TutorialContent 的防御性夹取同值——那边不能 import 本模块（纯净性铁律），
+// 属性条 width 已是同款双写先例；改这里必须同步改 TutorialContent。
+export const IMG_W = { lo: 24, hi: 1200 };
+// 某图片 URL 在全文的引用处（章节标题列表）——图库删除前提示用
+export const imgUsage = (chapters, url) => {
+  const hits = [];
+  const walk = (list) => {
+    for (const ch of list) {
+      if ((ch.body ?? []).some((b) => isImgData(b.data) && b.data.img === url)) hits.push(ch.title || '(无标题)');
+      walk(ch.children ?? []);
+    }
+  };
+  walk(chapters);
+  return hits;
+};
 export const clampNum = (v, lo, hi) => {
   let n = Math.round(Number(v));
   if (!Number.isFinite(n)) n = lo;
@@ -639,6 +655,20 @@ export const useTedStore = create((set, get) => {
       if (!loc || !isImgData(loc.block.data)) return;
       get().pushHistory('alt:' + uid);
       if (alt) loc.block.data.alt = alt; else delete loc.block.data.alt; // 规则②：空删键
+      bump(loc.block);
+      commit();
+    },
+    // 图片显示宽度（px）。width 传 null/空/非正 → 删键 = 原图尺寸（规则④）。
+    // opts.key：拖拽把手/数字输入的合并键（一次拖拽=一步撤回）
+    setBlockWidth(chUid, uid, width, opts = {}) {
+      const loc = blockAt(chUid, uid);
+      if (!loc || !isImgData(loc.block.data)) return;
+      const n = Math.round(Number(width));
+      const on = width !== null && width !== '' && Number.isFinite(n) && n > 0;
+      if (!on && loc.block.data.width === undefined) return; // 本就无 width 又要清空 → 不脏文档
+      get().pushHistory(opts.key ?? null);
+      if (on) loc.block.data.width = clampNum(n, IMG_W.lo, IMG_W.hi);
+      else delete loc.block.data.width;
       bump(loc.block);
       commit();
     },

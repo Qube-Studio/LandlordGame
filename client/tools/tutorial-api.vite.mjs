@@ -112,6 +112,16 @@ export default function tutorialApi() {
             fs.writeFileSync(path.join(IMG_DIR, name), bytes); // 同名覆盖（与 legacy 一致，可预期）
             return sendJSON(res, 200, { url: `/tutorial/${name}`, name });
           }
+          // 删除图库文件（不可撤回——编辑器侧负责 confirm 与引用检查；Host 门禁已在上方拦过）
+          if (req.method === 'DELETE' && route === '/images') {
+            const name = safeName(url.searchParams.get('name'));
+            const file = path.join(IMG_DIR, name);
+            if (!name || !fs.existsSync(file) || !fs.statSync(file).isFile()) {
+              return sendJSON(res, 404, { error: '图片不存在：' + name });
+            }
+            fs.unlinkSync(file);
+            return sendJSON(res, 200, { ok: true, name });
+          }
           if (req.method === 'GET' && route === '/images') {
             let images = [];
             try {

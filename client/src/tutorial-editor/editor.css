@@ -218,6 +218,10 @@ textarea.ted-input { resize: vertical; min-height: 46px; }
   color: #5b6170; font-size: 10px; text-align: center;
 }
 .ted-img-fields { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+/* 图片宽度精调行（拖拽调节在预览的把手上） */
+.ted-imgw .ted-num { width: 62px; flex: none; text-align: center; }
+.ted-lab { color: #8b919e; font-size: 11px; flex: none; }
+.ted-dim { color: #6c7280; font-size: 10.5px; flex: none; }
 
 /* 属性条块：块内小样底衬 + 数字步进 */
 .ted-bar-prev { padding: 6px 8px; background: rgba(0, 0, 0, 0.28); border: 1px solid #2a2f3a; }
@@ -231,12 +235,31 @@ textarea.ted-input { resize: vertical; min-height: 46px; }
 /* ---- 右：游戏同源预览 ----
    .rules-panel 定宽 min(880px,92vw)（pixel.css），舞台居中、容器可滚——内容列宽与游戏逐像素一致。 */
 .ted-preview {
+  position: relative; /* 图片缩放把手的定位参照（ImgResizer 绝对定位在此层） */
   flex: 1; min-width: 0;
   overflow: auto;
   padding: 18px;
   background: #101216;
   display: flex; align-items: flex-start; justify-content: center;
   user-select: text;
+}
+
+/* 图片缩放把手：浮在预览里选中图片的右下角，拖动改显示宽度（见 ImgResizer.jsx） */
+.ted-imgres {
+  position: absolute; z-index: 30;
+  width: 12px; height: 12px; margin: -6px 0 0 -6px;
+  background: #e8c96a; border: 1px solid #101216;
+  cursor: nwse-resize; touch-action: none;
+}
+.ted-imgres:hover, .ted-imgres.on { background: #fff0bb; }
+.ted-imgres-tag {
+  position: absolute; z-index: 30;
+  transform: translate(-100%, 6px);
+  margin-left: -8px;
+  padding: 1px 5px;
+  background: rgba(16, 18, 22, 0.9); border: 1px solid #2a2f3a;
+  color: #cfd3dc; font-size: 10.5px; white-space: nowrap;
+  pointer-events: none;
 }
 /* nav 占位列：保住 .tut-split 的 200px 左列 + 分隔线，使正文列宽与游戏一致（内容不渲染） */
 .ted-nav-ghost { min-height: 100%; }
@@ -284,11 +307,21 @@ textarea.ted-input { resize: vertical; min-height: 46px; }
   grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
 }
 .ted-pick-cell {
+  position: relative;
   border: 1px solid #2a2f3a; background: rgba(0, 0, 0, 0.25);
   cursor: pointer; padding: 6px;
   display: flex; flex-direction: column; gap: 4px;
 }
 .ted-pick-cell:hover { border-color: #e8c96a; background: rgba(232, 201, 106, 0.08); }
+/* 图库删除钮：悬停显形（误删的代价是磁盘文件，不给常驻按钮） */
+.ted-pick-del {
+  position: absolute; top: 4px; right: 4px;
+  width: 20px; height: 20px; padding: 0; line-height: 1;
+  background: rgba(16, 18, 22, 0.85); border: 1px solid #2a2f3a; color: #8b919e;
+  cursor: pointer; opacity: 0; font-size: 12px;
+}
+.ted-pick-cell:hover .ted-pick-del { opacity: 1; }
+.ted-pick-del:hover { background: #b4483a; border-color: #d86a5a; color: #fff; }
 .ted-pick-thumb { width: 100%; height: 90px; object-fit: contain; background: #000; image-rendering: pixelated; }
 .ted-pick-name { font-size: 10.5px; color: #8b919e; word-break: break-all; }
 

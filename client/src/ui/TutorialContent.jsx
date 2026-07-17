@@ -3,7 +3,9 @@
 // 不靠手抄镜像。段落形态（与 tutorial.json 一致）：
 //   字符串（**…** 金字、"- " 开头渲染为缩进列表项；空串 = 排版空行）、
 //   {text, size}（带字号的文字段，size ∈ s/l/xl，档位像素值在 pixel.css 的 .rules-p.fs-*）、
-//   {img, alt}（图片段落；img 为空时游戏渲染 null，编辑器经 renderEmptyImg 给占位框）、
+//   {img, alt, width}（图片段落；img 为空时游戏渲染 null，编辑器经 renderEmptyImg 给占位框；
+//     width=显示宽度 px，缺省=原图尺寸——无 width 时不落 style，存量图片段 DOM 逐字节不变；
+//     .tut-img 的 max-width:100% 保证窄屏不溢出。上下限与 store 的 IMG_W 双写，改需同步）、
 //   {bar, width, fill, color, fade}（属性条；旧段式 {value,max} 自动折算为 fill）。
 // 纯净性硬约束：只准 import game/richtext(parseRuns) 与 PixelText——禁止 import text/*、gameStore，
 // 否则编辑器模块图会触达 tutorial.json（text/zh.js import 它），每次保存都自我 full-reload。
@@ -35,7 +37,9 @@ export default function TutorialContent({ chapter, fallback = null, scrollRef, r
                 // 空图片：游戏不传 renderEmptyImg → 渲染 null（与抽取前行为一致）；编辑器给占位框
                 return renderEmptyImg ? <Fragment key={i}>{renderEmptyImg(item, i)}</Fragment> : null;
               }
-              return <img key={i} ref={aRef} {...aProps} className="tut-img" src={item.img} alt={item.alt ?? ''} draggable={false} />;
+              const iw = Math.round(Number(item.width));
+              const iStyle = Number.isFinite(iw) && iw > 0 ? { width: Math.max(24, Math.min(1200, iw)) } : undefined;
+              return <img key={i} ref={aRef} {...aProps} className="tut-img" style={iStyle} src={item.img} alt={item.alt ?? ''} draggable={false} />;
             }
             if (obj && 'bar' in item) {
               const w0 = Math.round(Number(item.width));

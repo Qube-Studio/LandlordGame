@@ -12,3 +12,6 @@ export const WALL_SEG = { w: 168, th: 6, lowerH: 112, upperH: 168 };
 
 // 房梁段:长 222 格(7.992m,三段拼 24m),截面 12 格(0.432m,对齐现有 0.4 方梁)。
 export const BEAM_SEG = { len: 222, cs: 12 };
+
+// 地板砖:8m 见方(222 格 ≤256 单模型),3×3 拼 24m 地面;顶面板缝凹槽做浮雕,顶=世界 y0。
+export const FLOOR_TILE = { size: 8.0, th: 3, grid: [-8, 0, 8] };

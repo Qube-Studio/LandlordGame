@@ -17,7 +17,7 @@ import { makeDense, writeVox } from '../src/voxel/vox.js';
 import { P, shade, PROP_COLORS } from '../src/assets/palette.js';
 import { CHAND, TIERED } from '../src/voxel/chandelierSpec.js';
 import { CROWN, WHEAT } from '../src/scene/coinArt.js';
-import { PROP_VOXEL_SIZE as PROP_S, WALL_SEG, BEAM_SEG } from '../src/voxel/propsSpec.js';
+import { PROP_VOXEL_SIZE as PROP_S, WALL_SEG, BEAM_SEG, FLOOR_TILE } from '../src/voxel/propsSpec.js';
 import { MAT, makePalette, mulberry32, hash2, Painter, d8, hollow } from './voxkit.mjs';
 import { charAssets } from './voxchars.mjs';
 
@@ -530,12 +530,17 @@ function genChair() {
   return { dense, pal, mats };
 }
 
-// ================= 墙段·下(石墙裙 6×4m,厚 0.216;酒馆现有烘焙墙的石裙材质做成真石材) =================
-// 错缝砌块 0.8×0.4 + 勾缝 + 逐块色调抖动 + 石面麻点 + 压顶亮带——全为色,零凸起。
-// 图案与厚度方向无关(两面同纹),摆放不分正反;四段拼一面墙(propsSpec.WALL_SEG)。
+// 浮雕厚度门:大平面墙不能只染色(在平板上=贴图观感,用户 2026-07-17 反馈)。表面分类给
+// 每个 (x,y) 一个「后退格数」d(0 齐平/1 略退/2 深槽)→ 真几何起伏,吃掠射光与阴影。
+// ⚠ 只雕朝室内的 +z 面:WallLayer 四面墙(ry=0/π/±π/2)的 local +z 恒朝室内,背面永不可见,
+//   双面雕=白付一倍几何。iz 由世界 z 反推格号(墙厚 TH 非对称居中,勿用 |z|)。
+const reliefGate = (z, TH, d) => Math.round(z / PROP_S + TH / 2) <= TH - 1 - d;
+
+// ================= 墙段·下(石墙裙 6×4m,厚 0.216):粗砺石墙,砖块起伏 + 勾缝深槽 =================
+// 错缝砌块 0.8×0.4:每块砖随机凸出/内收 1 格 + 勾缝退 2 格深槽 + 逐块色调 + 石斑;四段拼一面(WALL_SEG)。
 function genWallLower() {
-  const S = PROP_S;
-  const dense = makeDense(WALL_SEG.w, WALL_SEG.lowerH, WALL_SEG.th);
+  const S = PROP_S, TH = WALL_SEG.th;
+  const dense = makeDense(WALL_SEG.w, WALL_SEG.lowerH, TH);
   const p = new Painter(dense, S);
   const { pal, reg, mats } = makePalette();
   const stone = reg(P.stone500);
@@ -544,27 +549,34 @@ function genWallLower() {
   const mortar = reg(shade(P.stone700, -35));
   const capLine = reg(P.wood900);
   const half = (WALL_SEG.w * S) / 2;
-  p.scan(-half, half, 0, WALL_SEG.lowerH * S, -0.11, 0.11, (x, y) => {
-    if (y > 3.95) return stoneLit;                       // 压顶石(亮带)
-    if (y > 3.87) return capLine;                        // 压顶下阴影线
-    if (y < 0.05) return mortar;                         // 底缘
+  // 表面分类 → {ci, d}
+  const surf = (x, y) => {
+    if (y > 3.95) return { ci: stoneLit, d: 0 };          // 压顶石凸出
+    if (y > 3.87) return { ci: capLine, d: 1 };           // 压顶下阴线略退
+    if (y < 0.05) return { ci: mortar, d: 1 };            // 底缘略退
     const row = Math.floor(y / 0.4);
-    const u = x + half + (row % 2) * 0.4;                // 错缝
-    if ((y % 0.4) < S || (u % 0.8) < S) return mortar;   // 勾缝
-    // 石面麻点:3×3 体素块状(⚠勿改回逐体素——4% 孤点把每块砖面剁成 20+ 片,
-    // 贪心合并崩掉,16 段墙 10 万四边形,真机实测掉帧;块状后 ~6 倍合并率,观感更"石斑")
-    if (hash2(Math.floor(x / (S * 3)), Math.floor(y / (S * 3))) > 0.97) return stoneDark;
+    const u = x + half + (row % 2) * 0.4;                 // 错缝
+    // 勾缝退 1 格(⚠勿加深到 2:退 2 时每块砖四周都出现台阶,quad 数 2962→5189;
+    // 退 1 时约半数砖与缝同深、无台阶,合并顺畅——「砖随机凹凸」反而是省钱项,勿删)
+    if ((y % 0.4) < S || (u % 0.8) < S) return { ci: mortar, d: 1 };
+    const spot = hash2(Math.floor(x / (S * 3)), Math.floor(y / (S * 3))) > 0.97; // 3×3 石斑(勿改逐体素)
     const t = hash2(Math.floor(u / 0.8) * 7 + 1, row * 13);
-    return t < 0.22 ? stoneDark : t > 0.78 ? stoneLit : stone;
+    const ci = spot ? stoneDark : t < 0.22 ? stoneDark : t > 0.78 ? stoneLit : stone;
+    const d = hash2(Math.floor(u / 0.8) * 3, row * 5 + 2) > 0.5 ? 0 : 1; // 每块砖凸/凹一格
+    return { ci, d };
+  };
+  p.scan(-half, half, 0, WALL_SEG.lowerH * S, -0.11, 0.11, (x, y, z) => {
+    const { ci, d } = surf(x, y);
+    return reliefGate(z, TH, d) ? ci : 0;
   });
   hollow(dense);
   return { dense, pal, mats };
 }
 
-// ================= 墙段·上(木板墙 6×6m):竖板分色 + 板缝 + 节疤 + 深色木筋柱 =================
+// ================= 墙段·上(木板墙 6×6m):板面内收 + 木筋柱/横带凸出 + 板缝深槽 =================
 function genWallUpper() {
-  const S = PROP_S;
-  const dense = makeDense(WALL_SEG.w, WALL_SEG.upperH, WALL_SEG.th);
+  const S = PROP_S, TH = WALL_SEG.th;
+  const dense = makeDense(WALL_SEG.w, WALL_SEG.upperH, TH);
   const p = new Painter(dense, S);
   const { pal, reg, mats } = makePalette();
   const wood = reg(P.wood500);
@@ -574,20 +586,50 @@ function genWallUpper() {
   const timber = reg(P.beam);
   const timberLit = reg(shade(P.beam, 30));
   const half = (WALL_SEG.w * S) / 2;
-  p.scan(-half, half, 0, WALL_SEG.upperH * S, -0.11, 0.11, (x, y) => {
-    if (y > 5.9) return timber;                          // 顶檐带
-    if (y < 0.06) return timber;                         // 底带(压住与墙裙的接线)
-    for (const px of [-3.02, -1.01, 1.01, 3.02]) {       // 深色木筋柱(段缝也被边柱盖住)
+  const surf = (x, y) => {
+    if (y > 5.9) return { ci: timber, d: 0 };             // 顶檐带凸出
+    if (y < 0.06) return { ci: timber, d: 0 };            // 底带凸出(压住与墙裙接线)
+    for (const px of [-3.02, -1.01, 1.01, 3.02]) {        // 木筋柱凸出(段缝也被边柱盖住)
       if (Math.abs(x - px) < 0.08) {
-        return streak(Math.round(y / S), Math.round(px * 10)) === 1 ? timberLit : timber;
+        return { ci: streak(Math.round(y / S), Math.round(px * 10)) === 1 ? timberLit : timber, d: 0 };
       }
     }
     const u = x + half;
     const plank = Math.floor(u / 0.42);
-    if ((u % 0.42) < S) return woodLine;                 // 板缝
-    if (hash2(Math.round(x / S) * 3 + 1, Math.round(y / (2 * S))) > 0.995) return woodLine; // 节疤
+    if ((u % 0.42) < S) return { ci: woodLine, d: 2 };    // 板缝深槽
+    if (hash2(Math.round(x / S) * 3 + 1, Math.round(y / (2 * S))) > 0.995) return { ci: woodLine, d: 1 }; // 节疤=纯染色(⚠勿做凹坑:孤立单格凹陷=碎片化噪点)
     const base = [wood, woodLit, woodDim][Math.floor(hash2(plank, 5) * 3)];
-    const st = streak(Math.round(y / S), plank * 11);    // 竖板木纹沿 y
+    const st = streak(Math.round(y / S), plank * 11);     // 竖板木纹沿 y
+    return { ci: st === 1 ? woodLit : st === 2 ? woodDim : base, d: 1 }; // 板面整体内收 1(柱/带凸出)
+  };
+  p.scan(-half, half, 0, WALL_SEG.upperH * S, -0.11, 0.11, (x, y, z) => {
+    const { ci, d } = surf(x, y);
+    return reliefGate(z, TH, d) ? ci : 0;
+  });
+  hollow(dense);
+  return { dense, pal, mats };
+}
+
+// ================= 地板砖(8m 见方,3×3 拼 24m;顶=世界 y0):板缝顶面凹槽做浮雕 =================
+// 0.6m 宽长板沿 x 铺、错缝对接;顶面板缝/对接头挖 1 格凹槽(掠射地面时读出板路,不再是贴图平面)。
+function genFloorTile() {
+  const S = PROP_S, N = Math.round(FLOOR_TILE.size / S), TH = FLOOR_TILE.th;
+  const dense = makeDense(N, TH, N);
+  const p = new Painter(dense, S);
+  const { pal, reg, mats } = makePalette();
+  const wood = reg(P.wood500);
+  const woodLit = reg(shade(P.wood500, 8));
+  const woodDim = reg(shade(P.wood500, -12));
+  const half = (N * S) / 2;
+  p.scan(-half, half, 0, TH * S, -half, half, (x, y, z) => {
+    const plank = Math.floor((z + half) / 0.6);              // 0.6m 宽板(沿 x 铺)
+    const seam = ((z + half) % 0.6) < S;                     // 板边缝(沿 x)
+    const butt = ((x + half + plank * 0.9) % 2.4) < S;       // 错缝对接头(逐板错开)
+    const topRow = y > (TH - 1) * S - 0.001;
+    if (topRow && (seam || butt)) return 0;                  // 顶面凹槽=浮雕
+    if (!topRow) return woodDim;                             // 下层压暗
+    const base = [wood, woodLit, woodDim][Math.floor(hash2(plank * 3, Math.floor((x + half) / 2.4)) * 3)];
+    const st = streak(Math.round(x / S), plank * 7);         // 沿板长木纹
     return st === 1 ? woodLit : st === 2 ? woodDim : base;
   });
   hollow(dense);
@@ -1031,6 +1073,7 @@ const assets = [
   ['props/chair.vox', genChair],
   ['props/wall-lower.vox', genWallLower],
   ['props/wall-upper.vox', genWallUpper],
+  ['props/floor-tile.vox', genFloorTile],
   ['props/beam.vox', genBeam],
   ['props/barrel.vox', genBarrel],
   ['props/crate.vox', genCrate],

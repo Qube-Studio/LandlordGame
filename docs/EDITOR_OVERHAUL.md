@@ -39,8 +39,15 @@
 - **预览骨架**：编辑器预览挂完整 `.rules-panel.goal-hud.hud-card → .tut-split → nav 占位列(200px) → TutorialContent`，
   内容列宽与游戏一致（字距修正 `.rules-panel .pixel-text{gap:1px}` 依赖祖先类名）。
 - **编辑器侧文档模型**：载入时每块包 `{uid, data}`（uid 单调递增；撤回快照保留 uid；serialize 剥掉）。
-  React key/多选/剪贴板/定位一律用 uid。**逐字节兼容三规则**：m 档字号存纯字符串（非 {text,size:'m'}）、
-  alt 空时删键、旧式属性条 {value,max} 仅在用户编辑该块时固化为 {width,fill}。
+  React key/多选/剪贴板/定位一律用 uid。**逐字节兼容四规则**：m 档字号存纯字符串（非 {text,size:'m'}）、
+  alt 空时删键、旧式属性条 {value,max} 仅在用户编辑该块时固化为 {width,fill}、
+  **图片 width 未设/清空时删键**（无 width = 原图尺寸；存量图片段零字节变动）。
+- **图片显示宽度**（2026-07-17 增）：`{img, alt, width}`，width=px（IMG_W 24–1200，store 与 TutorialContent
+  双写夹取——后者不能 import store，属性条 width 已是同款先例）。编辑器两条路径：编辑列数值精调
+  （−/+ 步进、占位符=原图宽、「原图」清键）与**预览内拖拽把手**（ImgResizer.jsx，浮在真实宽度的预览上，
+  所见即所得；把手是 .ted-* chrome，不进共享渲染器）。把手三坑：定位命令式写 style（layout effect 里
+  setState 触 react-hooks/set-state-in-effect）、拖拽中位置跟指针算（预览有 100ms 防抖，读 DOM 会跳）、
+  拖拽中同时把宽度直写进 img.style 拿即时反馈。撤回清空块选择（applySnap 既有设计）→ 把手随之收起，重选即回。
   验收：真 tutorial.json 载入→不动→保存→`git diff` 为空。
 - **文件 IO：vite 插件** `client/tools/tutorial-api.vite.mjs`（主线已预落，T 轨只改此文件本体）：
   - `apply:'serve'`（构建物理不存在）；**Host 头白名单** `^(localhost|127\.0\.0\.1)(:\d+)?$` 否则 403
@@ -48,7 +55,9 @@
   - `GET /__tutorial-api/doc` → `{data, hash, mtime}`；`PUT /__tutorial-api/doc` 带 `baseHash`，
     不符 → 409（前端出「磁盘已被修改」对话：重载/强制覆盖）；写盘 tmp+rename 原子替换；
     落盘 `JSON.stringify(data,null,2)+'\n'`。
-  - `POST /__tutorial-api/upload?name=` → 入库（safeName 消毒照抄 legacy server.mjs）；`GET /__tutorial-api/images` 列表。
+  - `POST /__tutorial-api/upload?name=` → 入库（safeName 消毒照抄 legacy server.mjs）；`GET /__tutorial-api/images` 列表；
+    `DELETE /__tutorial-api/images?name=` → 图库删除（磁盘 unlink，**不进撤回栈**——编辑器侧负责 confirm
+    并先用 `imgUsage(chapters, url)` 报出引用章节；删了引用处会变坏图，但不替用户改文档，交校验面板标记）。
   - body 手动 chunk 收集，上限 doc 2MB / 图 20MB。**路径可被 env 覆盖**：`TUTORIAL_DOC_FILE`/`TUTORIAL_IMG_DIR`
     （绝对路径，E2E 隔离用；禁止 URL 参数改路径）。
   - vite config 已加 `server.watch.ignored: ['**/public/tutorial/**']`（防上传触发全页 reload）与

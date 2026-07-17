@@ -6,9 +6,10 @@
 import { tex } from '../assets/texlib';
 import { P } from '../assets/palette';
 import VoxModel from '../voxel/VoxModel';
-import { PROP_VOXEL_SIZE, PROP_TABLE_Y } from '../voxel/propsSpec';
+import { PROP_VOXEL_SIZE, PROP_TABLE_Y, FLOOR_TILE } from '../voxel/propsSpec';
 import wallLowerUrl from '../assets/vox/props/wall-lower.vox?url';
 import wallUpperUrl from '../assets/vox/props/wall-upper.vox?url';
+import floorTileUrl from '../assets/vox/props/floor-tile.vox?url';
 import beamUrl from '../assets/vox/props/beam.vox?url';
 import tableUrl from '../assets/vox/props/table-long.vox?url';
 import chairUrl from '../assets/vox/props/chair.vox?url';
@@ -34,16 +35,19 @@ function WallLayer({ url, y }) {
   ));
 }
 
-// 体素房间:替换 Scene3D#Room(贴图墙/方梁 → 体素墙/梁;地板天花照旧)
+// 体素房间:替换 Scene3D#Room(贴图墙/方梁/地面 → 体素墙/梁/地板;天花仍贴图——抬头看不到,§2.2)
 export function VoxRoom() {
-  const floor = tex('floor', {}, 6, 6);
   const ceil = tex('wood', { tone: P.wood700 }, 4, 4);
   return (
     <group>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
-        <planeGeometry args={[24, 24]} />
-        <meshStandardMaterial map={floor} roughness={1} />
-      </mesh>
+      {/* 体素地板 3×3 拼 24m:砖厚下沉,顶面落世界 y0(与桌/椅/人的落地面一致) */}
+      {FLOOR_TILE.grid.map((fx) => FLOOR_TILE.grid.map((fz) => (
+        <VoxModel
+          key={`f${fx}:${fz}`} url={floorTileUrl} scale={PROP_VOXEL_SIZE}
+          position={[fx, -FLOOR_TILE.th * PROP_VOXEL_SIZE, fz]}
+          castShadow={false} receiveShadow
+        />
+      )))}
       <WallLayer url={wallLowerUrl} y={0} />
       <WallLayer url={wallUpperUrl} y={4.0} />
       <mesh position={[0, 10, 0]} rotation={[Math.PI / 2, 0, 0]}>
