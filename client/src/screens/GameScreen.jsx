@@ -40,7 +40,7 @@ function useCineDirector(cine, setCine) {
       return () => clearTimeout(id);
     }
     if (cine === 'hide') {
-      // 兜底须明显宽于最慢分镜的自然收尾（restAt 上限 5.2s + 归位 2.4s ≈ 7.6s），只接异常
+      // 兜底须明显宽于最慢分镜的自然收尾（restAt 兜底上限 ~5.7s + 揭示/归位 2.2s ≈ 7.9s），只接异常
       const id = setTimeout(() => setCine('enter'), 10000);
       return () => clearTimeout(id);
     }

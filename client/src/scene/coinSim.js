@@ -11,8 +11,9 @@
 //      每掷的「戏路」不同，但都以立转/颤摆收干告终。
 //   ③ **每掷实时模拟，无预烘焙池**：COIN_FLIP 开始时现场模拟（一次 ~10ms），
 //      玩家永远不可能识别出重复——因为根本不存在重复。
-//   ④ **滞空慢动作**（子弹时间）：抛掷弧顶前后一段按 0.35× 回放（表现层时间扭曲，
-//      warp 字段随动画返回）——镜头照常动、只有硬币慢放；落台前恢复原速。
+//   ④ **滞空慢动作**（子弹时间）：抛掷弧顶前后一段慢放（表现层时间扭曲，warp 字段随
+//      动画返回）——回放速率沿真实时间走「1 → 0.28 → 1」的**梯形**（线性缓坡缓入缓出）：
+//      常速起抛、弧顶渐入子弹时间、落台前渐出回常速；镜头照常动、只有硬币慢放。
 //
 // 公平观感（核心不变式）：结果由服务端权威 50/50 决定，动画只负责「看起来」公平——
 //   1) 原型/初始姿态/自旋全部盲抽（与结果无关）；重试窗只看落定时刻（同样与结果无关）；
@@ -20,7 +21,7 @@
 //      ——圆柱几何对称，**空间轨迹分毫不变**，只是两面贴图互换。动力学与结果标签解耦；
 //   3) 空中多圈翻转 + 弹跳混沌 → 落定前无法追踪朝面。
 //
-// 时长：滞空(含慢放) ~0.8-1.6s、落台戏(弹跳/滚/立转) 1.5-3s → 真实落定 ~2.4-4.8s；
+// 时长：滞空(含慢放) ~0.9-1.4s、落台戏(弹跳/滚/立转) 1.5-3.5s → 真实落定 ~2.4-4.8s；
 // DURATION 6.0 与服务端 config.timing.coinAnimMs（6000，须 ≥ 前者）不变。
 
 export const COIN_R = 0.055;   // 半径（米）：Ø11cm 台面主角道具（一版 Ø5cm 被反馈太小）
@@ -42,8 +43,9 @@ const SPIN_DAMP = 1.8;         // 近平躺时绕竖轴钻孔摩擦（/s）
 const E_SNAP = 0.004;          // 收束能量阈（J,m=1）：接触中总机械能低于此 → 定格混合
 const SNAP_MS = 160;           // 定格混合时长（把最后一丝颤动柔和放平，视觉无跳变）
 const FENCE_X = 1.25, FENCE_Z = 0.9; // 软围栏（弹性回推,几乎不触发；毡面半宽 2.95/1.95）
-const SLOWMO_RATE = 0.35;      // 滞空慢动作倍率
-const SLOWMO_MAX = 0.45;       // 慢放窗最长（模拟秒）→ 额外真实时长 ≤ 0.45·(1/0.35−1) ≈ 0.84s
+const SLOWMO_RATE = 0.28;      // 滞空慢动作谷值倍率（梯形平台段）
+const SLOWMO_MAX = 0.6;        // 平台段最长（模拟秒）→ 平台额外真实时长 ≤ 0.6·(1/0.28−1) ≈ 1.54s
+const SLOWMO_RAMP = 0.11;      // 缓入/缓出坡各自的模拟时长（窗口紧时按窗宽 30% 压缩）
 
 // ---------- 纯四元数/向量工具（无 THREE 依赖,保持本模块可在 node 单测） ----------
 const qMul = (a, b) => [
@@ -97,9 +99,9 @@ function drawParams(rng = Math.random) {
     return {
       arch,
       x0: (rng() - 0.5) * 0.6, z0: (rng() - 0.5) * 0.5,
-      h0: 0.28 + rng() * 0.16,
-      vx: (rng() - 0.5) * 0.3, vy: 0.85 + rng() * 0.4, vz: (rng() - 0.5) * 0.22,
-      // 扰动噪声必须极小：±0.8rad/s 在 ~0.4s 滞空里只漂 ~18°（优雅的缓慢进动）——
+      h0: 0.45 + rng() * 0.2,
+      vx: (rng() - 0.5) * 0.3, vy: 1.35 + rng() * 0.5, vz: (rng() - 0.5) * 0.22,
+      // 扰动噪声必须极小：±0.8rad/s 在 ~0.5s 滞空里只漂 ~23°（优雅的缓慢进动）——
       // 曾用 ±3,滞空漂 60° 落地早就不立了,咬毡闸门都进不去
       wWorld: [(rng() - 0.5) * 1.6, omega, (rng() - 0.5) * 1.6],
       // wSpin 对立姿硬币是「前滚」分量,会把 ω 拉离竖轴、张大滞空章动锥——落地时若正处
@@ -114,9 +116,9 @@ function drawParams(rng = Math.random) {
   return {
     arch,
     x0: (rng() - 0.5) * 0.6, z0: (rng() - 0.5) * 0.5,
-    h0: 0.42 + rng() * 0.34,               // 抛掷起点高于桌面（米）
+    h0: 0.58 + rng() * 0.34,               // 抛掷起点高于桌面（米）
     vx: (rng() - 0.5) * (arch === 'roller' ? 0.85 : 0.5),
-    vy: 0.55 + rng() * 0.85,
+    vy: 1.3 + rng() * 0.8,
     vz: (rng() - 0.5) * (arch === 'roller' ? 0.7 : 0.45),
     wWorld: [Math.cos(azi) * Math.cos(tilt) * wMag, Math.sin(tilt) * wMag, Math.sin(azi) * Math.cos(tilt) * wMag],
     wSpin: arch === 'roller' ? sgn * (12 + rng() * 10) : (rng() - 0.5) * 6,
@@ -301,17 +303,28 @@ function simulate(prm, tableTop) {
     }
   }
 
-  // 滞空慢动作窗（表现层时间扭曲,回放期由 Coin.jsx 应用）：弧顶前一点起、首触前收——
-  // 镜头照常动、只有硬币慢放（子弹时间）。真实时间轴上 restAt/firstHit 相应后移 extra。
-  const wA = Math.max(0.1, tApex - 0.06);
-  const wB = Math.min((firstHit ?? 1) - 0.06, wA + SLOWMO_MAX);
-  const hasWarp = wB - wA >= 0.15;
-  const extra = hasWarp ? (wB - wA) * (1 / SLOWMO_RATE - 1) : 0;
+  // 滞空慢动作窗（表现层时间扭曲,回放期由 Coin.jsx 应用）：**常速进、常速出**——
+  // 回放速率沿真实时间走「1 → RATE → 1」的梯形（线性缓坡）:常速起抛一拍、弧顶前渐入
+  // 子弹时间、平台段慢放、首触前渐出回到常速落台。sim=∫rate·dt 为分段二次,warpTime
+  // 有闭式解（连续且端点速率恰为 1,无跳变）。真实时间轴上 restAt/firstHit 后移 extra。
+  const wA = Math.max(0.12, tApex - 0.05);
+  const wB = (firstHit ?? 1) - 0.05;
+  const span = wB - wA;
+  let warp = null;
+  if (span >= 0.15) {
+    const sRamp = Math.min(SLOWMO_RAMP, span * 0.3);          // 缓坡（模拟秒,两侧各一）
+    const sMid = Math.min(SLOWMO_MAX, span - 2 * sRamp);      // 平台（模拟秒;截短则窗尾照常速）
+    const rRamp = 2 * sRamp / (1 + SLOWMO_RATE);              // 线性速率坡:sim=R·(1+rate)/2
+    const rMid = sMid / SLOWMO_RATE;
+    const extra = (2 * rRamp + rMid) - (2 * sRamp + sMid);    // 慢放净增的真实时长
+    warp = { a: wA, b: wB, rate: SLOWMO_RATE, extra, sRamp, sMid, rRamp, rMid };
+  }
+  const extra = warp ? warp.extra : 0;
   return {
     frames, result, dt: FDT, durationMs: DURATION * 1000,
     restAt: restAt + extra,             // 真实时间轴的落定时刻（含慢放延伸;分镜/相机用这个）
     simRestAt: restAt,
-    warp: hasWarp ? { a: wA, b: wB, rate: SLOWMO_RATE, extra } : null,
+    warp,
     hitAt: (firstHit ?? 1) + extra,     // 真实时间轴的首触时刻（分镜切镜锚点）
     restRy, restX: snapFrom ? snapFrom.p[0] : p[0], restZ: snapFrom ? snapFrom.p[2] : p[2],
     arch: prm.arch,
@@ -329,13 +342,24 @@ function slerpArr(a, b, t) {
   return [a[0] * wa + bb[0] * wb2, a[1] * wa + bb[1] * wb2, a[2] * wa + bb[2] * wb2, a[3] * wa + bb[3] * wb2];
 }
 
-// 真实时间 → 模拟时间（滞空慢动作的时间扭曲;无 warp 时恒等）
+// 真实时间 → 模拟时间（滞空慢动作的时间扭曲;无 warp 时恒等）。
+// 梯形速率的分段积分（缓坡内 sim 是二次函数）：处处连续、单调,两端速率恰为 1
+// ——慢动作渐入渐出,开头结尾都是常速（不再是硬切进/出慢放）。
 export function warpTime(anim, tReal) {
   const w = anim.warp;
   if (!w) return tReal;
   if (tReal < w.a) return tReal;
-  const slowEnd = w.a + (w.b - w.a) / w.rate;
-  if (tReal < slowEnd) return w.a + (tReal - w.a) * w.rate;
+  let u = tReal - w.a;
+  // 缓入坡：rate 1→r 线性,sim = u − (1−r)·u²/(2R)
+  if (u < w.rRamp) return w.a + u - (1 - w.rate) * u * u / (2 * w.rRamp);
+  let s = w.a + w.sRamp;
+  u -= w.rRamp;
+  // 平台段：恒 r
+  if (u < w.rMid) return s + u * w.rate;
+  s += w.sMid;
+  u -= w.rMid;
+  // 缓出坡：rate r→1 线性,sim = r·u + (1−r)·u²/(2R)
+  if (u < w.rRamp) return s + w.rate * u + (1 - w.rate) * u * u / (2 * w.rRamp);
   return tReal - w.extra;
 }
 

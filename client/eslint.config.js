@@ -18,4 +18,9 @@ export default defineConfig([
       parserOptions: { ecmaFeatures: { jsx: true } },
     },
   },
+  {
+    // vite 配置在 Node 里执行（cacheDir 读 process.env）,browser globals 不含 process
+    files: ['vite.config.js'],
+    languageOptions: { globals: globals.node },
+  },
 ])
