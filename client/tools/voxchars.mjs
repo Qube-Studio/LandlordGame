@@ -87,10 +87,24 @@ function genBody(role) {
   return { dense, pal, mats };
 }
 
-// ================= 臂(0.225×0.705×0.255):袖织纹 + 腕缝亮线 + 黑手套(掌心微亮) =================
-// 左右臂共用一份(皮肤本就对称);investor 袖套 / glutton 卷袖条纹按 16² 行规格翻译。
-function genArm(role) {
-  const [gx, gy, gz] = CHAR_PARTS.arm.grid;
+// ================= 上臂(0.195×0.345×0.225):袖织纹(骨架 v2:止于肘,过肘 1 格遮弯折缝) =================
+// 左右臂共用一份(皮肤本就对称)。
+function genArmUpper(role) {
+  const [gx, gy, gz] = CHAR_PARTS.armUpper.grid;
+  const dense = makeDense(gx, gy, gz);
+  const p = new Painter(dense, S);
+  const { pal, reg, mats } = makePalette();
+  const sleeve = cloth3(reg, ROLE_CLOTH[role].sleeve);
+  const AW = gx * S, AH = gy * S, AD = gz * S;
+  p.scan(-AW / 2, AW / 2, 0, AH, -AD / 2, AD / 2, (x, y, z) => weave(sleeve, x, y, z));
+  hollow(dense);
+  return { dense, pal, mats };
+}
+
+// ================= 前臂(0.195×0.39×0.21,略细):袖织纹 + 腕缝亮线 + 黑手套(掌心微亮) =================
+// investor 袖套移到前臂顶(肘部),glutton 卷袖白条纹同理——特征跟着前臂走,弯肘时不断裂。
+function genArmLower(role) {
+  const [gx, gy, gz] = CHAR_PARTS.armLower.grid;
   const dense = makeDense(gx, gy, gz);
   const p = new Painter(dense, S);
   const { pal, reg, mats } = makePalette();
@@ -103,18 +117,15 @@ function genArm(role) {
   const cuffTop = role === 'investor' ? reg(shade(cloth.sleeve, -40)) : 0;
   const rollWhite = role === 'glutton' ? reg(PROP_COLORS.chefWhite) : 0;
   const AW = gx * S, AH = gy * S, AD = gz * S;
-  const rowTop = (py) => AH - (py / 16) * AH;   // 16 行皮肤:py 行的上边界
   p.scan(-AW / 2, AW / 2, 0, AH, -AD / 2, AD / 2, (x, y, z) => {
-    if (y < rowTop(13)) {                        // 手套(py13..15)
+    if (y < 0.105) {                             // 手套(底 7 行)
       if (y < S && Math.abs(x) < 0.045 && Math.abs(z) < 0.045) return gloveLit; // 掌心
       return glove;
     }
-    if (y < rowTop(12)) return gloveSeam;        // 腕口亮缝(py12)
-    if (role === 'investor' && y >= rowTop(12) && y < rowTop(8)) {
-      return y >= rowTop(9) ? cuffTop : cuff;    // 袖套(py8..11,顶行更深)
-    }
-    if (role === 'glutton' && ((y >= rowTop(10) && y < rowTop(9)) || (y >= rowTop(12) && y < rowTop(11)))) {
-      return rollWhite;                          // 卷袖白条纹(py9/11)
+    if (y < 0.12) return gloveSeam;              // 腕口亮缝(1 行)
+    if (role === 'investor' && y > AH - 0.075) return y > AH - 0.03 ? cuffTop : cuff; // 肘部袖套(顶 5 行,顶 2 行更深)
+    if (role === 'glutton' && ((y > 0.285 && y < 0.315) || (y > 0.33 && y < 0.36))) {
+      return rollWhite;                          // 卷袖白条纹 ×2
     }
     return weave(sleeve, x, y, z);
   });
@@ -122,26 +133,43 @@ function genArm(role) {
   return { dense, pal, mats };
 }
 
-// ================= 腿(0.255×0.705×0.255):裤织纹 + 鞋(底 2 行) + farmer 前脸泥点 =================
-function genLeg(role) {
-  const [gx, gy, gz] = CHAR_PARTS.leg.grid;
+// ================= 大腿(0.24×0.405×0.24):裤织纹(止于膝,过膝 1 格遮弯折缝) =================
+function genLegUpper(role) {
+  const [gx, gy, gz] = CHAR_PARTS.legUpper.grid;
+  const dense = makeDense(gx, gy, gz);
+  const p = new Painter(dense, S);
+  const { pal, reg, mats } = makePalette();
+  const pants = cloth3(reg, ROLE_CLOTH[role].pants);
+  const LW = gx * S, LH = gy * S, LD = gz * S;
+  p.scan(-LW / 2, LW / 2, 0, LH, -LD / 2, LD / 2, (x, y, z) => weave(pants, x, y, z));
+  hollow(dense);
+  return { dense, pal, mats };
+}
+
+// ================= 小腿(0.225×0.39,略细;鞋带前伸脚 2 格):裤织纹 + 鞋 + farmer 前脸泥点 =================
+// 栅格 z 17 格:小腿柱只占后 15 格(轴心在栅格 z -0.015,VoxPlayer mount z+0.015 与大腿对轴),
+// 鞋(底 3 行)吃满 17 格 → 脚尖朝 +z 前伸——微真人比例的「脚」。
+function genLegLower(role) {
+  const [gx, gy, gz] = CHAR_PARTS.legLower.grid;
   const dense = makeDense(gx, gy, gz);
   const p = new Painter(dense, S);
   const { pal, reg, mats } = makePalette();
   const cloth = ROLE_CLOTH[role];
   const pants = cloth3(reg, cloth.pants);
   const shoe = reg(P.wood900);
-  const LW = gx * S, LH = gy * S, LD = gz * S;
-  p.scan(-LW / 2, LW / 2, 0, LH, -LD / 2, LD / 2, (x, y, z) => {
-    if (y < (2 / 16) * LH) return shoe;          // 鞋(py14..15 + 鞋底整面)
+  const shoeLit = reg(shade(P.wood900, 60));
+  const mud = role === 'farmer' ? reg(P.wood300) : 0;
+  const LW = gx * S, LH = gy * S, HD = (gz * S) / 2; // z ∈ [-HD, +HD),小腿柱后缘 -HD
+  p.scan(-LW / 2, LW / 2, 0, LH, -HD, HD, (x, y, z) => {
+    if (y < 0.045) {                             // 鞋(底 3 行,含前伸脚尖)
+      return y > 0.03 && z > HD - 2.2 * S ? shoeLit : shoe;  // 鞋头亮一线
+    }
+    if (z > HD - 2.4 * S) return 0;              // 鞋以上收回 2 格(小腿柱不含脚尖)
+    if (mud && z > HD - 3.6 * S && y < 0.12 && hash2(Math.round(x / S) * 5, Math.round(y / S)) > 0.6) {
+      return mud;                                // farmer 小腿前脸泥点
+    }
     return weave(pants, x, y, z);
   });
-  if (role === 'farmer') {
-    const mud = reg(P.wood300);
-    const front = (px, py, w, h) =>
-      p.box(-LW / 2 + (px / 16) * LW, -LW / 2 + ((px + w) / 16) * LW, LH - ((py + h) / 16) * LH, LH - (py / 16) * LH, LD / 2 - 1.6 * S, LD / 2, mud);
-    front(3, 11, 1, 1); front(9, 12, 2, 1); front(6, 12, 1, 1); // 泥点
-  }
   hollow(dense);
   return { dense, pal, mats };
 }
@@ -286,8 +314,10 @@ export const charAssets = [
   ['props/char/head.vox', genHead],
   ...CHAR_ROLES.flatMap((role) => [
     [`props/char/body-${role}.vox`, () => genBody(role)],
-    [`props/char/arm-${role}.vox`, () => genArm(role)],
-    [`props/char/leg-${role}.vox`, () => genLeg(role)],
+    [`props/char/arm-up-${role}.vox`, () => genArmUpper(role)],
+    [`props/char/arm-lo-${role}.vox`, () => genArmLower(role)],
+    [`props/char/leg-up-${role}.vox`, () => genLegUpper(role)],
+    [`props/char/leg-lo-${role}.vox`, () => genLegLower(role)],
   ]),
   ...Object.keys(HATS).map((role) => [`props/char/hat-${role}.vox`, () => genHat(role)]),
 ];

@@ -53,6 +53,10 @@
     （绝对路径，E2E 隔离用；禁止 URL 参数改路径）。
   - vite config 已加 `server.watch.ignored: ['**/public/tutorial/**']`（防上传触发全页 reload）与
     `cacheDir: process.env.VITE_CACHE_DIR`（双轨 E2E 各用独立缓存）。
+  - **插件自管 `/tutorial/*` 文件服务**（2026-07-17 实测坑）：watch.ignored 的副作用是 Vite 启动预扫的
+    publicFiles 清单收不到启动后新增的图片，不在清单的路径落 SPA 兜底返回 HTML（浏览器把 HTML 当 PNG
+    解码=碎图）。插件先于 Vite 内部中间件按请求实时读盘服务图库（不在则 404），不做 Host 门禁
+    （教程图是游戏公共资源，cpolar 远程玩家也要能加载）。
 - **旧版处置**：`scripts/tutorial-editor-web/` 保留（`npm run tutorial`），启动 banner 标 legacy 指路新版。
 
 ### 1.2 功能清单

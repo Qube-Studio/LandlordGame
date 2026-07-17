@@ -129,6 +129,8 @@ try {
 
   browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
   const ctx = await browser.newContext({ viewport: { width: 1600, height: 900 } });
+  // 低配/低内存下 SwiftShader 页面加载可超 30s（主线复跑实测终态段 goto 超时）——导航时窗放宽
+  ctx.setDefaultNavigationTimeout(90000);
   await ctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: BASE });
   // 页内速记：st=store 状态、byTitle=按标题找章节、counts=章/段计数（addInitScript 每次导航都重建）
   await ctx.addInitScript(() => {
@@ -151,7 +153,7 @@ try {
   page.on('pageerror', (e) => pageErrors.push(String(e.message).slice(0, 300)));
   failShot = async () => { try { await page.screenshot({ path: path.join(TMP, 'fail.png') }); console.error('失败现场截图 →', path.join(TMP, 'fail.png')); } catch { /* 页已关 */ } };
 
-  const st = (expr) => page.evaluate(expr); // 语义糖：所有轮询体都是页内求值
+  const st = (expr, arg) => page.evaluate(expr, arg); // 语义糖：页内求值（第二参必须转发——漏了它所有带参求值都静默拿到 undefined）
   const ready = () => until(() => st(() => window.__tedStore?.getState().status === 'ready' && !!window.__tedStore.getState().chapters), '编辑器载入完成');
   const undo = (n = 1) => st((k) => { for (let i = 0; i < k; i++) window.__h.st().undo(); }, n);
   const uidOf = (title) => st((t) => window.__h.byTitle(t)?.uid ?? null, title);
@@ -204,7 +206,7 @@ try {
   await page.keyboard.type(' E2E改');
   await until(() => st(() => window.__tedStore.getState().dirty), 'S2d 编辑 → dirty');
   await page.keyboard.press('Control+KeyS');
-  await until(() => !(await st(() => window.__tedStore.getState().dirty)), 'S2e 编辑后保存完成');
+  await until(async () => !(await st(() => window.__tedStore.getState().dirty)), 'S2e 编辑后保存完成');
   {
     const txt = fs.readFileSync(ISO_DOC, 'utf8');
     expect(txt.includes(' E2E改'), 'S2f 编辑写入磁盘');
@@ -227,7 +229,7 @@ try {
   await page.keyboard.press('Control+KeyS');
   await until(() => st(() => !!document.querySelector('.ted-modal')), 'S2k 再保存 → 再次 409');
   await page.click('.ted-modal .ted-btn:has-text("强制覆盖")');
-  await until(() => !(await st(() => window.__tedStore.getState().dirty)), 'S2l 强制覆盖完成');
+  await until(async () => !(await st(() => window.__tedStore.getState().dirty)), 'S2l 强制覆盖完成');
   expect(!fs.readFileSync(ISO_DOC, 'utf8').includes('外部改动一'), 'S2m 强制覆盖：磁盘上的外部改动被编辑器内容顶掉');
   extWrite((d) => { d.chapters[0].title = '外部改动二'; });
   await page.click('.ted-title-field input');
@@ -240,7 +242,7 @@ try {
   // 收拾现场：把首章标题改回运行起点值再落盘，后续断言不受污染
   await st((t) => { const s = window.__h.st(); s.setTitle(s.chapters[0].uid, t); }, rootTitle0);
   await page.keyboard.press('Control+KeyS');
-  await until(() => !(await st(() => window.__tedStore.getState().dirty)), 'S2p 现场复原并保存');
+  await until(async () => !(await st(() => window.__tedStore.getState().dirty)), 'S2p 现场复原并保存');
 
   // ---------------- S3 树多选 + 祖先吸收后代 ----------------
   S('S3 树多选（Ctrl/Shift/主选）·祖先吸收后代');
@@ -481,7 +483,15 @@ try {
     expect(s.after === 'E2E甲' && !s.dup && s.sel === 1, 'S7c 粘贴章节信封（含尾换行）：插主选后、id 全树唯一、选中新章', s);
     await undo();
   }
-  // 块信封 + 剪切
+  // 块信封 + 剪切。先把编辑列切回 E2E块——上一步撤回把选择快照还原到别的章节，块 DOM 不在场
+  const showBlk = async (tag) => {
+    await st((u) => window.__h.st().select(u), chBlk);
+    await until(() => st((t) => {
+      const b = window.__h.byTitle(t).body[0];
+      return !!b && !!document.querySelector(`[data-blk-uid="${b.uid}"]`);
+    }, 'E2E块'), `${tag} 编辑列显示 E2E块`);
+  };
+  await showBlk('S7d0');
   B = await blkUids();
   await page.click(kindOf(B[0]));
   await page.click(kindOf(B[2]), { modifiers: ['Control'] });
@@ -570,6 +580,7 @@ try {
   }, U['E2E甲']), 'S8h 菜单动作：甲3 后插入新章节');
   await undo();
   // 块菜单：插属性条 / navigator.clipboard 复制+粘贴 / 批删
+  await showBlk('S8i0');
   B = await blkUids();
   await page.click(kindOf(B[0]), { button: 'right' });
   await until(() => st(() => !!document.querySelector('.ted-menu')), 'S8i 块右键菜单出现');
@@ -636,6 +647,7 @@ try {
     await until(() => st(() => JSON.parse(localStorage.getItem('fate-ted-cols') || '{}').tree === 310), 'S10a 拖宽 250→310 并持久化 localStorage');
     expect((await st(() => getComputedStyle(document.querySelector('.ted-tree')).width)) === '310px', 'S10b 树栏实际宽度 310px');
   }
+  await showBlk('S10c0'); // 预览/编辑列必须正显示 E2E块，粘 30 块才有可滚内容
   await st((ch) => window.__h.st().pasteBlocks(ch, null, Array.from({ length: 30 }, (_, i) => `滚动行${i + 1}`)), chBlk);
   await until(() => st(() => {
     const col = document.querySelector('.ted-editcol');
@@ -646,6 +658,7 @@ try {
 
   // ---------------- S11 撤回焦点恢复 / 打字合并 / memo 定标 ----------------
   S('S11 撤回焦点恢复·打字合并（时基容忍）·memo 渲染计数');
+  await showBlk('S11-0');
   B = await blkUids();
   // 打字合并：记实际步数 N、撤 N 步完全还原（坑④）
   await page.click(`[data-blk-uid="${B[0]}"] textarea`);
@@ -704,7 +717,7 @@ try {
   await page.click('.ted-draftbar .ted-btn:has-text("恢复草稿")');
   await until(() => st(() => window.__h.st().chapters.some((c) => c.title.includes('草稿X')) && window.__h.st().dirty), 'S12e 恢复草稿：内容+dirty');
   await page.keyboard.press('Control+KeyS');
-  await until(() => !(await st(() => window.__tedStore.getState().dirty)), 'S12f 草稿落盘');
+  await until(async () => !(await st(() => window.__tedStore.getState().dirty)), 'S12f 草稿落盘');
   expect(fs.readFileSync(ISO_DOC, 'utf8').includes('草稿X') && !(await st(() => localStorage.getItem('fate-ted-draft'))), 'S12g 保存成功 → 磁盘含草稿改动、草稿键清除');
   // 丢弃路径
   await page.click('.ted-title-field input');
@@ -720,12 +733,11 @@ try {
   expect(await st(() => !window.__h.st().chapters.some((c) => c.title.includes('弃稿Y')) && !window.__h.st().dirty), 'S12k 丢弃后 = 磁盘态（弃稿Y 不存在）');
   expect((await st(() => getComputedStyle(document.querySelector('.ted-tree')).width)) === '310px', 'S12l 栏宽跨 reload 生效（310px）');
   // 现场复原：把 草稿X 从标题去掉，回到 S12 前的磁盘态
-  await st((t) => {
+  await st(() => {
     const s = window.__h.st();
     const hit = s.chapters.find((c) => c.title.includes('草稿X'));
     if (hit) s.setTitle(hit.uid, hit.title.replace('草稿X', ''));
-    void t;
-  }, null);
+  });
   await page.keyboard.press('Control+KeyS');
   await until(() => fs.readFileSync(ISO_DOC, 'utf8') === diskBeforeDraft, 'S12m 现场复原（磁盘回 S12 起点）');
 

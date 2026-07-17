@@ -4,6 +4,10 @@
 // 一键机位、截图/隐藏 UI 热键，任意摆放并精确移动/缩放/三维旋转钞票·人物·硬币。
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
+// pixel.css 消费 palette/texlib **JS 副作用注入**的 --c-*/--tex-* 变量（全局坑单 #2）——
+// 必须显式 import，不许靠 StudioScene 的模块图传染侥幸带入（import 序同 src/main.jsx：先注入后消费）
+import '../assets/palette';
+import '../assets/texlib';
 import '../theme.css';
 import '../App.css';
 import '../pixel.css';

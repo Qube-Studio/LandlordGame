@@ -16,12 +16,13 @@ export function useTabLock() {
     let bc;
     try { bc = new BroadcastChannel(CHANNEL); } catch { return undefined; } // 环境不支持 → 单标签，不上锁
     const id = Math.random().toString(36).slice(2);
-    let holder = false, lastPing = 0, electT = 0, pingT = 0;
+    let holder = false, lastPing = 0, electT = 0, pingT = 0, epoch = 0; // epoch=本次持锁主张的起始时刻
     const st = () => useTedStore.getState();
-    const post = (t) => { try { bc.postMessage({ t, id }); } catch { /* channel 已关 */ } };
+    const post = (t) => { try { bc.postMessage({ t, id, epoch }); } catch { /* channel 已关 */ } };
 
     const becomeHolder = () => {
       holder = true;
+      epoch = Date.now();
       st().setRo(false);
       clearInterval(pingT);
       pingT = setInterval(() => post('ping'), 1000);
@@ -47,8 +48,11 @@ export function useTabLock() {
       if (data.t === 'held' || data.t === 'ping') {
         lastPing = Date.now();
         if (holder) {
-          // 双持锁冲突（并发竞选先后上位）：id 字典序小者保锁，大者退回只读
-          if (data.t === 'ping' && data.id < id) becomeRo();
+          // 双持锁冲突（并发竞选 / 夺锁后撞上对方的**在途旧心跳**）：持锁主张按 epoch 新者胜——
+          // 夺锁语义优先，旧心跳压不掉刚夺锁的标签（否则两边互退只读→看门狗重选，锁可能落回原标签，
+          // 主线复跑 S13c 实测抓到此竞态）；同刻并列才按 id 字典序小者保锁。
+          const theirs = data.epoch ?? 0;
+          if (data.t === 'ping' && (theirs > epoch || (theirs === epoch && data.id < id))) becomeRo();
           return;
         }
         clearTimeout(electT); // 有人持锁 → 取消竞选

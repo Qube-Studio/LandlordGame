@@ -8,12 +8,13 @@ import { useMemo, useRef, useLayoutEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { coinFaceTexture, coinEdgeTexture } from './textures';
-import { pickFlip, restTransform, setCoinRest, getCoinRest, setCoinFlightLive, consumeCoinPulse, COIN_R, COIN_H, COIN_SEGMENTS } from './coinSim';
+import { pickFlip, restTransform, setCoinRest, getCoinRest, setCoinFlightLive, consumeCoinPulse, warpTime, COIN_R, COIN_H, COIN_SEGMENTS } from './coinSim';
 import { useGameStore } from '../store/gameStore';
 import { PROP_COLORS } from '../assets/palette';
 
 const _wp = new THREE.Vector3(); // 每帧发布世界位姿用的临时向量（硬币在旋转组内,分镜相机要世界系）
-const _qa = new THREE.Quaternion(), _qb = new THREE.Quaternion(); // 帧间 slerp 临时四元数（零分配）
+const _qa = new THREE.Quaternion(); // 帧间四元数 slerp 的两个临时端点（useFrame 内零分配）
+const _qb = new THREE.Quaternion();
 
 export default function Coin({ result = 'heads', mode = 'flip', tableTop = 1.0 }) {
   const ref = useRef();
@@ -72,7 +73,8 @@ export default function Coin({ result = 'heads', mode = 'flip', tableTop = 1.0 }
     }
 
     if (startRef.current == null) startRef.current = st.clock.elapsedTime;
-    const t = st.clock.elapsedTime - startRef.current;
+    const tReal = st.clock.elapsedTime - startRef.current;
+    const t = warpTime(anim, tReal); // 滞空慢动作：真实时间 → 模拟时间（子弹时间,仅硬币慢放）
     const { frames, dt } = anim;
     const fpos = t / dt;
     const i0 = Math.min(frames.length - 1, Math.max(0, Math.floor(fpos)));
@@ -85,11 +87,11 @@ export default function Coin({ result = 'heads', mode = 'flip', tableTop = 1.0 }
     _qa.set(a.q[0], a.q[1], a.q[2], a.q[3]);
     _qb.set(b.q[0], b.q[1], b.q[2], b.q[3]);
     c.quaternion.slerpQuaternions(_qa, _qb, f);
-    // 发布世界位姿 + 时间轴给分镜相机（§3.4 演出）：restAt=该轨迹的落定时刻
+    // 发布世界位姿 + 真实时间轴给分镜相机（§3.4 演出）：restAt/hitAt 均为真实时刻（含慢放延伸）
     c.getWorldPosition(_wp);
-    setCoinFlightLive({ x: _wp.x, y: _wp.y, z: _wp.z, t, restAt: anim.restAt ?? 3.2 });
+    setCoinFlightLive({ x: _wp.x, y: _wp.y, z: _wp.z, t: tReal, restAt: anim.restAt ?? 3.2, hitAt: anim.hitAt ?? 1.0 });
     // 末镜「闪亮一下」：揭示镜开场点火（CineRig requestCoinPulse），躺平的硬币接住光闪一下
-    if (restStartRef.current == null && t > (anim.restAt ?? 9) && consumeCoinPulse()) restStartRef.current = st.clock.elapsedTime;
+    if (restStartRef.current == null && tReal > (anim.restAt ?? 9) && consumeCoinPulse()) restStartRef.current = st.clock.elapsedTime;
     if (restStartRef.current != null) {
       const rt = st.clock.elapsedTime - restStartRef.current;
       const glow = rt < 0.45 ? Math.sin((rt / 0.45) * Math.PI) * 3.2 : 0;

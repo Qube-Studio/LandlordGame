@@ -11,6 +11,23 @@ const KNOWN_BAR = new Set(['bar', 'width', 'fill', 'color', 'fade', 'value', 'ma
 // 图片探活缓存（模块级：面板反复开合、章节增删不重测同一 URL；「重新检查」清掉它）
 const imgCache = new Map(); // url → 'ok' | 'bad'
 const probing = new Set(); // 探活在途去重：面板每次渲染都重扫，别为同一 URL 反复 new Image()
+// 探活结果的订阅表（模块级）：Image 回调必须能把「任何还挂着的面板」拍醒重渲染。
+// 不能用 effect 作用域的 alive 标志——effect 每次渲染都重跑（StrictMode 还会立刻假卸载一次），
+// 在途探活的回调抓到的是早已失效的旧闭包，结果只进缓存不触发渲染，面板会卡死在「N 张图检查中…」。
+const probeListeners = new Set();
+function probeImg(url) {
+  if (probing.has(url) || imgCache.has(url)) return;
+  probing.add(url);
+  const done = (state) => () => {
+    probing.delete(url);
+    imgCache.set(url, state);
+    probeListeners.forEach((ping) => ping());
+  };
+  const im = new Image();
+  im.onload = done('ok');
+  im.onerror = done('bad');
+  im.src = url;
+}
 
 function scan(chapters) {
   const issues = [];
@@ -50,18 +67,13 @@ export default function ValidationPanel({ onClose }) {
   // 每次渲染都重扫（全树 ~40 节点，廉价）——比 useMemo+人造依赖诚实；探活去重靠 probing 集合
   const { issues, pending } = scan(chapters);
 
+  // 订阅探活结果（只挂一次；卸载即退订）+ 每次渲染把新出现的 URL 交给模块级探活（自带去重）
   useEffect(() => {
-    let alive = true;
-    for (const url of pending) {
-      if (probing.has(url)) continue;
-      probing.add(url);
-      const im = new Image();
-      im.onload = () => { probing.delete(url); imgCache.set(url, 'ok'); if (alive) force((n) => n + 1); };
-      im.onerror = () => { probing.delete(url); imgCache.set(url, 'bad'); if (alive) force((n) => n + 1); };
-      im.src = url;
-    }
-    return () => { alive = false; };
-  });
+    const ping = () => force((n) => n + 1);
+    probeListeners.add(ping);
+    return () => probeListeners.delete(ping);
+  }, []);
+  useEffect(() => { pending.forEach(probeImg); });
 
   const recheck = () => { imgCache.clear(); force((n) => n + 1); };
 

@@ -1,12 +1,14 @@
 // 掷币分镜相机（§3.4 演出，纯表现层）：COIN_FLIP 期从 CameraRig 手中接管相机，
-// 按烘焙轨迹的落定时刻（coinSim restAt）自适应地播五段分镜：
-//   ① 仰拍起抛（硬切）——贴桌低机位仰视硬币从高处翻落，广角；
-//   ② 低机位侧跟（硬切）——桌面高度侧面缓慢环绕，跟拍弹跳，长焦压缩 + 轻微荷兰角；
-//   ③ 贴桌特写收势（硬切）——锚定落点的缓推特写，看最后几次「翘起→拍平」；
-//   ④ 升机位俯视揭示（连续）——从特写缓缓升起俯望币面，读清结果；
-//   ⑤ 缓动归位——smootherstep 混合回落座中性位（正对桌心），到位后 setCine('enter')
-//      放行 UI 出场，父层卸载本组件、CameraRig 以零跳变接管（中性位=其 lookAt 初值）。
-// 手持感：①②微晃 ③④收敛 ⑤归零；FOV 逐镜变焦（切镜快照、镜内阻尼）。
+// 按实时模拟轨迹的真实时间轴（coinSim hitAt/restAt,含滞空慢放延伸）播**四段分镜**——
+// 切镜只发生在「拍摄内容变化」处（三版修订:旧「稳定后特写再切一次」与侧跟内容重复,已并）：
+//   ① 仰拍滞空（唯一硬切进②）——贴毡低机位仰望硬币翻落,滞空段硬币 0.35× 慢放
+//      （子弹时间:镜头照常动、只有硬币慢）；
+//   ② 落台长镜头——微距跟拍从首触起的全部物理戏:弹跳、贴缘滚弧、陀螺式立转
+//      越转越低,一路看到躺平（锚点阻尼跟随,缓慢环绕+推近）；
+//   ③ 揭示（同一长镜头**连续**升起,不切）——升机位俯望币面读结果,打光闪+币面脉冲；
+//   ④ 缓动归位——smootherstep 混合回落座中性位,到位后 setCine('enter')放行 UI 出场,
+//      父层卸载本组件、CameraRig 以零跳变接管（中性位=其 lookAt 初值）。
+// 手持感：①②微晃 ③收敛 ④归零；FOV 逐镜变焦（切镜快照、镜内阻尼）。
 // 兜底：卸载时还原 fov=基准值；若分镜没走完（相位跳变/切自由相机），cine 卡在 'hide' 就放行。
 // useFrame 内逐帧改写 camera 位姿/fov 是 r3f 既定用法（与 CameraRig 同款豁免）。
 /* eslint-disable react-hooks/immutability */
@@ -35,6 +37,7 @@ export default function CineRig({ camZ, eyeY, lookY, rot, tableTop }) {
     aim: new THREE.Vector3(0, tableTop + 1.2, 0),   // 阻尼注视点（切镜时快照到位）
     anchor: { x: 0, z: 0 },                          // 跟拍锚点（硬币 xz 的阻尼跟随）
     restAt: null,                                    // 闩存的落定时刻（硬币卸载后时间轴不回跳）
+    hitAt: null,                                     // 闩存的首触时刻（①→② 切镜锚点）
     rushT4: null,                                    // REFLIP 加速归位的提前 t4（一次性闩存）
     pulsed: false,                                   // 揭示镜的币面金光脉冲只点一次火
     donePos: null, doneAim: null, doneFov: BASE_FOV, // 归位起点快照
@@ -62,11 +65,12 @@ export default function CineRig({ camZ, eyeY, lookY, rot, tableTop }) {
     }
     const t = st.clock.elapsedTime - rig.start;
 
-    // 硬币实时世界位姿 + 该轨迹的落定时刻（Coin 每帧发布；首帧未发布时按桌心/经验值兜底；
-    // 落定时刻闩存——相位推进后 flip 硬币卸载、实时通道清空，归位段时间轴不能回跳）
+    // 硬币实时世界位姿 + 真实时间轴（Coin 每帧发布,restAt/hitAt 含慢放延伸；闩存——
+    // 相位推进后 flip 硬币卸载、实时通道清空，归位段时间轴不能回跳）
     const live = getCoinFlightLive();
-    if (live) rig.restAt = live.restAt;
+    if (live) { rig.restAt = live.restAt; rig.hitAt = live.hitAt; }
     const restAt = rig.restAt ?? 4.2;
+    const hitAt = rig.hitAt ?? 1.0;
     const coinX = live?.x ?? 0, coinY = live?.y ?? tableTop + 1.2, coinZ = live?.z ?? 0;
     // 落点（挂载即知，local→world 旋 rot）
     const rl = getCoinRest();
@@ -74,15 +78,15 @@ export default function CineRig({ camZ, eyeY, lookY, rot, tableTop }) {
     const restX = rl ? rl.x * cr + rl.z * sr : 0;
     const restZ = rl ? -rl.x * sr + rl.z * cr : 0;
 
-    // 跟拍锚点：硬币 xz 的阻尼跟随——弹跳的横向抖动不直传镜头（真实尺寸硬币位移小而快）
+    // 跟拍锚点：硬币 xz 的阻尼跟随——弹跳/滚缘的横向移动柔和入镜，不直传抖动
     rig.anchor.x += (coinX - rig.anchor.x) * damp(0.02, delta);
     rig.anchor.z += (coinZ - rig.anchor.z) * damp(0.02, delta);
 
-    // 分镜时刻表（随落定时刻伸缩）：t1 起抛→侧跟, t2 侧跟→特写, t3 特写→升起, t4 升起→归位, t5 归位完成
-    const t1 = 0.85;
-    const t2 = Math.max(t1 + 0.4, restAt - 0.9);
-    const t3 = restAt + 0.55;
-    let t4 = restAt + 1.3;
+    // 分镜时刻表（随该掷的真实时间轴伸缩）：
+    // t1 滞空→落台长镜头(唯一硬切,首触前一瞬), t3 长镜头→揭示升起(连续), t4 归位起, t5 归位完成
+    const t1 = Math.max(0.4, hitAt - 0.05);
+    const t3 = restAt + 0.5;
+    let t4 = restAt + 1.25;
     // 提前归位（rushT4 一次性闩存）：
     // ① REFLIP/NEGOTIATE/FINALIZE 需要玩家交互——相位一到就压掉剩余镜头，UI 尽快回场；
     // ② 其他相位若在本地时间轴早期(<5.5s)就离开了 COIN_FLIP，说明是中途接入（重连/晚挂载：
@@ -95,55 +99,48 @@ export default function CineRig({ camZ, eyeY, lookY, rot, tableTop }) {
     if (rig.rushT4 != null) t4 = Math.min(t4, rig.rushT4);
     const t5 = t4 + 0.95;
 
-    const shot = t >= t4 ? 4 : t < t1 ? 0 : t < t2 ? 1 : t < t3 ? 2 : 3;
-    if (glintRef.current && shot !== 3) glintRef.current.intensity = 0; // 打光闪只活在末镜④
+    const shot = t >= t4 ? 3 : t < t1 ? 0 : t < t3 ? 1 : 2;
+    if (glintRef.current && shot !== 2) glintRef.current.intensity = 0; // 打光闪只活在揭示镜③
     // 调试/截图探针（同 __payoutDir 先例）：分镜时间轴与镜号,供 E2E 对时
-    if (import.meta.env.DEV && typeof window !== 'undefined') window.__cineDbg = { t, shot, restAt, glint: glintRef.current?.intensity ?? 0 };
+    if (import.meta.env.DEV && typeof window !== 'undefined') window.__cineDbg = { t, shot, restAt, hitAt, glint: glintRef.current?.intensity ?? 0 };
 
-    // 本帧的目标位置/注视/视场（真实尺寸硬币 Ø5cm → 全部微距机位）
+    // 本帧的目标位置/注视/视场（Ø11cm 硬币 → 近距机位）
     let px, py, pz, ax, ay, az, fovT, aimK;
+    // 落台长镜头与揭示共用的环绕方位（连续推进,②→③无切）
+    const aziG = rig.azi0 + rig.side * (1.35 + 0.3 * Math.max(0, t - t1));
     if (shot === 0) {
-      // ① 仰拍起抛：贴毡低机位仰望翻落的硬币（锚点阻尼跟随抛掷漂移）；缓慢横移
+      // ① 仰拍滞空：贴毡低机位仰望翻落的硬币（滞空段硬币慢放=子弹时间,镜头照常动）
       const azi = rig.azi0 + rig.side * 0.18 * t;
-      px = rig.anchor.x + Math.sin(azi) * 0.55; py = tableTop + 0.10; pz = rig.anchor.z + Math.cos(azi) * 0.55;
+      px = rig.anchor.x + Math.sin(azi) * 0.7; py = tableTop + 0.12; pz = rig.anchor.z + Math.cos(azi) * 0.7;
       ax = coinX; ay = coinY; az = coinZ;
-      fovT = 58; aimK = 0.002;
+      fovT = 56; aimK = 0.002;
     } else if (shot === 1) {
-      // ② 微距侧跟：贴桌高度近距环绕，跟拍弹跳与缘立滚摆（注视阻尼放软，弹跳不甩镜头）
-      const azi = rig.azi0 + rig.side * (1.35 + 0.4 * (t - t1));
-      px = rig.anchor.x + Math.sin(azi) * 0.38; py = tableTop + 0.075; pz = rig.anchor.z + Math.cos(azi) * 0.38;
-      ax = coinX; ay = Math.min(coinY, tableTop + 0.25); az = coinZ;
-      fovT = 48; aimK = 0.01;
-    } else if (shot === 2 || shot === 3) {
-      // ③④ 锚定落点的微距特写→升机位揭示：③ 半径缓推 0.30→0.21、微降——看进动颤摆收干；
-      //     ④ 升到俯视 0.45 高缓拉开——币面读结果
-      const aziC = rig.azi0 + rig.side * (2.2 + 0.08 * (t - t2));
-      let r, h;
-      if (shot === 2) {
-        const u = smooth((t - t2) / (t3 - t2));
-        r = 0.30 - 0.09 * u; h = 0.15 - 0.05 * u;
-        fovT = 44;
-      } else {
-        const u = smooth((t - t3) / (t4 - t3));
-        r = 0.21 + 0.06 * u; h = 0.10 + 0.35 * u;
-        fovT = 44 + 3 * u;
-        // 末镜「闪亮一下」（进揭示镜即刻，双管齐下保证肉眼可见）：
-        // ① 币面金光脉冲——躺平的硬币「接住」光闪一下（Coin 消费 requestCoinPulse）；
-        // ② 强打光闪——一盏暖白点光贴近币面快起缓落地掠过，被压暗的全场里币旁亮起
-        //    一汪光池又熄灭。攻 ~0.1/衰 ~0.5（按镜④进度 u 计），扫掠方向随环绕侧向。
-        if (!rig.pulsed) { rig.pulsed = true; requestCoinPulse(); }
-        if (glintRef.current) {
-          // 包络用镜④的**线性**进度（u 是给机位用的 smootherstep,开局压得太慢,曾把攻期拖没）
-          const ul = Math.min(1, Math.max(0, (t - t3) / (t4 - t3)));
-          const g = ss((ul - 0.03) / 0.1) * (1 - ss((ul - 0.28) / 0.5));
-          const phi = aziC + rig.side * (1.15 - 2.3 * ul);
-          glintRef.current.position.set(restX + Math.sin(phi) * 0.2, tableTop + 0.32, restZ + Math.cos(phi) * 0.2);
-          glintRef.current.intensity = 2.2 * g;
-        }
-      }
-      px = restX + Math.sin(aziC) * r; py = tableTop + h; pz = restZ + Math.cos(aziC) * r;
+      // ② 落台长镜头（唯一硬切入此）：微距跟拍全部落台物理戏——弹跳/滚缘/陀螺立转
+      //    越转越低直到躺平；缓慢环绕 + 随戏推近（0.42→0.30）
+      const u = Math.min(1, Math.max(0, (t - t1) / Math.max(0.6, t3 - t1)));
+      const r = 0.42 - 0.12 * u, h = 0.09 + 0.04 * u;
+      px = rig.anchor.x + Math.sin(aziG) * r; py = tableTop + h; pz = rig.anchor.z + Math.cos(aziG) * r;
+      ax = coinX; ay = Math.min(coinY, tableTop + 0.3); az = coinZ;
+      fovT = 46; aimK = 0.008;
+    } else if (shot === 2) {
+      // ③ 揭示（从②**连续**升起,不切）：升机位俯望币面读结果 + 「闪亮一下」
+      const u = smooth((t - t3) / (t4 - t3));
+      const r = 0.30 + 0.14 * u, h = 0.13 + 0.42 * u;
+      px = restX + Math.sin(aziG) * r; py = tableTop + h; pz = restZ + Math.cos(aziG) * r;
       ax = restX; ay = tableTop + 0.005; az = restZ;
-      aimK = 0.0005;
+      fovT = 44 + 3 * u; aimK = 0.0005;
+      // 「闪亮一下」（进揭示段即刻，双管齐下保证肉眼可见）：
+      // ① 币面金光脉冲——躺平的硬币「接住」光闪一下（Coin 消费 requestCoinPulse）；
+      // ② 打光闪——一盏暖白点光贴近币面快起缓落地掠过，币旁亮起一汪光池又熄灭。
+      if (!rig.pulsed) { rig.pulsed = true; requestCoinPulse(); }
+      if (glintRef.current) {
+        // 包络用**线性**进度（smootherstep 开局压得太慢,曾把攻期拖没）
+        const ul = Math.min(1, Math.max(0, (t - t3) / (t4 - t3)));
+        const g = ss((ul - 0.03) / 0.1) * (1 - ss((ul - 0.28) / 0.5));
+        const phi = aziG + rig.side * (1.15 - 2.3 * ul);
+        glintRef.current.position.set(restX + Math.sin(phi) * 0.28, tableTop + 0.4, restZ + Math.cos(phi) * 0.28);
+        glintRef.current.intensity = 2.6 * g;
+      }
     } else {
       // ⑤ 归位：进段瞬间快照当前位姿，smootherstep 混合到落座中性位（正对桌心）——
       // 中性位恰是 CameraRig 重挂后的 lookAt 初值，交接零跳变，随后鼠标环视自然软接管。
@@ -175,14 +172,14 @@ export default function CineRig({ camZ, eyeY, lookY, rot, tableTop }) {
       }
     }
 
-    // 手持微晃：①②明显、③④收敛、⑤随混合归零（微距机位下振幅同步缩小）
-    const wob = shot === 0 ? 0.006 : shot === 1 ? 0.0045 : shot <= 3 ? 0.0018
-      : 0.0018 * (1 - smooth((t - t4) / (t5 - t4)));
+    // 手持微晃：①②明显、③收敛、④随混合归零（近距机位下振幅同步缩小）
+    const wob = shot === 0 ? 0.007 : shot === 1 ? 0.005 : shot === 2 ? 0.002
+      : 0.002 * (1 - smooth((t - t4) / (t5 - t4)));
     px += (Math.sin(t * 1.9) + 0.6 * Math.sin(t * 3.7 + 1.3)) * wob;
     py += Math.cos(t * 2.3 + 0.7) * wob * 0.7;
 
-    // 切镜=硬切：位置/注视/视场全部瞬移到位（分镜语言里的 cut，不做跨镜插值）
-    if (shot !== rig.shot && shot <= 2) {
+    // 切镜=硬切：位置/注视/视场全部瞬移到位（分镜语言里的 cut,只发生在 ①→②；②→③连续）
+    if (shot !== rig.shot && shot <= 1) {
       rig.shot = shot;
       camera.position.set(px, py, pz);
       rig.aim.set(ax, ay, az);

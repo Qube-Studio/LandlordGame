@@ -11,6 +11,10 @@ import crypto from 'node:crypto';
 const HOST_OK = /^(localhost|127\.0\.0\.1)(:\d+)?$/;
 const DOC_LIMIT = 2 * 1024 * 1024;
 const IMG_LIMIT = 20 * 1024 * 1024;
+const MIME = {
+  '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif',
+  '.webp': 'image/webp', '.svg': 'image/svg+xml', '.bmp': 'image/bmp', '.ico': 'image/x-icon',
+};
 // 文件名消毒：只留最后一段、去可疑字符，防目录穿越（照抄 legacy server.mjs）
 const safeName = (name) => path.basename(String(name || '')).replace(/[^\w.\-一-鿿]+/g, '_').replace(/^\.+/, '') || 'image';
 const sha1 = (s) => crypto.createHash('sha1').update(s).digest('hex');
@@ -59,6 +63,24 @@ export default function tutorialApi() {
       };
 
       server.middlewares.use(async (req, res, next) => {
+        // 图库文件自管服务（按请求实时读盘，legacy server.mjs 同款）：
+        // vite.config 的 watch.ignored 挡掉了上传触发的整页 reload，但副作用是 Vite 启动时
+        // 预扫的 publicFiles 清单收不到**启动后新增**的图片——不在清单的路径会落 SPA 兜底
+        // 返回 index.html（HTML 当 PNG 解码=碎图）。这里先于 Vite 内部中间件接管 /tutorial/*，
+        // 图片不经清单直接服务；不在图库则 404（不落 HTML 兜底）。不做 Host 门禁——教程图片是
+        // 游戏公共资源，远程玩家（cpolar 隧道）也要能加载。
+        if (req.method === 'GET' && req.url?.startsWith('/tutorial/')) {
+          const name = safeName(decodeURIComponent(req.url.slice('/tutorial/'.length).split('?')[0]));
+          const file = path.join(IMG_DIR, name);
+          if (name && fs.existsSync(file) && fs.statSync(file).isFile()) {
+            res.statusCode = 200;
+            res.setHeader('Content-Type', MIME[path.extname(file).toLowerCase()] || 'application/octet-stream');
+            res.setHeader('Cache-Control', 'no-cache');
+            return fs.createReadStream(file).pipe(res);
+          }
+          res.statusCode = 404;
+          return res.end('not found');
+        }
         if (!req.url?.startsWith('/__tutorial-api/')) return next();
         if (!HOST_OK.test(req.headers.host || '')) return sendJSON(res, 403, { error: 'forbidden host' });
         const url = new URL(req.url, 'http://localhost');
