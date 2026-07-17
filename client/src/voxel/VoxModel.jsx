@@ -13,6 +13,11 @@ export default function VoxModel({
   emissiveColors = null,     // hex 数组:这些颜色的体素发光
   emissiveIntensity = 1.4,
   emissive = '#ffffff',      // 发光子网格的 emissive 色(金件传金色,白光会稀释色相)
+  // 主网格 PBR(缺省=纯漫反射,与历史一致,其他资产零影响)。
+  // ⚠ 本管线无 envMap:metalness→1 会让模型近乎全黑(金属无漫反射、只靠环境反射)——
+  // 要金属观感用中等 metalness + 中等 roughness,靠点光/平行光的高光支撑(见 charSpec.HEAD_MAT)。
+  metalness = 0,
+  roughness = 1,
   castShadow = true,
   receiveShadow = false,
   anchor = 'bottom',         // 'bottom' = XZ 居中 + Y0 在底;'center' = 全轴居中
@@ -30,12 +35,12 @@ export default function VoxModel({
   }, [url, emissiveColors?.join(',')]);
 
   const mats = useMemo(() => ({
-    main: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, flatShading: true }),
+    main: new THREE.MeshStandardMaterial({ vertexColors: true, roughness, metalness, flatShading: true }),
     emissive: new THREE.MeshStandardMaterial({
       vertexColors: true, roughness: 0.6, flatShading: true,
       emissive: new THREE.Color(emissive), emissiveIntensity,
     }),
-  }), [emissiveIntensity, emissive]);
+  }), [emissiveIntensity, emissive, metalness, roughness]);
 
   if (!model) return null;
   const off = anchor === 'center'

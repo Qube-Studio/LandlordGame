@@ -11,7 +11,7 @@ import { useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Html } from '@react-three/drei';
 import VoxModel from '../voxel/VoxModel';
-import { CHAR_VOXEL_SIZE, CHAR_PARTS, PIVOTS, SCREEN, HATS } from '../voxel/charSpec';
+import { CHAR_VOXEL_SIZE, CHAR_PARTS, PIVOTS, SCREEN, HATS, HEAD_MAT } from '../voxel/charSpec';
 import { HeadProp } from '../scene/MinecraftPlayer';
 import { screenFace, tex } from '../assets/texlib';
 import { P, PROP_COLORS, shade } from '../assets/palette';
@@ -177,7 +177,11 @@ export default function VoxPlayer({ player, expression, seed = 0, look = null, s
       </group>
       {/* 头:枢轴=头心;体素壳 + 荧幕贴片沉进凹槽 + 头饰(投资人眼镜=半透明网格特例) */}
       <group ref={head} position={[0, PIVOTS.headY, 0]}>
-        <VoxModel url={urlOf('head.vox')} scale={S} castShadow={false} position={[0, -HH / 2, 0]} />
+        {/* 机器头=金属:整头一档 metalness(逐色 MATL 细分在 .vox 里,给 MagicaVoxel/voxel 分支) */}
+        <VoxModel
+          url={urlOf('head.vox')} scale={S} castShadow={false} position={[0, -HH / 2, 0]}
+          metalness={HEAD_MAT.metal} roughness={HEAD_MAT.rough}
+        />
         <mesh position={[0, 0, SCREEN.plateZ]} material={screen}>
           <planeGeometry args={[HH, HH]} />
         </mesh>

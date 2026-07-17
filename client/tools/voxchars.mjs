@@ -7,13 +7,13 @@
 // 投资人眼镜不体素化(半透明镜片,同理保留 headProps 网格)。
 import { makeDense } from '../src/voxel/vox.js';
 import { P, ROLE_CLOTH, PROP_COLORS, shade } from '../src/assets/palette.js';
-import { CHAR_VOXEL_SIZE, CHAR_PARTS, CHAR_ROLES, SCREEN, HATS } from '../src/voxel/charSpec.js';
+import { CHAR_VOXEL_SIZE, CHAR_PARTS, CHAR_ROLES, SCREEN, HATS, HEAD_MAT } from '../src/voxel/charSpec.js';
 import { MAT, makePalette, hash2, Painter, hollow } from './voxkit.mjs';
 
 const S = CHAR_VOXEL_SIZE;
 
-// 三调布料(base/±6%,对齐 texlib 织纹幅度)
-const cloth3 = (reg, hex) => [reg(hex), reg(shade(hex, 6)), reg(shade(hex, -6))];
+// 三调布料(base/±6%,对齐 texlib 织纹幅度);mat 可选——头壳三调走金属 MATL
+const cloth3 = (reg, hex, mat) => [reg(hex, mat), reg(shade(hex, 6), mat), reg(shade(hex, -6), mat)];
 // 2×2 格织纹(块状抖动保贪心合并;texlib 是 2×2 棋盘 ±5%)
 const weave = (t3, x, y, z) => {
   const h = hash2(Math.floor(x / (2 * S)) * 7 + Math.floor(z / (2 * S)), Math.floor(y / (2 * S)));
@@ -182,11 +182,14 @@ function genHead() {
   const dense = makeDense(gx, gy, gz);
   const p = new Painter(dense, S);
   const { pal, reg, mats } = makePalette();
-  const shell = cloth3(reg, P.botShell);       // 机壳暖白(±6% 块噪,对齐 noiseFill)
-  const seam = reg(shade(P.botShell, -26));
-  const bolt = reg(shade(P.botShell, -42), MAT.metal({ metal: 0.4, rough: 0.5 }));
-  const botDark = reg(shade(P.botShell, -14));
-  const deep = reg(shade(P.botShell, -52));
+  // 机器头=金属(2026-07-17 用户):壳体刷纹金属、螺栓抛光钢、缝/凹槽略糙(藏污的凹处)。
+  // 运行时(dev 光栅)整头只吃一档 metalness(HEAD_MAT,VoxPlayer 传入);这里的逐色 MATL 是
+  // 给 MagicaVoxel 与 voxel 分支的 aRm 逐体素材质用的——两边同一套意图,细分留在文件里。
+  const shell = cloth3(reg, P.botShell, MAT.metal(HEAD_MAT));  // 机壳(±6% 块噪,对齐 noiseFill)
+  const seam = reg(shade(P.botShell, -26), MAT.metal({ metal: 0.5, rough: 0.55 }));
+  const bolt = reg(shade(P.botShell, -42), MAT.metal({ metal: 0.85, rough: 0.25 }));
+  const botDark = reg(shade(P.botShell, -14), MAT.metal(HEAD_MAT));
+  const deep = reg(shade(P.botShell, -52), MAT.metal({ metal: 0.5, rough: 0.6 }));
   const screen = reg(P.botScreen, MAT.emit({ emit: 0.35, flux: 1 }));
   const screenHi = reg(shade(P.botScreen, 90), MAT.emit({ emit: 0.35, flux: 1 }));
   const HH = gy * S, half = HH / 2;

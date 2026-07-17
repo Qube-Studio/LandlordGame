@@ -4,6 +4,7 @@
 // 游戏里的"打烊账房"氛围雾在这儿碍事(主项目参数不动)。
 // 布局 = 单人长桌酒馆(与行走碰撞体对位);摆放物 = 角色 / 导入 .vox,带旋转/缩放,虚影预览。
 import { useEffect, useRef, useState } from 'react';
+import * as THREE from 'three';
 import { useFrame, useThree } from '@react-three/fiber';
 import { ContactShadows } from '@react-three/drei';
 import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing';
@@ -22,6 +23,47 @@ import { useLabStore, aimLive, ghostLive, brushImport, placeTransform } from './
 
 const SEATS = [...SINGLE_TEAM_SEATS, SINGLE_BOSS_SEAT];
 const SPOTS = SEATS.map(singleSpotOf);
+
+// 环境贴图(IBL,2026-07-17):房间中心 CubeCamera 把酒馆自拍成 128² HDR 立方图 → scene.environment。
+// 金属(机器头/黄铜嵌线/吊灯铜盘/螺栓)无漫反射、全靠环境反射——无 envMap 时它们只能反射虚空
+// (发黑发闷,charSpec.HEAD_MAT 的 ⚠ 即此)。场景静态:烘两拍(1.5s/5s,覆盖异步 .vox 加载)+
+// swaps 变化后 1.5s 重烘。HalfFloat 保发光体(灯柱/火焰/炭床)的 HDR 高光进反射。
+// 重烘时不清 env 直接重拍:env 进 env = 温和的二次弹射,收敛且合意。
+/* eslint-disable react-hooks/immutability -- scene 是 three 共享单例,environment 只能原地挂 */
+function EnvBake() {
+  const { gl, scene } = useThree();
+  const swaps = useLabStore(s => s.swaps);
+  const rigRef = useRef(null);
+  if (rigRef.current === null) {
+    const rt = new THREE.WebGLCubeRenderTarget(128, { type: THREE.HalfFloatType });
+    const cam = new THREE.CubeCamera(0.1, 60, rt);
+    cam.position.set(0, 2.3, 0);           // 桌面上方、吊灯下方——金属件密集带的视点
+    rigRef.current = { rt, cam, queue: [1.5, 5], mark: false };
+  }
+  useEffect(() => {
+    rigRef.current.mark = true;            // swaps 变化(含首挂)→ 下一帧起 1.5s 后重烘
+  }, [swaps]);
+  useEffect(() => () => {
+    const rig = rigRef.current;
+    if (scene.environment === rig.rt.texture) scene.environment = null;
+    rig.rt.dispose();
+  }, [scene]);
+  useFrame((st) => {
+    const rig = rigRef.current;
+    const t = st.clock.elapsedTime;
+    if (rig.mark) { rig.mark = false; rig.queue.push(t + 1.5); rig.queue.sort((a, b) => a - b); }
+    if (rig.queue.length && t >= rig.queue[0]) {
+      rig.queue.shift();
+      rig.cam.update(gl, scene);
+      scene.environment = rig.rt.texture;
+      // 0.6:全强度会给漫反射材质叠一层可感的 IBL 底光,冲淡「打烊账房」压暗氛围;
+      // 环境本身是暗酒馆,金属反射在 0.6 下已可读。调观感改这一个数。
+      scene.environmentIntensity = 0.6;
+    }
+  });
+  return null;
+}
+/* eslint-enable react-hooks/immutability */
 
 // 性能探针:fps/draw call/三角数,半秒一拍写 window.__voxperf(HUD PerfChip 显示;
 // 体素资产的几何量回归全靠这三个数把关)。不进 store——逐帧数据不触发 React。
@@ -179,6 +221,7 @@ export default function Stage() {
     <>
       <color attach="background" args={[P.sceneBg]} />
       <fog attach="fog" args={[P.sceneFog, 16, 44]} />
+      <EnvBake />
       {/* 灯 rig(5 盏,参数照抄 SceneContents;环境光 0.38→0.5 隔离区微抬,看清远处资产) */}
       <ambientLight intensity={0.5} color={P.sceneAmbient} />
       <directionalLight

@@ -293,11 +293,27 @@ MagicaVoxel 改完放回原路径**)。几何规格 `src/voxel/chandelierSpec.js
 下注圈贴花在验证区不叠(看素材本体)。玻璃 MATL 当前光栅管线不消费(渲染为不透明顶点色),
 面向 MagicaVoxel 与将来渲染升级——与 MATL 发光同理。
 
+### C.0.5 环境贴图 IBL(2026-07-17,仅验证区)
+
+金属无漫反射、外观 100% 来自「反射了什么」——无 envMap 时全场金属(机器头/黄铜嵌线/吊灯铜盘/
+硬币/螺栓)只能反射虚空,发黑发闷(HEAD_MAT 的 ⚠ 即此)。**方案 = 酒馆自拍**:`Stage#EnvBake` 在房间
+中心 (0,2.3,0) 放 `CubeCamera`,把场景拍成 128² **HalfFloat HDR** 立方图挂到 `scene.environment`
+(r184 自动做 PMREM;HalfFloat 保发光体的 HDR 高光进反射)。不下载 HDR 贴图——房间静态,自拍即环境,
+且反射内容与场景自洽。烘两拍(1.5s/5s 覆盖异步 .vox 加载)+ swaps 变化后 1.5s 重烘;重烘不清 env
+直接重拍(env 进 env=温和二次弹射,收敛)。`environmentIntensity=0.6`:全强度会给漫反射材质叠一层
+可感的 IBL 底光,冲淡「打烊账房」氛围——调观感改这一个数。有 env 后 HEAD_MAT 的 metalness
+可考虑上调(0.65 是无 env 时代的保命值)。仅 voxlab;主游戏接入属 P3 调和项。
+
 ### C.1 人物批次(2026-07-17,P1 预演,仅验证区)
 
-**素材** `props/char/`(27 件,尺度=**0.015 高精度**,§0 决策 1——与家具 0.036 刻意分档):
+**素材** `props/char/`(尺度=**0.015 高精度**,§0 决策 1——与家具 0.036 刻意分档):
 共用机器头壳 `head.vox`(37³:面板缝/螺栓/散热槽/侧耳盘/下巴格栅对齐 texlib#drawHeadFace 16² 规格;
-螺栓=金属 MATL)+ 7 角色 × {body/arm/leg}(织纹=2×2 块抖 ±6%、黑手套+腕缝、鞋、
+**整头=金属**(2026-07-17 用户):壳体刷纹金属 / 螺栓抛光钢 / 缝与凹槽略糙,逐色 MATL 共 9 条。
+材质旋钮 = `charSpec.HEAD_MAT`(生成器 MATL 与运行时材质单一真源);`VoxModel` 新增
+`metalness`/`roughness` 主网格 prop(缺省 0/1 = 纯漫反射,其他资产零影响)——**dev 光栅管线不读 MATL,
+不传这两个 prop 就看不到金属**;.vox 里的逐色 MATL 是给 MagicaVoxel 与 voxel 分支 aRm 用的。
+⚠ **metalness 勿拉到 1**:本管线无 envMap,金属无漫反射、只靠环境反射 → 满金属度=近乎全黑;
+0.65/0.38 靠吊灯点光(头正下方)与主平行光的高光支撑。真正的金属质感要等 envMap/IBL 或 voxel 分支烘焙)+ 7 角色 × {body/arm/leg}(织纹=2×2 块抖 ±6%、黑手套+腕缝、鞋、
 drawBodyFront 角色个性逐像素直翻:锦缎菱格/条纹西装怀表链/补丁草绳/马甲钢笔/制服金扣检徽/围裙酱渍;
 金件=金属 MATL)+ 5 顶帽 `hat-*.vox`(皇冠/礼帽/草帽/厨师帽/制帽;金件=金属 MATL+运行时 glow 0.35,
 红宝石=玻璃 MATL)。规格单一真源 = `src/voxel/charSpec.js`(骨架枢轴/部件栅格/荧幕凹槽/帽 lift)。
