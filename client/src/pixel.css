@@ -434,6 +434,26 @@ img, svg, canvas { -webkit-user-drag: none; user-drag: none; }
 .rules-p.fs-xl { font-size: 20px; }
 /* 空字符串段落 = 排版空行（配合 .tut-content 的 7px gap ≈ 一个空行） */
 .rules-gap { flex: none; height: 9px; }
+/* 属性条/进度条：正式 UI 同款细条（quest-track 规格——5px 高、1px 黑描边、竖向渐变填充），
+   未填充槽=灰白；渐隐方向可选（fade-both/left/right/none，both 即全局 --bar-fade）。
+   与教程编辑器 index.html 里 .rules-bar 逐值一致（所见即所得）。 */
+.rules-bar { display: flex; align-items: center; gap: 8px; margin: 1px 0; font-family: var(--font-cjk); flex-wrap: wrap; }
+.rules-bar .rb-label { color: #ece7d6; font-size: 13px; flex: none; }
+.rules-bar .rb-label .hi { color: var(--px-gold); }
+.rules-bar .rb-track {
+  position: relative; display: block; flex: none; height: 5px;
+  background: rgba(240, 235, 220, 0.30);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.9);
+  overflow: hidden;
+}
+.rules-bar.fade-both  .rb-track { -webkit-mask: var(--bar-fade); mask: var(--bar-fade); }
+.rules-bar.fade-left  .rb-track { -webkit-mask: linear-gradient(90deg, rgba(0, 0, 0, 0), #000 22%); mask: linear-gradient(90deg, rgba(0, 0, 0, 0), #000 22%); }
+.rules-bar.fade-right .rb-track { -webkit-mask: linear-gradient(90deg, #000 78%, rgba(0, 0, 0, 0)); mask: linear-gradient(90deg, #000 78%, rgba(0, 0, 0, 0)); }
+.rules-bar .rb-fill { display: block; height: 100%; }
+.rules-bar.c-gold  .rb-fill { background: linear-gradient(180deg, #f6dd7a, var(--px-gold)); }
+.rules-bar.c-green .rb-fill { background: linear-gradient(180deg, #b9e3a4, var(--ok, #7ec86a)); }
+.rules-bar.c-red   .rb-fill { background: linear-gradient(180deg, #f09a8a, var(--danger, #e36262)); }
+.rules-bar.c-blue  .rb-fill { background: linear-gradient(180deg, #9ec3ee, #5a8fd8); }
 @media (prefers-reduced-motion: reduce) {
   .rules-panel.goal-hud.hud-card { animation: none; }
   .rules-overlay { animation: none; }

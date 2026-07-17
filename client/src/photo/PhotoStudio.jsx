@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from 'react';
 import { Canvas } from '@react-three/fiber';
 import StudioScene from './StudioScene';
 import { selectionLock } from './selectionLock';
+import { interaction } from './interaction';
+import { dropSelectedToFloor } from './placement';
 import FlyRig from './FlyRig';
 import { usePhotoStore } from './photoStore';
 import { ROLE_LABEL } from '../game/roles';
@@ -71,7 +73,8 @@ function NumField({ label, value, step = 0.1, onChange }) {
 }
 
 function Inspector() {
-  const item = usePhotoStore(s => s.items.find(it => it.id === s.selectedId));
+  // P① 检查器只服务单选（多选态检查器=P③：数量统计+批量控件）
+  const item = usePhotoStore(s => (s.selection.length === 1 ? s.items.find(it => it.id === s.selection[0]) : null));
   const setTransform = usePhotoStore(s => s.setTransform);
   const setProps = usePhotoStore(s => s.setProps);
   const removeSelected = usePhotoStore(s => s.removeSelected);
@@ -169,6 +172,8 @@ function Toolbar() {
   const toggleOverhead = usePhotoStore(s => s.toggleOverhead);
   const hideOverhead = usePhotoStore(s => s.hideOverhead);
   const toggleUi = usePhotoStore(s => s.toggleUi);
+  const snapOn = usePhotoStore(s => s.snap);
+  const toggleSnap = usePhotoStore(s => s.toggleSnap);
   const requestPreset = usePhotoStore(s => s.requestPreset);
   const addItem = usePhotoStore(s => s.addItem);
   const clearAll = usePhotoStore(s => s.clearAll);
@@ -222,6 +227,7 @@ function Toolbar() {
         <button className={`ph-btn sm ${gizmo === 'rotate' ? 'on' : ''}`} onClick={() => setGizmo('rotate')} title="R">旋转</button>
         <button className={`ph-btn sm ${gizmo === 'scale' ? 'on' : ''}`} onClick={() => setGizmo('scale')} title="T">缩放</button>
         <button className="ph-btn sm" onClick={toggleSpace} title="L">{space === 'world' ? '世界' : '本地'}</button>
+        <button className={`ph-btn sm ${snapOn ? 'on' : ''}`} onClick={toggleSnap} title="X · 平移0.1 / 旋转15° / 缩放0.1">吸附</button>
       </div>
 
       <div className="ph-group">
@@ -253,14 +259,25 @@ function HelpCard() {
     <div className="ph-help" onClick={toggleHelp}>
       <div className="ph-help-t">操作（点此收起 · 或按 /）</div>
       <div><b>飞行</b>：点画面锁鼠标 → 鼠标转视角，WASD 平移、Space 升、Shift 降，滚轮调速；Esc 释放</div>
-      <div><b>摆放</b>：Tab 切到摆放 → 点选物体，拖坐标轴移动/旋转/缩放；右侧数值精调</div>
+      <div><b>摆放</b>：Tab 切到摆放 → 点选（Ctrl 加选），拖坐标轴移动/旋转/缩放；右侧数值精调</div>
+      <div><b>框选</b>：空白处拖矩形（Ctrl 拖=加选）· <b>拖物体本体</b>=贴着表面移动（多选整组跟随）</div>
       <div><b>机位</b>：1 顶 · 2 前 · 3 后 · 4 左 · 5 右 · 6 透视</div>
-      <div><b>坐标轴</b>：G 移动 · R 旋转 · T 缩放 · L 世界/本地</div>
+      <div><b>坐标轴</b>：G 移动 · R 旋转 · T 缩放 · L 世界/本地 · <b>X 吸附</b> · <b>V 落底</b></div>
       <div><b>截图</b> P · <b>隐藏UI</b> H · <b>藏顶</b> C（吊灯/横梁，不动灯光） · <b>泛光</b> B</div>
-      <div><b>删除</b> ⌫ · <b>复制</b> Shift+D · <b>撤回</b> Ctrl+Z · <b>重做</b> Ctrl+Shift+Z</div>
+      <div><b>删除</b> ⌫ · <b>复制</b> Shift+D · <b>全选</b> Ctrl+A · <b>撤回</b> Ctrl+Z · <b>重做</b> Ctrl+Shift+Z</div>
       <div><b>导出/导入</b>：顶栏「场景」组把整个场景（含相机机位）存成文件 / 从文件恢复（Ctrl+S 导出）</div>
     </div>
   );
+}
+
+// 框选矩形 overlay（§2.1）：纯 HTML div 读 store.marquee 画（pointer-events:none，不挡事件流）；
+// 矩形几何/命中判定全在 Interactions/pick.js，这里只是显示。
+function Marquee() {
+  const m = usePhotoStore(s => s.marquee);
+  if (!m) return null;
+  const x = Math.min(m.x1, m.x2), y = Math.min(m.y1, m.y2);
+  const w = Math.abs(m.x2 - m.x1), h = Math.abs(m.y2 - m.y1);
+  return <div className="ph-marquee" style={{ left: x, top: y, width: w, height: h }} />;
 }
 
 // 短暂提示（导入/导出反馈）。key=nonce 使每次提示重挂 → 重播 CSS 淡入淡出；无 JS 计时器/状态。不入截图。
@@ -286,6 +303,7 @@ export default function PhotoStudio() {
         const lk = k.toLowerCase();
         if (lk === 'z') { e.preventDefault(); if (e.shiftKey) st.redo(); else st.undo(); }
         else if (lk === 'y') { e.preventDefault(); st.redo(); }
+        else if (lk === 'a') { e.preventDefault(); st.selectAll(); } // 全选（阻止浏览器全选文本）
         else if (lk === 's') { e.preventDefault(); exportScene(); }
         return;                                     // 不落到单键快捷键（避免 Ctrl+C 触发藏顶等）
       }
@@ -300,10 +318,16 @@ export default function PhotoStudio() {
       else if (low === 'h') st.toggleUi();
       else if (low === 'b') st.togglePostFx();
       else if (low === 'c') st.toggleOverhead();
+      else if (low === 'v') dropSelectedToFloor();   // 落底（B 已被泛光占用）
+      else if (low === 'x') st.toggleSnap();         // 网格吸附
       else if (low === 'd' && e.shiftKey) st.duplicateSelected();
       else if (k === 'Delete' || k === 'Backspace') { e.preventDefault(); st.removeSelected(); }
       else if (k === '/' || k === '?') st.toggleHelp();
-      else if (k === 'Escape') { if (st.mode === 'arrange') st.select(null); }
+      // Esc 优先级链（§2.1）：框选进行中=仅取消框选 → arrange=清选 → fly 不动（指针锁由浏览器自己解）
+      else if (k === 'Escape') {
+        if (interaction.cancelBox?.()) return;
+        if (st.mode === 'arrange') st.select(null);
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -325,6 +349,7 @@ export default function PhotoStudio() {
         <FlyRig />
       </Canvas>
 
+      <Marquee />
       <Toast />
       {!uiHidden && (
         <>

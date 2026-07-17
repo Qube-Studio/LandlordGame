@@ -14,7 +14,9 @@
 // 数据格式（与 RulesPanel 渲染器 + CLI 版约定一致）：
 //   章节 = { id, title, body:[段落...], children:[章节...] }，层级不限深。
 //   段落 = 字符串（**…** 金字高亮、"- " 开头缩进列表项；空串 = 排版空行）
-//        | { text, size }（字号段，size ∈ s/l/xl）| { img, alt }（图片段）。
+//        | { text, size }（字号段，size ∈ s/l/xl）| { img, alt }（图片段）
+//        | { bar, width, fill, color, fade }（属性条/进度条：正式 UI 同款细条——bar=并排文字，width=长度px，
+//          fill=填充%，color ∈ gold/green/red/blue，fade=渐隐侧 both/left/right/none）。
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';

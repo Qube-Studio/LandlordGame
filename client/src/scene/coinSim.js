@@ -186,3 +186,9 @@ export function getCoinRest() { return lastRest; }
 let flightLive = null; // { x, y, z, t, restAt }
 export function setCoinFlightLive(v) { flightLive = v; }
 export function getCoinFlightLive() { return flightLive; }
+
+// 硬币金光脉冲点火通道：rest 硬币不再挂载即播，改由浪潮演出（CoinWave，分镜结束后）
+// 请求一次性点火——脉冲与浪潮同刻起，读作「硬币一亮，潮水涌出」。
+let pulsePending = false;
+export function requestCoinPulse() { pulsePending = true; }
+export function consumeCoinPulse() { const p = pulsePending; pulsePending = false; return p; }

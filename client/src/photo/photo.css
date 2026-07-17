@@ -104,6 +104,13 @@
   0% { opacity: 0; } 8% { opacity: 1; } 85% { opacity: 1; } 100% { opacity: 0; }
 }
 
+/* 框选矩形（纯显示，事件流在 window 捕获监听里；扁平——选区不是 chrome，不吃浮雕） */
+.ph-marquee {
+  position: absolute; z-index: 15; pointer-events: none;
+  border: 1px solid var(--px-gold, #e8c25a);
+  background: rgba(232, 194, 90, 0.10);
+}
+
 /* 飞行准心 */
 .ph-crosshair {
   position: absolute; left: 50%; top: 50%; width: 6px; height: 6px; z-index: 10;

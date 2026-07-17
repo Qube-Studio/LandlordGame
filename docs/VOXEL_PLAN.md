@@ -243,10 +243,19 @@ MagicaVoxel 改完放回原路径**)。几何规格 `src/voxel/chandelierSpec.js
 | `table.vox` | 多人桌 6.0×4.0(180×30×126) | 黄铜嵌线=金属反射 |
 | `table-long.vox` | 单人长桌 8.6×4.0(254×30×126;§5-4 双变体非缩放) | 同上 |
 | `chair.vox` | 靠背椅(16×40×24,后仰靠背、板缝/木纹色带、圆钉) | 圆钉=金属反射 |
-| `chandelier-deluxe.vox` | 豪华吊灯(76×66×76,CHAND 同一套世界几何) | 黄铜×3=金属,琥珀=发光 |
+| `chandelier-deluxe.vox` | 豪华吊灯·八角木轮旧款(76×66×76;留库可比对) | 黄铜×3=金属,琥珀=发光 |
+| `chandelier-tiered.vox` | **双层圆盘吊灯·现行款**(74×66×74,规格=chandelierSpec.TIERED:双层黄铜圆盘车削环纹/凸唇/铆钉、末地烛式发光灯柱 8+6、下盘水晶吊坠 ×12、4+4 斜撑收顶冠;中孔 0.50/0.62 过币;**无火苗面片**——灯柱即光源) | 黄铜×3=金属,灯柱 ink=发光,水晶 specGlass×3=玻璃 |
 | `wall-lower.vox` | 墙段·下:石墙裙 6×4m(168×112×6,错缝砌块/勾缝/逐块色调/压顶亮带) | 全漫反射 |
 | `wall-upper.vox` | 墙段·上:木板墙 6×6m(168×168×6,竖板分色/板缝/节疤/深色木筋柱) | 全漫反射 |
 | `beam.vox` | 房梁段 7.992m(222×12×12,木纹/棱线描影/端部铁箍) | 箍上铜螺栓=金属反射 |
+| `barrel.vox` | 酒桶(鼓腰桶板分色 + 桶盖拼板) | 三道铁箍=金属 |
+| `crate.vox` | 板条箱 0.8³ 基准(实例缩放 0.7~0.9;角柱框缘提亮/板条分色) | 漫反射 |
+| `fireplace.vox` | 壁炉整体(石拱砌块/炉台木梁/陶杯蜡烛/交叉圆木;火焰=运行时面片) | 炭床=发光 |
+| `bottle-green/brown.vox` | 酒瓶两色(鼓身收肩细颈,受光/背光棱染色) | **玻璃透明** |
+| `mug.vox` | 陶杯(杯口压暗读出开口,带柄) | 漫反射 |
+| `shelf.vox` | 双层搁板(端头竖挡板;瓶/杯为独立素材实例) | 漫反射 |
+| `bench.vox` / `door.vox` / `coatrack.vox` | 门边长凳/酒馆大门/衣帽钩排 | 门铜把手=金属 |
+| `dartboard.vox` / `sconce.vox` / `table-round.vox` | 飞镖盘/墙面烛台/角落小圆桌 | 靶心=金属 |
 
 **批次共享规格 = `src/voxel/propsSpec.js`**(生成器与运行时单一真源):`PROP_VOXEL_SIZE`、
 桌顶对齐 `PROP_TABLE_Y`、墙段/梁段尺寸。墙按段拼装:每面 4 段(6.048m 相邻微互叠免缝,
@@ -254,8 +263,34 @@ MagicaVoxel 改完放回原路径**)。几何规格 `src/voxel/chandelierSpec.js
 
 **VoxLab 已接线(2026-07-16,仅验证区,主游戏零改动)**:`voxlab/VoxProps.jsx`(VoxRoom=
 体素墙×32 段+体素梁×12 段,地板/天花仍贴图平面;VoxTable=长桌按 PROP_TABLE_Y 对齐;VoxChair)
-+ `SWAP_KEYS` 扩到 4 项,键位 **V 吊灯 / B 桌 / N 椅 / M 墙梁**(体素↔现有,默认全体素);
-`VoxChandelier` 消费源已切到 props 版(3.6cm+材质)。下注圈贴花在验证区不叠(看素材本体)。
++ `voxlab/VoxDecor.jsx`(VoxFireplace/VoxBarrels/VoxDecor——布局坐标逐条对齐 Scene3D 原件;
+自发光面片按 §2.2 保留:火苗/月光窗/菜单板/铜币牌;搁板上的瓶杯是独立素材实例,castShadow=false
+对齐原摆设)。`SWAP_KEYS` 共 8 项,键位 **V 吊灯 / B 桌 / N 椅 / M 墙梁 / F 壁炉 / G 木桶 / T 装饰 / P 人物**
+(体素↔现有,默认全体素);`VoxChandelier` 消费源已切到 props 版(3.6cm+材质)。
+下注圈贴花在验证区不叠(看素材本体)。玻璃 MATL 当前光栅管线不消费(渲染为不透明顶点色),
+面向 MagicaVoxel 与将来渲染升级——与 MATL 发光同理。
+
+### C.1 人物批次(2026-07-17,P1 预演,仅验证区)
+
+**素材** `props/char/`(27 件,尺度=**0.015 高精度**,§0 决策 1——与家具 0.036 刻意分档):
+共用机器头壳 `head.vox`(37³:面板缝/螺栓/散热槽/侧耳盘/下巴格栅对齐 texlib#drawHeadFace 16² 规格;
+螺栓=金属 MATL)+ 7 角色 × {body/arm/leg}(织纹=2×2 块抖 ±6%、黑手套+腕缝、鞋、
+drawBodyFront 角色个性逐像素直翻:锦缎菱格/条纹西装怀表链/补丁草绳/马甲钢笔/制服金扣检徽/围裙酱渍;
+金件=金属 MATL)+ 5 顶帽 `hat-*.vox`(皇冠/礼帽/草帽/厨师帽/制帽;金件=金属 MATL+运行时 glow 0.35,
+红宝石=玻璃 MATL)。规格单一真源 = `src/voxel/charSpec.js`(骨架枢轴/部件栅格/荧幕凹槽/帽 lift)。
+
+**荧幕(§2.3 落地)**:单 vox 做不了动态荧幕(6 表情+9Hz CRT 抖动)——头壳 +z 面挖 **27 格居中凹槽**
+(37 奇数面上偶数开口必偏心半格,审查教训;深 2 格,槽底=botScreen 体素 MATL 微发光,MagicaVoxel 里也亮),
+运行时整面 0.555² 活贴片(texlib#screenFace 双帧)沉进槽内(`SCREEN.plateZ`,与各体素面不共面),
+壳缘对称遮住贴片边。**投资人眼镜同理不体素化**(半透明镜片,复用 headProps 网格)。
+
+**关节绑定** `voxlab/VoxPlayer.jsx`:6 分件 .vox 挂进与 MinecraftPlayer 完全相同的枢轴组
+(髋 ±0.14/0.7、肩 ±0.41/1.4、头心 1.675;腿/臂底锚件以 [0,-H,0] 挂组=绕顶端铰链),useFrame 动画
+逐条对齐原版(浮动/摆臂/欢呼/look/lose/瘫倒;**验证区临时双份,P1 并回 MinecraftPlayer 时合一,
+那边改动画这边要跟**)。手持道具(算盘面片/鸡腿)沿用原版网格;名牌同参。
+**已知缺口**:破产灰化未做(P1 材质级去饱和;验证区摆放物恒未破产);摆放虚影刻意保留 box 版
+(VoxModel 异步加载抓不住透明克隆时机,Stage 内有注释)。主游戏零改动
+(MinecraftPlayer/headProps/texlib 未触碰;bustSnapshot/LobbyMascot 两个消费点 P1 正式接入时同步)。
 
 **基建扩展(`src/voxel/vox.js`,单测 26/26)**:
 - **MATL 材质块**:`writeVox(dense, pal, {materials})` 逐调色板索引写 MagicaVoxel 材质

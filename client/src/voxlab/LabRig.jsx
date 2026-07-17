@@ -174,6 +174,10 @@ export default function LabRig() {
       else if (e.code === 'KeyB') st.toggleSwap('table');
       else if (e.code === 'KeyN') st.toggleSwap('chairs');
       else if (e.code === 'KeyM') st.toggleSwap('room');
+      else if (e.code === 'KeyF') st.toggleSwap('fireplace');
+      else if (e.code === 'KeyG') st.toggleSwap('barrels');
+      else if (e.code === 'KeyT') st.toggleSwap('decor');
+      else if (e.code === 'KeyP') st.toggleSwap('players');
       else if (e.code === 'KeyH') st.toggleHelp();
       else if (e.code === 'KeyR') st.cycleBrush(e.shiftKey ? -1 : 1);
       else if (e.code === 'KeyX') st.clearChars();

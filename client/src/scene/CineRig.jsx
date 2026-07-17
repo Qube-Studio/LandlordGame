@@ -10,19 +10,21 @@
 // 兜底：卸载时还原 fov=基准值；若分镜没走完（相位跳变/切自由相机），cine 卡在 'hide' 就放行。
 // useFrame 内逐帧改写 camera 位姿/fov 是 r3f 既定用法（与 CameraRig 同款豁免）。
 /* eslint-disable react-hooks/immutability */
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
-import { getCoinFlightLive, getCoinRest } from './coinSim';
+import { getCoinFlightLive, getCoinRest, requestCoinPulse } from './coinSim';
 import { useGameStore } from '../store/gameStore';
 
 const BASE_FOV = 58;                 // 与 Scene3D Canvas 初始 fov 一致（归位/兜底还原目标）
 const smooth = (u) => { const t = Math.min(1, Math.max(0, u)); return t * t * t * (t * (t * 6 - 15) + 10); };
+const ss = (x) => { const v = Math.min(1, Math.max(0, x)); return v * v * (3 - 2 * v); }; // 平滑阶跃
 const damp = (k, dt) => 1 - Math.pow(k, dt); // 指数阻尼系数（帧率无关）
 const _aimT = new THREE.Vector3();   // 每帧注视目标临时向量（useFrame 内零分配）
 
 export default function CineRig({ camZ, eyeY, lookY, rot, tableTop }) {
   const { camera } = useThree();
+  const glintRef = useRef();         // 末镜「打光闪」点光源（掠过币面的镜面高光，非硬币自发光）
 
   // 观察方位（side=环绕方向、azi0=起始方位微偏）在首帧随机化（render 期须纯）——同一条轨迹分镜也不重样
   const rig = useMemo(() => ({
@@ -33,6 +35,7 @@ export default function CineRig({ camZ, eyeY, lookY, rot, tableTop }) {
     aim: new THREE.Vector3(0, tableTop + 1.2, 0),   // 阻尼注视点（切镜时快照到位）
     restAt: null,                                    // 闩存的落定时刻（硬币卸载后时间轴不回跳）
     rushT4: null,                                    // REFLIP 加速归位的提前 t4（一次性闩存）
+    pulsed: false,                                   // 揭示镜的币面金光脉冲只点一次火
     donePos: null, doneAim: null, doneFov: BASE_FOV, // 归位起点快照
     finished: false,
   }), [tableTop]);
@@ -86,6 +89,7 @@ export default function CineRig({ camZ, eyeY, lookY, rot, tableTop }) {
     const t5 = t4 + 0.95;
 
     const shot = t >= t4 ? 4 : t < t1 ? 0 : t < t2 ? 1 : t < t3 ? 2 : 3;
+    if (glintRef.current && shot !== 3) glintRef.current.intensity = 0; // 打光闪只活在末镜④
 
     // 本帧的目标位置/注视/视场
     let px, py, pz, ax, ay, az, fovT, aimK;
@@ -114,6 +118,17 @@ export default function CineRig({ camZ, eyeY, lookY, rot, tableTop }) {
         const u = smooth((t - t3) / (t4 - t3));
         r = 0.82 + 0.13 * u; h = 0.36 + 0.99 * u;
         fovT = 44 + 3 * u;
+        // 末镜「闪亮一下」（进揭示镜即刻，双管齐下保证肉眼可见）：
+        // ① 币面金光脉冲——躺平的硬币「接住」光闪一下（Coin 消费 requestCoinPulse）；
+        // ② 强打光闪——一盏暖白点光贴近币面快起缓落地掠过，被压暗的全场里币旁亮起
+        //    一汪光池又熄灭。攻 ~0.1/衰 ~0.5（按镜④进度 u 计），扫掠方向随环绕侧向。
+        if (!rig.pulsed) { rig.pulsed = true; requestCoinPulse(); }
+        if (glintRef.current) {
+          const g = ss((u - 0.03) / 0.1) * (1 - ss((u - 0.28) / 0.5));
+          const phi = aziC + rig.side * (1.15 - 2.3 * u);
+          glintRef.current.position.set(restX + Math.sin(phi) * 0.7, tableTop + 0.85, restZ + Math.cos(phi) * 0.7);
+          glintRef.current.intensity = 30 * g;
+        }
       }
       px = restX + Math.sin(aziC) * r; py = tableTop + h; pz = restZ + Math.cos(aziC) * r;
       ax = restX; ay = tableTop + 0.05; az = restZ;
@@ -143,6 +158,7 @@ export default function CineRig({ camZ, eyeY, lookY, rot, tableTop }) {
         camera.lookAt(0, lookY, 0);
         camera.fov = BASE_FOV;
         camera.updateProjectionMatrix();
+        if (glintRef.current) glintRef.current.intensity = 0;
         useGameStore.getState().setCine('enter'); // 放行 UI 出场；父层随之卸载本组件
         return;
       }
@@ -175,5 +191,6 @@ export default function CineRig({ camZ, eyeY, lookY, rot, tableTop }) {
     if (shot === 1) camera.rotateZ(rig.side * 0.035);
   });
 
-  return null;
+  // 末镜打光闪的光源（世界系，随 rig 挂卸；平时 intensity=0 零开销）
+  return <pointLight ref={glintRef} intensity={0} distance={4.5} decay={2} color="#ffefc8" />;
 }

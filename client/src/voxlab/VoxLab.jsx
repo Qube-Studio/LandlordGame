@@ -2,7 +2,7 @@
 // 导入素材:顶栏按钮(按住 CTRL 释放鼠标后点)或直接拖 .vox 文件进窗口——字节存 IndexedDB
 // (刷新不丢),ObjectURL 走与内置资产同一条 loadVox 管线,导入即成为当前摆放笔刷。
 // 素材库面板(未锁定时可点):换笔刷 / 删除素材(连同已摆实例)。场景摆放物持久化在 localStorage。
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Canvas } from '@react-three/fiber';
 import PixelText from '../assets/pixelfont/PixelText';
 import { ROLE_LABEL } from '../game/roles';
@@ -10,7 +10,7 @@ import { useLabStore, SWAP_KEYS, brushImport, hydrateLab } from './labStore';
 import Stage from './Stage';
 import LabRig from './LabRig';
 
-const SWAP_LABEL = { chandelier: '吊灯', table: '桌', chairs: '椅', room: '墙梁' };
+const SWAP_LABEL = { chandelier: '吊灯', table: '桌', chairs: '椅', room: '墙梁', fireplace: '壁炉', barrels: '木桶', decor: '装饰', players: '人物' };
 
 async function importVoxFiles(files) {
   const st = useLabStore.getState();
@@ -18,6 +18,18 @@ async function importVoxFiles(files) {
     if (!f.name.toLowerCase().endsWith('.vox')) continue;
     st.addImport(f.name.replace(/\.vox$/i, ''), await f.arrayBuffer());
   }
+}
+
+// 性能角标:fps / draw call / 三角数(Stage#PerfProbe 半秒写一次 window.__voxperf;
+// 体素资产替换的帧率影响一眼可见——墙面合并率翻车那次就是靠它定位的)
+function PerfChip() {
+  const [p, setP] = useState(null);
+  useEffect(() => {
+    const t = setInterval(() => setP(window.__voxperf ?? null), 500);
+    return () => clearInterval(t);
+  }, []);
+  if (!p) return null;
+  return <span className="voxlab-chip">{p.fps}fps · {p.calls}dc · {Math.round(p.tris / 1000)}k△</span>;
 }
 
 function Hud() {
@@ -61,6 +73,7 @@ function Hud() {
       <div className="voxlab-top">
         <PixelText size={2} color="var(--c-brass-hi)">VOXLAB</PixelText>
         <span className="voxlab-chip">体素画风隔离验证区 · 仅本地</span>
+        <PerfChip />
         {SWAP_KEYS.map((k) => (
           <span key={k} className={`voxlab-chip ${swaps[k] ? 'on' : ''}`}>
             {SWAP_LABEL[k] ?? k}:{swaps[k] ? '体素' : '现有'}
@@ -103,7 +116,7 @@ function Hud() {
           <div>左键 摆放(地面/桌面/横梁/天花板) · 右键 移除</div>
           <div>R 切换笔刷:<b>{brushLabel}</b></div>
           <div>Q/E 旋转 · 滚轮 缩放(×{ghostScale.toFixed(2)})</div>
-          <div>体素↔现有:V 吊灯 · B 桌 · N 椅 · M 墙梁</div>
+          <div>体素↔现有:V 吊灯 · B 桌 · N 椅 · M 墙梁 · F 壁炉 · G 木桶 · T 装饰 · P 人物</div>
           <div>X 清空摆放</div>
           <div>导入素材:顶栏按钮 或 拖 .vox 进窗口</div>
           <div>CTRL 按住释放鼠标(管理素材库) · H 收起本卡</div>

@@ -9,6 +9,7 @@ import { useEffect, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { usePhotoStore, liveCamera } from './photoStore';
+import { itemRegistry } from './itemRegistry';
 
 const LOOK_AT = new THREE.Vector3(0, 1.0, 0); // 机位预设都注视桌心略上
 const PRESETS = {
@@ -149,6 +150,32 @@ export default function FlyRig() {
       window.__photoProject = (x, y, z) => {
         const v = new THREE.Vector3(x, y, z).project(camera);
         return { x: (v.x * 0.5 + 0.5) * window.innerWidth, y: (-v.y * 0.5 + 0.5) * window.innerHeight };
+      };
+      // 注册表快照：id → 世界包围盒 + 屏幕 AABB（八角投影包络；hidden 物不在注册表 → 天然不出现）。
+      // E2E 点选/框选断言的数据源；覆盖式写 window（硬约束④）。
+      window.__photoItems = () => {
+        const out = {};
+        for (const [id, obj] of itemRegistry) {
+          const box = new THREE.Box3().setFromObject(obj);
+          if (box.isEmpty()) continue;
+          let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+          for (let i = 0; i < 8; i++) {
+            const v = new THREE.Vector3(
+              i & 1 ? box.max.x : box.min.x,
+              i & 2 ? box.max.y : box.min.y,
+              i & 4 ? box.max.z : box.min.z,
+            ).project(camera);
+            const sx = (v.x * 0.5 + 0.5) * window.innerWidth;
+            const sy = (-v.y * 0.5 + 0.5) * window.innerHeight;
+            if (sx < minX) minX = sx; if (sx > maxX) maxX = sx;
+            if (sy < minY) minY = sy; if (sy > maxY) maxY = sy;
+          }
+          out[id] = {
+            worldBox3: { min: [box.min.x, box.min.y, box.min.z], max: [box.max.x, box.max.y, box.max.z] },
+            screenAABB: { minX, minY, maxX, maxY },
+          };
+        }
+        return out;
       };
     }
   });

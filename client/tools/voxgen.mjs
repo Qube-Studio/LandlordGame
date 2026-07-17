@@ -14,10 +14,11 @@ import { writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { makeDense, writeVox } from '../src/voxel/vox.js';
-import { P, shade } from '../src/assets/palette.js';
-import { CHAND } from '../src/voxel/chandelierSpec.js';
+import { P, shade, PROP_COLORS } from '../src/assets/palette.js';
+import { CHAND, TIERED } from '../src/voxel/chandelierSpec.js';
 import { PROP_VOXEL_SIZE as PROP_S, WALL_SEG, BEAM_SEG } from '../src/voxel/propsSpec.js';
 import { MAT, makePalette, mulberry32, hash2, Painter, d8, hollow } from './voxkit.mjs';
+import { charAssets } from './voxchars.mjs';
 
 const OUT_DIR = join(dirname(fileURLToPath(import.meta.url)), '../src/assets/vox');
 
@@ -296,6 +297,100 @@ function genChandelierProps() {
   return { dense, pal, mats };
 }
 
+// ================= 双层圆盘吊灯(2026-07-16 新款,规格=chandelierSpec.TIERED) =================
+// 双层黄铜圆盘(车削环纹/抛光缘带/铆钉/外缘凸唇=金属质感全走色)+ 末地烛式自发光灯柱
+// (ink 暖白,无火苗面片)+ 下盘底缘水晶吊坠(specGlass 玻璃 MATL)+ 铜冠斜撑两级悬吊。
+// 中孔过币(§5-5);盘面细节只用环带/圆点,不撒逐体素噪点(逐体素噪点毁贪心合并,前车之鉴)。
+function genChandelierTiered() {
+  const S = PROP_S;
+  const T = TIERED;
+  const dense = makeDense(T.grid.sx, T.grid.sy, T.grid.sz);
+  const p = new Painter(dense, S);
+  const { pal, reg, mats } = makePalette();
+
+  const brass = reg(P.brass, MAT.metal({ metal: 0.8, rough: 0.3 }));
+  const brassHi = reg(P.brassHi, MAT.metal({ metal: 0.85, rough: 0.15 }));
+  const brassDim = reg(shade(P.brass, -18), MAT.metal({ metal: 0.75, rough: 0.4 }));
+  const rodGlow = reg(P.ink, MAT.emit({ emit: 1, flux: 3 }));      // 末地烛柱(运行时按此 hex 拆 emissive)
+  const crys = reg(PROP_COLORS.specGlass, MAT.glass({ alpha: 0.4 }));
+  const crysHi = reg(shade(PROP_COLORS.specGlass, 15), MAT.glass({ alpha: 0.4 }));
+  const crysDk = reg(shade(PROP_COLORS.specGlass, -22), MAT.glass({ alpha: 0.4 }));
+
+  // ---- 圆盘(环形板 + 外缘凸唇):盘底压暗/外缘抛光带/内缘描暗/车削环纹 ----
+  const plate = ({ rOut, rIn, y, th, lipH }) => {
+    p.scan(-rOut, rOut, y, y + th, -rOut, rOut, (x, yy, z) => {
+      const d = Math.hypot(x, z);
+      if (d > rOut || d < rIn) return 0;
+      if (yy < y + 0.03) return brassDim;
+      if (d > rOut - 0.08) return brassHi;
+      if (d < rIn + 0.06) return brassDim;
+      if (((d - rIn) % 0.14) < 0.035) return brassDim;
+      return brass;
+    });
+    p.scan(-rOut, rOut, y + th, y + th + lipH, -rOut, rOut, (x, yy, z) => {
+      const d = Math.hypot(x, z);
+      return d <= rOut && d >= rOut - 0.06 ? brassHi : 0;
+    });
+  };
+  plate(T.lower);
+  plate(T.upper);
+  // 下盘铆钉一圈(表面染色,不凸起)
+  for (let k = 0; k < 16; k++) {
+    const a = (k / 16) * Math.PI * 2 + Math.PI / 16;
+    const x = Math.cos(a) * 1.18, z = Math.sin(a) * 1.18;
+    const yTopFace = T.lower.y + T.lower.th;
+    p.box(x - 0.022, x + 0.022, yTopFace - 0.025, yTopFace, z - 0.022, z + 0.022, brassHi);
+  }
+
+  // ---- 末地烛灯柱:底座钮(brassDim) + 自发光柱 ----
+  const endRod = (a, r, baseY) => {
+    const cx = Math.cos(a) * r, cz = Math.sin(a) * r;
+    p.box(cx - T.rod.knob, cx + T.rod.knob, baseY, baseY + T.rod.knobH, cz - T.rod.knob, cz + T.rod.knob, brassDim);
+    p.cylinderY(cx, cz, baseY + T.rod.knobH, baseY + T.rod.knobH + T.rod.h, T.rod.r, rodGlow);
+  };
+  for (const a of T.rodsLower) endRod(a, T.rodLowerR, T.lower.y + T.lower.th);
+  for (const a of T.rodsUpper) endRod(a, T.rodUpperR, T.upper.y + T.upper.th);
+
+  // ---- 水晶吊坠:短链环(brassDim) + 八面体水晶(上半亮/下半暗的切面感) ----
+  T.crystals.forEach((a, k) => {
+    const cx = Math.cos(a) * T.crystalR, cz = Math.sin(a) * T.crystalR;
+    p.box(cx - 0.015, cx + 0.015, 0.22, T.lower.y, cz - 0.015, cz + 0.015, brassDim);
+    const r = k % 2 ? 0.05 : 0.068;
+    const cy = 0.15;
+    p.scan(cx - r, cx + r, cy - r, cy + r, cz - r, cz + r, (x, y, z) => {
+      if (Math.abs(x - cx) + Math.abs(y - cy) + Math.abs(z - cz) > r) return 0;
+      return y - cy > r * 0.25 ? crysHi : (cy - y > r * 0.25 ? crysDk : crys);
+    });
+  });
+
+  // ---- 斜撑杆(铜冠→上盘 ×4,上盘→下盘 ×4;端头亮铜) ----
+  const strut = (x0, y0, z0, x1, y1, z1) => {
+    const len = Math.hypot(x1 - x0, y1 - y0, z1 - z0);
+    const n = Math.max(2, Math.round(len / 0.045));
+    for (let i = 0; i <= n; i++) {
+      const t = i / n;
+      const x = x0 + (x1 - x0) * t, y = y0 + (y1 - y0) * t, z = z0 + (z1 - z0) * t;
+      p.box(x - 0.033, x + 0.033, y - 0.033, y + 0.033, z - 0.033, z + 0.033, i === 0 || i === n ? brassHi : brass);
+    }
+  };
+  for (const a of T.strutsTop) {
+    strut(Math.cos(a) * 0.10, 1.96, Math.sin(a) * 0.10, Math.cos(a) * 0.66, T.upper.y + T.upper.th, Math.sin(a) * 0.66);
+  }
+  for (const a of T.strutsMid) {
+    strut(Math.cos(a) * 0.72, T.upper.y, Math.sin(a) * 0.72, Math.cos(a) * 1.10, T.lower.y + T.lower.th, Math.sin(a) * 1.10);
+  }
+
+  // ---- 铜冠 + 方框吊环(顶=TIERED.hoopTop,吊杆从这里接走) ----
+  p.cylinderY(0, 0, 1.94, 2.02, 0.075, brass);
+  p.cylinderY(0, 0, 2.02, T.knotY, 0.052, brassHi);
+  p.box(-0.015, 0.015, T.knotY, T.hoopTop, -0.075, -0.045, brassHi);
+  p.box(-0.015, 0.015, T.knotY, T.hoopTop, 0.045, 0.075, brassHi);
+  p.box(-0.015, 0.015, T.hoopTop - 0.03, T.hoopTop, -0.045, 0.045, brassHi);
+
+  hollow(dense);
+  return { dense, pal, mats };
+}
+
 // ================= 赌桌(Scene3D#Table 同尺寸;§5-2 桌顶=1.0,§5-3 下注圈留贴花不烘) =================
 // 世界几何与 Scene3D.jsx Table 严格对齐:毡板 w×d 顶面 y=1.0、木框 (w+.4)×.34 @0.61~0.95、
 // 黄铜嵌线 0.06×0.03 @0.937~0.967(金属反射)、四腿 0.32² 0~0.70、双横撑。
@@ -455,7 +550,9 @@ function genWallLower() {
     const row = Math.floor(y / 0.4);
     const u = x + half + (row % 2) * 0.4;                // 错缝
     if ((y % 0.4) < S || (u % 0.8) < S) return mortar;   // 勾缝
-    if (hash2(Math.round(x / S), Math.round(y / S)) > 0.96) return stoneDark; // 石面麻点
+    // 石面麻点:3×3 体素块状(⚠勿改回逐体素——4% 孤点把每块砖面剁成 20+ 片,
+    // 贪心合并崩掉,16 段墙 10 万四边形,真机实测掉帧;块状后 ~6 倍合并率,观感更"石斑")
+    if (hash2(Math.floor(x / (S * 3)), Math.floor(y / (S * 3))) > 0.97) return stoneDark;
     const t = hash2(Math.floor(u / 0.8) * 7 + 1, row * 13);
     return t < 0.22 ? stoneDark : t > 0.78 ? stoneLit : stone;
   });
@@ -524,17 +621,368 @@ function genBeam() {
   return { dense, pal, mats };
 }
 
+// ================= 小物件批次(Scene3D Barrels/Decor/Fireplace 同尺寸体素化) =================
+// 自发光面片(火苗/月光窗/菜单板/铜币牌)按 §2.2 保留,不进体素;这里只做实体件。
+
+// 酒桶(圆柱微鼓腰 r0.50~0.57,h1.5):桶板角向分色 + 板缝 + 三道铁箍(金属) + 桶盖圈线
+function genBarrel() {
+  const S = PROP_S;
+  const dense = makeDense(34, 42, 34);
+  const p = new Painter(dense, S);
+  const { pal, reg, mats } = makePalette();
+  const wood = reg(P.wood500);
+  const woodLit = reg(shade(P.wood500, 10));
+  const woodDim = reg(shade(P.wood500, -10));
+  const woodLine = reg(P.wood900);
+  const lid = reg(P.wood300);
+  const hoop = reg(P.stone700, MAT.metal({ metal: 0.5, rough: 0.5 }));
+  p.scan(-0.6, 0.6, 0, 1.5, -0.6, 0.6, (x, y, z) => {
+    const r = 0.50 + 0.07 * Math.sin(Math.PI * Math.min(1, Math.max(0, y / 1.5)));
+    const d = Math.hypot(x, z);
+    if (d > r) return 0;
+    for (const hy of [0.18, 0.75, 1.32]) if (Math.abs(y - hy) < 0.05 && d > r - 0.06) return hoop;
+    if (y > 1.45 || y < 0.045) {                            // 桶盖/桶底:圈线 + 拼板
+      if (d > r - 0.06) return woodLine;
+      return ((x + 0.6) % 0.15) < S ? woodLine : [lid, wood][Math.floor((x + 0.6) / 0.15) % 2];
+    }
+    const a = (Math.atan2(z, x) + Math.PI) / (Math.PI * 2);
+    const stave = Math.floor(a * 12) % 12;
+    if ((a * 12) % 1 < 0.1) return woodLine;                // 桶板缝
+    const base = [wood, woodLit, woodDim][Math.floor(hash2(stave, 9) * 3)];
+    const st = streak(Math.round(y / S), stave * 3);
+    return st === 1 ? woodLit : st === 2 ? woodDim : base;
+  });
+  hollow(dense);
+  return { dense, pal, mats };
+}
+
+// 板条箱(0.8³ 基准,实例按比例缩放到 0.7~0.9):角柱/框缘提亮 + 横板条分色 + 板缝
+function genCrate() {
+  const S = PROP_S;
+  const dense = makeDense(24, 24, 24);
+  const p = new Painter(dense, S);
+  const { pal, reg, mats } = makePalette();
+  const crate = reg(P.wood300);
+  const crateLit = reg(shade(P.wood300, 12));
+  const crateDim = reg(shade(P.wood300, -14));
+  const line = reg(P.wood900);
+  p.scan(-0.4, 0.4, 0, 0.8, -0.4, 0.4, (x, y, z) => {
+    const ex = 0.4 - Math.abs(x), ez = 0.4 - Math.abs(z);
+    const edgeY = Math.min(y, 0.8 - y);
+    if ((ex < 0.07 && ez < 0.07) || (edgeY < 0.07 && (ex < 0.07 || ez < 0.07))) return crateLit; // 角柱/框缘
+    if ((y % 0.19) < S && y > 0.05 && y < 0.75) return line;                                     // 板缝
+    const plank = Math.floor(y / 0.19);
+    const st = streak(Math.round((x + z) / S), plank * 5);
+    if (st === 2) return crateDim;
+    return [crate, crateLit, crateDim][Math.floor(hash2(plank, Math.sign(x) * 2 + Math.sign(z)) * 3)];
+  });
+  hollow(dense);
+  return { dense, pal, mats };
+}
+
+// 壁炉(Scene3D#Fireplace 同尺寸):石拱砌块 + 炉台木梁 + 陶杯/蜡烛 + 交叉圆木 + 自发光炭床。
+// 火焰/烛焰=运行时面片(§2.2);炭床 ember 色(运行时按 hex 拆 emissive 子网格 + MATL 发光)。
+function genFireplace() {
+  const S = PROP_S;
+  const dense = makeDense(88, 64, 64);
+  const p = new Painter(dense, S);
+  const { pal, reg, mats } = makePalette();
+  const stone = reg(P.stone500);
+  const stoneDark = reg(P.stone700);
+  const stoneLit = reg(P.stone300);
+  const mortar = reg(shade(P.stone700, -35));
+  const wood = reg(P.wood500);
+  const woodLit = reg(shade(P.wood500, 10));
+  const woodDim = reg(shade(P.wood500, -10));
+  const woodHi = reg(P.wood300);
+  const woodDark = reg(P.wood700);
+  const woodLine = reg(P.wood900);
+  const soot = reg(shade(P.wood900, -40));
+  const clay = reg(P.wood300);
+  const wax = reg(P.parchment);
+  const emberC = reg(P.ember, MAT.emit({ emit: 0.9, flux: 2 }));
+
+  // 石材质感(柱/楣共用):砌块勾缝 + 逐块色调
+  const stoneAt = (x, y, seed) => {
+    const row = Math.floor(y / 0.28);
+    const u = x + 2 + (row % 2) * 0.3;
+    if ((y % 0.28) < S || (u % 0.6) < S) return mortar;
+    const t = hash2(Math.floor(u / 0.6) * 5 + seed, row * 11);
+    return t < 0.25 ? stoneDark : t > 0.78 ? stoneLit : stone;
+  };
+  for (const px of [-1.05, 1.05]) p.scan(px - 0.25, px + 0.25, 0, 1.6, -0.25, 0.25, (x, y) => stoneAt(x, y, px > 0 ? 3 : 7)); // 双柱
+  p.scan(-1.3, 1.3, 1.54, 1.9, -0.25, 0.25, (x, y) => (Math.abs(x) < 0.14 ? stoneLit : stoneAt(x, y, 5)));  // 拱楣(拱心石提亮)
+  for (const px of [-0.62, 0.62]) p.box(px - 0.18, px + 0.18, 1.35, 1.55, -0.23, 0.23, stoneDark);          // 拱角垫块
+  p.scan(-1.45, 1.45, 0, 0.1, -0.25, 0.85, (x, y, z) =>                                                     // 炉底石台
+    (hash2(Math.round(x / (3 * S)), Math.round(z / (3 * S))) > 0.7 ? stoneDark : stone));
+  p.scan(-0.8, 0.8, 0, 1.6, -0.22, 0.02, (x, y) => (y > 1.0 ? soot : woodLine));                            // 炉膛(上部熏黑)
+  // 炉台木梁
+  p.scan(-1.55, 1.55, 1.9, 2.06, -0.22, 0.34, (x, y, z) => {
+    if (y > 2.03) { const st = streak(Math.round(x / S), 2); return st === 1 ? woodHi : st === 2 ? woodDim : wood; }
+    if (y < 1.93) return woodLine;
+    const st = streak(Math.round(x / S), Math.round(z / S) + 7);
+    return st === 1 ? woodLit : st === 2 ? woodDim : wood;
+  });
+  p.cylinderY(-0.9, 0.06, 2.06, 2.24, 0.075, clay);         // 陶杯
+  p.cylinderY(0.85, 0.06, 2.06, 2.24, 0.042, wax);          // 蜡烛(火苗面片=运行时)
+  p.box(0.837, 0.863, 2.24, 2.27, 0.047, 0.073, woodLine);  // 烛芯
+  // 交叉圆木(水平圆柱,端面年轮提亮)
+  const logPaint = (cy, cz, yaw, len, r) => {
+    const ax = Math.cos(yaw), az = -Math.sin(yaw);
+    p.scan(-0.62, 0.62, cy - r - 0.02, cy + r + 0.02, cz - 0.62, cz + 0.62, (x, y, z) => {
+      const dy = y - cy, dz0 = z - cz;
+      const along = x * ax + dz0 * az;
+      if (Math.abs(along) > len / 2) return 0;
+      if (Math.hypot(x - along * ax, dy, dz0 - along * az) > r) return 0;
+      if (Math.abs(along) > len / 2 - 0.05) return woodHi;
+      return streak(Math.round(along / S), 4) === 2 ? woodLine : woodDark;
+    });
+  };
+  logPaint(0.16, 0.08, 0.35, 1.0, 0.09);
+  logPaint(0.30, 0.0, -0.4, 0.95, 0.08);
+  // 炭床(火苗面片脚下,稀疏自发光块)
+  p.scan(-0.45, 0.45, 0.08, 0.16, -0.12, 0.3, (x, y, z) =>
+    (hash2(Math.round(x / S), Math.round(z / S)) > 0.45 ? emberC : 0));
+  hollow(dense);
+  return { dense, pal, mats };
+}
+
+// 酒瓶(玻璃透明材质;绿/棕两色变体):鼓身+收肩+细颈,受光棱/背光棱=染色
+function genBottle(hex) {
+  const S = PROP_S;
+  const dense = makeDense(6, 13, 6);
+  const p = new Painter(dense, S);
+  const { pal, reg, mats } = makePalette();
+  const glass = reg(hex, MAT.glass({ alpha: 0.45 }));
+  const glassHi = reg(shade(hex, 30), MAT.glass({ alpha: 0.45 }));
+  const glassDk = reg(shade(hex, -25), MAT.glass({ alpha: 0.45 }));
+  p.scan(-0.1, 0.1, 0, 0.44, -0.1, 0.1, (x, y, z) => {
+    const r = y < 0.26 ? 0.08 : (y < 0.33 ? 0.08 - (y - 0.26) * 0.67 : 0.033);
+    if (Math.hypot(x, z) > r) return 0;
+    if (x > 0.03 && z > 0.03) return glassHi;
+    if (x < -0.03 && z < -0.03) return glassDk;
+    return glass;
+  });
+  return { dense, pal, mats };
+}
+
+// 陶杯(带柄):杯口压暗读出开口
+function genMug() {
+  const S = PROP_S;
+  const dense = makeDense(10, 5, 6);
+  const p = new Painter(dense, S);
+  const { pal, reg, mats } = makePalette();
+  const clay = reg(P.wood300);
+  const clayDim = reg(shade(P.wood300, -18));
+  const dark = reg(P.wood900);
+  p.scan(-0.11, 0.16, 0, 0.16, -0.11, 0.11, (x, y, z) => {
+    const d = Math.hypot(x, z);
+    if (d <= 0.09) {
+      if (y > 0.12 && d < 0.05) return dark;
+      return y < 0.03 ? clayDim : clay;
+    }
+    if (x > 0.08 && x < 0.16 && Math.abs(z) < 0.03 && y > 0.03 && y < 0.13) return clayDim; // 杯柄
+    return 0;
+  });
+  return { dense, pal, mats };
+}
+
+// 双层搁板(2.0×0.8,板 y0/0.72 抬 0.04 对齐消费侧):两端竖挡板 + 板面木纹
+function genShelf() {
+  const S = PROP_S;
+  const dense = makeDense(58, 24, 10);
+  const p = new Painter(dense, S);
+  const { pal, reg, mats } = makePalette();
+  const wood = reg(P.wood700);
+  const woodLit = reg(shade(P.wood700, 16));
+  const woodDim = reg(shade(P.wood700, -18));
+  for (const px of [-0.97, 0.97]) {
+    p.scan(px - 0.045, px + 0.045, 0, 0.80, -0.17, 0.17, (x, y) =>
+      (streak(Math.round(y / S), 3) === 2 ? woodDim : wood));
+  }
+  for (const by of [0, 0.72]) {
+    p.scan(-1.0, 1.0, by, by + 0.08, -0.17, 0.17, (x, y) => {
+      if (y > by + 0.05) return streak(Math.round(x / S), Math.round(by * 10)) === 1 ? woodLit : wood;
+      return woodDim;
+    });
+  }
+  hollow(dense);
+  return { dense, pal, mats };
+}
+
+// 门边长凳(座面居中,消费侧回移 z):板面分色 + 四腿
+function genBench() {
+  const S = PROP_S;
+  const dense = makeDense(50, 16, 14);
+  const p = new Painter(dense, S);
+  const { pal, reg, mats } = makePalette();
+  const wood = reg(P.wood500);
+  const woodLit = reg(shade(P.wood500, 10));
+  const woodDim = reg(shade(P.wood500, -10));
+  const woodDark = reg(P.wood700);
+  const woodLine = reg(P.wood900);
+  p.scan(-0.85, 0.85, 0.43, 0.53, -0.225, 0.225, (x, y, z) => {
+    if (y > 0.49) {
+      if ((z + 0.225) % 0.15 < S && z > -0.2) return woodLine;
+      const st = streak(Math.round(x / S), Math.floor((z + 0.225) / 0.15) * 7);
+      return st === 1 ? woodLit : st === 2 ? woodDim : wood;
+    }
+    return woodDim;
+  });
+  for (const [lx, lz] of [[-0.7, -0.15], [0.7, -0.15], [-0.7, 0.15], [0.7, 0.15]]) {
+    p.scan(lx - 0.045, lx + 0.045, 0, 0.43, lz - 0.045, lz + 0.045, (x, y) => (y < 0.04 ? woodLine : woodDark));
+  }
+  hollow(dense);
+  return { dense, pal, mats };
+}
+
+// 酒馆大门(框+竖板门扇+铁铰链+铜把手):把手=金属反射
+function genDoor() {
+  const S = PROP_S;
+  const dense = makeDense(50, 92, 8);
+  const p = new Painter(dense, S);
+  const { pal, reg, mats } = makePalette();
+  const frame = reg(P.wood700);
+  const frameDim = reg(shade(P.wood700, -18));
+  const leaf = reg(shade(P.wood700, 8));
+  const leafDim = reg(shade(P.wood700, -8));
+  const woodLine = reg(P.wood900);
+  const handle = reg(P.brassHi, MAT.metal({ metal: 0.85, rough: 0.15 }));
+  for (const px of [-0.78, 0.78]) {
+    p.scan(px - 0.09, px + 0.09, 0, 3.1, -0.12, 0.12, (x, y) =>
+      (streak(Math.round(y / S), Math.round(px * 5)) === 2 ? frameDim : frame));
+  }
+  p.scan(-0.89, 0.89, 3.03, 3.25, -0.12, 0.12, (x) =>
+    (streak(Math.round(x / S), 8) === 2 ? frameDim : frame));   // 门楣
+  p.scan(-0.7, 0.7, 0.02, 2.98, -0.03, 0.07, (x, y) => {        // 门扇竖板
+    const u = x + 0.7;
+    if ((u % 0.28) < S && u > 0.05) return woodLine;
+    const st = streak(Math.round(y / S), Math.floor(u / 0.28) * 9);
+    return st === 2 ? leafDim : leaf;
+  });
+  for (const hy of [0.7, 2.3]) p.box(-0.67, -0.33, hy - 0.05, hy + 0.05, -0.085, -0.02, woodLine); // 铰链
+  p.box(0.455, 0.545, 1.35, 1.55, -0.11, -0.04, handle);        // 铜把手
+  hollow(dense);
+  return { dense, pal, mats };
+}
+
+// 飞镖盘(面朝 +z,消费侧转向墙):木底盘缘 + 同心环色 + 八扇区线 + 铜靶心(金属)
+function genDartboard() {
+  const S = PROP_S;
+  const dense = makeDense(34, 34, 4);
+  const p = new Painter(dense, S);
+  const { pal, reg, mats } = makePalette();
+  const rim = reg(P.wood500);
+  const line = reg(P.wood900);
+  const red = reg(P.danger);
+  const cream = reg(shade(P.parchment, -12));
+  const green = reg(P.ok);
+  const bull = reg(P.brassHi, MAT.metal({ metal: 0.85, rough: 0.15 }));
+  p.scan(-0.58, 0.58, 0, 1.16, -0.08, 0.08, (x, y) => {
+    const dy = y - 0.56;
+    const d = Math.hypot(x, dy);
+    if (d > 0.56) return 0;
+    if (d > 0.47) return rim;
+    const a = ((Math.atan2(dy, x) + Math.PI) / (Math.PI / 4)) % 1;
+    if (a < 0.06 && d > 0.08) return line;
+    if (d < 0.05) return bull;
+    if (d < 0.13) return red;
+    if (d < 0.24) return cream;
+    if (d < 0.33) return green;
+    if (d < 0.42) return cream;
+    return red;
+  });
+  return { dense, pal, mats };
+}
+
+// 墙面烛台(木托 -z 朝墙,底部为锚;蜡烛顶 0.41,火苗面片=运行时):托臂 + 蜡柱 + 烛芯
+function genSconce() {
+  const S = PROP_S;
+  const dense = makeDense(6, 15, 10);
+  const p = new Painter(dense, S);
+  const { pal, reg, mats } = makePalette();
+  const wood = reg(P.wood700);
+  const woodDim = reg(shade(P.wood700, -18));
+  const wax = reg(P.parchment);
+  const wick = reg(P.wood900);
+  p.scan(-0.05, 0.05, 0, 0.34, -0.14, -0.02, (x, y) => (y < 0.03 || y > 0.31 ? woodDim : wood)); // 背板
+  p.box(-0.04, 0.04, 0.18, 0.24, -0.06, 0.03, wood);                                             // 托臂
+  p.cylinderY(0, 0, 0.21, 0.41, 0.042, wax);                                                     // 蜡柱
+  p.box(-0.012, 0.012, 0.41, 0.44, -0.012, 0.012, wick);
+  return { dense, pal, mats };
+}
+
+// 角落小圆桌(顶 r0.75 @0.86,柱+圆底座):台面年轮色环 + 边缘描暗
+function genTableRound() {
+  const S = PROP_S;
+  const dense = makeDense(44, 26, 44);
+  const p = new Painter(dense, S);
+  const { pal, reg, mats } = makePalette();
+  const wood = reg(P.wood500);
+  const woodLit = reg(shade(P.wood500, 10));
+  const woodDim = reg(shade(P.wood500, -10));
+  const woodDark = reg(P.wood700);
+  const woodLine = reg(P.wood900);
+  p.cylinderY(0, 0, 0, 0.07, 0.34, woodDark);          // 底座
+  p.cylinderY(0, 0, 0.07, 0.82, 0.12, woodDark);       // 柱
+  p.scan(-0.76, 0.76, 0.82, 0.90, -0.76, 0.76, (x, y, z) => {
+    const d = Math.hypot(x, z);
+    if (d > 0.75) return 0;
+    if (d > 0.69) return woodLine;                     // 边缘
+    if (y < 0.86) return woodDim;                      // 台面侧
+    if ((d / 0.11) % 1 < 0.22) return woodDim;         // 年轮
+    return hash2(Math.floor(d / 0.11), 3) > 0.5 ? woodLit : wood;
+  });
+  hollow(dense);
+  return { dense, pal, mats };
+}
+
+// 衣帽钩排(轨条 y0.2 为锚,三只下斜挂钩;消费侧 y=2.1-0.2 挂墙)
+function genCoatrack() {
+  const S = PROP_S;
+  const dense = makeDense(50, 10, 10);
+  const p = new Painter(dense, S);
+  const { pal, reg, mats } = makePalette();
+  const wood = reg(P.wood700);
+  const woodDim = reg(shade(P.wood700, -18));
+  const dark = reg(P.wood900);
+  p.scan(-0.85, 0.85, 0.15, 0.25, -0.08, 0, (x) =>
+    (streak(Math.round(x / S), 6) === 2 ? woodDim : wood));      // 轨条
+  for (const px of [-0.6, 0, 0.6]) {
+    for (let i = 0; i < 3; i++) {                                // 挂钩:三段下斜台阶
+      p.box(px - 0.035, px + 0.035, 0.16 - i * 0.05, 0.22 - i * 0.05, -0.08 - i * 0.05, -0.02 - i * 0.05, dark);
+    }
+  }
+  return { dense, pal, mats };
+}
+
 // ================= 出盘 =================
 mkdirSync(join(OUT_DIR, 'props'), { recursive: true });
+mkdirSync(join(OUT_DIR, 'props/char'), { recursive: true });
 const assets = [
   ['chandelier-deluxe.vox', genChandelierLegacy],        // voxlab 在用(1.5cm),字节保持不变
-  ['props/chandelier-deluxe.vox', genChandelierProps],   // 素材批次(3cm + MATL 材质)
+  ['props/chandelier-deluxe.vox', genChandelierProps],   // 素材批次(八角木轮旧款,留库可比对)
+  ['props/chandelier-tiered.vox', genChandelierTiered],  // 双层圆盘新款(2026-07-16,VoxChandelier 在用)
   ['props/table.vox', () => genTable(6.0, 4.0)],
   ['props/table-long.vox', () => genTable(8.6, 4.0)],
   ['props/chair.vox', genChair],
   ['props/wall-lower.vox', genWallLower],
   ['props/wall-upper.vox', genWallUpper],
   ['props/beam.vox', genBeam],
+  ['props/barrel.vox', genBarrel],
+  ['props/crate.vox', genCrate],
+  ['props/fireplace.vox', genFireplace],
+  ['props/bottle-green.vox', () => genBottle(P.glassGreen)],
+  ['props/bottle-brown.vox', () => genBottle(P.glassBrown)],
+  ['props/mug.vox', genMug],
+  ['props/shelf.vox', genShelf],
+  ['props/bench.vox', genBench],
+  ['props/door.vox', genDoor],
+  ['props/dartboard.vox', genDartboard],
+  ['props/sconce.vox', genSconce],
+  ['props/table-round.vox', genTableRound],
+  ['props/coatrack.vox', genCoatrack],
+  ...charAssets,   // 人物批次(tools/voxchars.mjs:头壳/身臂腿×7 角色/帽×5)
 ];
 for (const [name, gen] of assets) {
   const { dense, pal, mats } = gen();

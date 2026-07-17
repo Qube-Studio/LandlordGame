@@ -8,7 +8,8 @@ import { useMemo, useRef, useLayoutEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { coinFaceTexture, coinEdgeTexture } from './textures';
-import { pickFlip, restTransform, setCoinRest, getCoinRest, setCoinFlightLive, COIN_R, COIN_H, COIN_SEGMENTS } from './coinSim';
+import { pickFlip, restTransform, setCoinRest, getCoinRest, setCoinFlightLive, consumeCoinPulse, COIN_R, COIN_H, COIN_SEGMENTS } from './coinSim';
+import { useGameStore } from '../store/gameStore';
 import { PROP_COLORS } from '../assets/palette';
 
 const _wp = new THREE.Vector3(); // 每帧发布世界位姿用的临时向量（硬币在旋转组内,分镜相机要世界系）
@@ -17,7 +18,8 @@ export default function Coin({ result = 'heads', mode = 'flip', tableTop = 1.0 }
   const ref = useRef();
   const rest = tableTop + COIN_H; // 平放时圆心高度（最低点恰好贴桌面）
   const startRef = useRef(null);
-  const restStartRef = useRef(null); // rest 出现时刻：用于一次性金光脉冲
+  const restStartRef = useRef(null); // 金光脉冲起始时刻（flip 躺平后/rest 均可能承接）
+  const firstRef = useRef(null);     // rest 首帧标记：无分镜在播时沿用旧行为挂载即闪
 
   const mats = useMemo(() => {
     // 全剧最亮道具(ART_BIBLE §1.6):暖金属 + 常驻微 emissive(0.25 基线,翻飞金闪被 Bloom 捕获)
@@ -53,10 +55,16 @@ export default function Coin({ result = 'heads', mode = 'flip', tableTop = 1.0 }
       const r = getCoinRest();
       c.position.set(r ? r.x : 0, rest + Math.sin(st.clock.elapsedTime * 2) * 0.01, r ? r.z : 0);
       c.rotation.set(result === 'heads' ? 0 : Math.PI, r ? r.ry : 0, 0);
-      // 落定瞬间一次性金光脉冲（基线→峰→基线，约 0.45s），配 Bloom 出"叮"一亮
-      // (emissive 换成了深金 coinGlow,峰值系数相应加大)
-      if (restStartRef.current == null) restStartRef.current = st.clock.elapsedTime;
-      const rt = st.clock.elapsedTime - restStartRef.current;
+      // 一次性金光脉冲（基线→峰→基线，约 0.45s），配 Bloom 出"叮"一亮。
+      // 正常分镜路径里脉冲已在揭示镜由 flip 硬币播过（CineRig 点火）——这里不重播；
+      // 首帧若无分镜在播（单人/减动效/直入结算的冷挂载）→ 沿用旧行为挂载即闪；
+      // 分镜极晚落定（揭示镜晚于相位切换、flip 已卸载）→ 这里接棒消费点火请求。
+      if (firstRef.current == null) {
+        firstRef.current = true;
+        if (useGameStore.getState().cine === 'off') restStartRef.current = st.clock.elapsedTime;
+      }
+      if (restStartRef.current == null && consumeCoinPulse()) restStartRef.current = st.clock.elapsedTime;
+      const rt = restStartRef.current == null ? 9 : st.clock.elapsedTime - restStartRef.current;
       const glow = rt < 0.45 ? Math.sin((rt / 0.45) * Math.PI) * 3.2 : 0;
       for (const m of mats) m.emissiveIntensity = 0.25 + glow;
       return;
@@ -77,6 +85,13 @@ export default function Coin({ result = 'heads', mode = 'flip', tableTop = 1.0 }
     // 发布世界位姿 + 时间轴给分镜相机（§3.4 演出）：restAt=该轨迹的落定时刻
     c.getWorldPosition(_wp);
     setCoinFlightLive({ x: _wp.x, y: _wp.y, z: _wp.z, t, restAt: anim.restAt ?? 4.2 });
+    // 末镜「闪亮一下」：揭示镜开场点火（CineRig requestCoinPulse），躺平的硬币接住光闪一下
+    if (restStartRef.current == null && t > (anim.restAt ?? 9) && consumeCoinPulse()) restStartRef.current = st.clock.elapsedTime;
+    if (restStartRef.current != null) {
+      const rt = st.clock.elapsedTime - restStartRef.current;
+      const glow = rt < 0.45 ? Math.sin((rt / 0.45) * Math.PI) * 3.2 : 0;
+      for (const m of mats) m.emissiveIntensity = 0.25 + glow;
+    }
   });
 
   return (

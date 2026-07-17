@@ -12,6 +12,7 @@ export default function VoxModel({
   scale = VOXEL_SIZE,
   emissiveColors = null,     // hex 数组:这些颜色的体素发光
   emissiveIntensity = 1.4,
+  emissive = '#ffffff',      // 发光子网格的 emissive 色(金件传金色,白光会稀释色相)
   castShadow = true,
   receiveShadow = false,
   anchor = 'bottom',         // 'bottom' = XZ 居中 + Y0 在底;'center' = 全轴居中
@@ -32,9 +33,9 @@ export default function VoxModel({
     main: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, flatShading: true }),
     emissive: new THREE.MeshStandardMaterial({
       vertexColors: true, roughness: 0.6, flatShading: true,
-      emissive: new THREE.Color('#ffffff'), emissiveIntensity,
+      emissive: new THREE.Color(emissive), emissiveIntensity,
     }),
-  }), [emissiveIntensity]);
+  }), [emissiveIntensity, emissive]);
 
   if (!model) return null;
   const off = anchor === 'center'

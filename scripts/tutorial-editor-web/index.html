@@ -160,6 +160,34 @@
   .prev-p .dash { position: absolute; left: 2px; color: var(--ink-dim); }
   .prev-img { max-width: 100%; image-rendering: pixelated; border: 2px solid #000; align-self: flex-start; }
   .prev-gap { flex: none; height: 9px; }
+
+  /* 属性条/进度条：正式 UI 同款细条（游戏 quest-track 规格：5px 高、1px 黑描边、竖向渐变填充、
+     未填充灰白、渐隐方向可选），逐值对齐游戏内 pixel.css 的 .rules-bar（所见即所得）。 */
+  .rules-bar { display: flex; align-items: center; gap: 8px; margin: 1px 0; font-family: var(--font-cjk); flex-wrap: wrap; }
+  .rules-bar .rb-label { color: var(--body-ink); font-size: 13px; flex: none; }
+  .rules-bar .rb-label .hi { color: var(--gold); }
+  .rules-bar .rb-track {
+    position: relative; display: block; flex: none; height: 5px;
+    background: rgba(240,235,220,0.30);
+    box-shadow: 0 0 0 1px rgba(0,0,0,0.9);
+    overflow: hidden;
+  }
+  .rules-bar.fade-both  .rb-track { -webkit-mask: linear-gradient(90deg, rgba(0,0,0,0), #000 14%, #000 86%, rgba(0,0,0,0)); mask: linear-gradient(90deg, rgba(0,0,0,0), #000 14%, #000 86%, rgba(0,0,0,0)); }
+  .rules-bar.fade-left  .rb-track { -webkit-mask: linear-gradient(90deg, rgba(0,0,0,0), #000 22%); mask: linear-gradient(90deg, rgba(0,0,0,0), #000 22%); }
+  .rules-bar.fade-right .rb-track { -webkit-mask: linear-gradient(90deg, #000 78%, rgba(0,0,0,0)); mask: linear-gradient(90deg, #000 78%, rgba(0,0,0,0)); }
+  .rules-bar .rb-fill { display: block; height: 100%; }
+  .rules-bar.c-gold  .rb-fill { background: linear-gradient(180deg, #f6dd7a, var(--gold)); }
+  .rules-bar.c-green .rb-fill { background: linear-gradient(180deg, #b9e3a4, #7ec86a); }
+  .rules-bar.c-red   .rb-fill { background: linear-gradient(180deg, #f09a8a, #e36262); }
+  .rules-bar.c-blue  .rb-fill { background: linear-gradient(180deg, #9ec3ee, #5a8fd8); }
+
+  /* 属性条编辑控件 */
+  .blk-barprev { padding: 6px 8px; background: rgba(0,0,0,0.28); border: 2px solid var(--darker); }
+  .bar-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .bar-lab { color: var(--ink-faint); font-size: 11px; flex: none; }
+  .bar-step { display: flex; align-items: center; gap: 4px; }
+  .bar-num { width: 46px; text-align: center; }
+  .bar-col.on, .bar-fade.on { background: var(--gold); color: var(--dark); }
   .prev-img.missing { padding: 10px; color: var(--ink-faint); border: 2px dashed var(--ink-faint); font-size: 11px; }
   .toast {
     position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
@@ -282,13 +310,47 @@ const $ = (id) => document.getElementById(id);
 const el = (tag, cls, txt) => { const e = document.createElement(tag); if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; };
 
 // ============ 段落形态 ============
-// 段落 = 字符串（普通段；空串=排版空行）| {text, size}（字号段）| {img, alt}（图片段）。
-// 字号档位像素值与游戏内 pixel.css 的 .rules-p / .fs-* 一致，预览所见即所得。
+// 段落 = 字符串（普通段；空串=排版空行）| {text, size}（字号段）| {img, alt}（图片段）
+//      | {bar, width, fill, color, fade}（属性条/进度条：正式 UI 同款细条——bar=并排文字(支持**金字**)，
+//        width=长度px(24-400)，fill=填充%(未填充灰白)，fade=渐隐侧 both/left/right/none；旧段式{value,max}读时折算）。
+// 字号档位/属性条像素值与游戏内 pixel.css 的 .rules-p/.fs-*/.rules-bar 一致，预览所见即所得。
 const SIZES = [['s', '小'], ['m', '标准'], ['l', '大'], ['xl', '特大']];
 const SIZE_PX = { s: 11, m: 13, l: 16, xl: 20 };
 const SIZE_LABEL = Object.fromEntries(SIZES);
-const textOf = (it) => (typeof it === 'string' ? it : (it && typeof it === 'object' && !('img' in it) ? String(it.text ?? '') : null));
-const sizeOf = (it) => ((it && typeof it === 'object' && !('img' in it) && (it.size === 's' || it.size === 'l' || it.size === 'xl')) ? it.size : 'm');
+const BAR_COLORS = [['gold', '金'], ['green', '绿'], ['red', '红'], ['blue', '蓝']];
+const BAR_FADES = [['both', '两端'], ['left', '左'], ['right', '右'], ['none', '无']];
+const BAR_W = { lo: 24, hi: 400, def: 144 };
+const isImgItem = (it) => it && typeof it === 'object' && 'img' in it;
+const isBarItem = (it) => it && typeof it === 'object' && 'bar' in it;
+const textOf = (it) => (typeof it === 'string' ? it : (it && typeof it === 'object' && !isImgItem(it) && !isBarItem(it) ? String(it.text ?? '') : null));
+const sizeOf = (it) => ((it && typeof it === 'object' && !isImgItem(it) && !isBarItem(it) && (it.size === 's' || it.size === 'l' || it.size === 'xl')) ? it.size : 'm');
+// 属性条归一化（越界值兜底）+ DOM 构建（预览与块内小样共用，保证与游戏渲染逐值一致）
+function clampNum(v, lo, hi) { let n = Math.round(Number(v)); if (!Number.isFinite(n)) n = lo; return Math.max(lo, Math.min(hi, n)); }
+function normBar(it) {
+  const w0 = Math.round(Number(it?.width));
+  const width = Number.isFinite(w0) && w0 > 0 ? Math.max(BAR_W.lo, Math.min(BAR_W.hi, w0)) : BAR_W.def;
+  let fill;
+  if (it?.fill != null) fill = clampNum(it.fill, 0, 100);
+  else if (Number(it?.max) > 0) fill = clampNum((Number(it.value) || 0) / Number(it.max) * 100, 0, 100); // 旧段式折算
+  else fill = 0;
+  const color = BAR_COLORS.some(([k]) => k === it?.color) ? it.color : 'gold';
+  const fade = BAR_FADES.some(([k]) => k === it?.fade) ? it.fade : 'both';
+  return { width, fill, color, fade };
+}
+function barEl(it) {
+  const { width, fill, color, fade } = normBar(it);
+  const wrap = el('div', `rules-bar c-${color} fade-${fade}`);
+  if (it.bar) {
+    const lab = el('span', 'rb-label');
+    parseRuns(String(it.bar)).forEach((r) => lab.appendChild(el('span', r.hi ? 'hi' : null, r.t)));
+    wrap.appendChild(lab);
+  }
+  const track = el('span', 'rb-track'); track.style.width = width + 'px';
+  const fillEl = el('span', 'rb-fill'); fillEl.style.width = fill + '%';
+  track.appendChild(fillEl);
+  wrap.appendChild(track);
+  return wrap;
+}
 
 // ============ 树工具 ============
 function* walk(nodes) { for (const n of nodes) { yield n; yield* walk(n.children || []); } }
@@ -332,7 +394,7 @@ function TriSvg(open, leaf) {
 function matchNode(n, q) {
   if ((n.title || '').toLowerCase().includes(q)) return true;
   for (const b of n.body || []) {
-    const s = typeof b === 'string' ? b : `${b.img || ''} ${b.alt || ''} ${b.text || ''}`;
+    const s = typeof b === 'string' ? b : `${b.img || ''} ${b.alt || ''} ${b.text || ''} ${b.bar || ''}`;
     if (s.toLowerCase().includes(q)) return true;
   }
   return false;
@@ -494,9 +556,11 @@ function renderEditor() {
   const addRow = el('div', 'add-row');
   const bt = el('button', 'btn', '+ 文字段落'); bt.addEventListener('click', () => { pushHistory(); node.body.push(''); markDirty(); renderEditor(); renderPreview(); focusLastTextarea(); });
   const bi = el('button', 'btn', '+ 图片段落'); bi.addEventListener('click', () => { pushHistory(); node.body.push({ img: '' }); markDirty(); renderEditor(); renderPreview(); });
+  const bb = el('button', 'btn', '+ 属性条'); bb.title = '插入自定长度的分段属性条/进度条';
+  bb.addEventListener('click', () => { pushHistory(); node.body.push(newBar()); markDirty(); renderEditor(); renderPreview(); });
   const bg = el('button', 'btn', '+ 空行'); bg.title = '排版留白：渲染为一个空行';
   bg.addEventListener('click', () => { pushHistory(); node.body.push(''); markDirty(); renderEditor(); renderPreview(); });
-  addRow.appendChild(bt); addRow.appendChild(bi); addRow.appendChild(bg);
+  addRow.appendChild(bt); addRow.appendChild(bi); addRow.appendChild(bb); addRow.appendChild(bg);
   box.appendChild(addRow);
 }
 // 只改树里某节点标题文本（避免打字时重建整棵树丢焦点）
@@ -505,6 +569,7 @@ function renderTreeTitle(id, title) {
   if (row) row.textContent = title || '(无标题)';
 }
 function focusLastTextarea() { const ts = $('editor').querySelectorAll('textarea.text'); ts[ts.length - 1]?.focus(); }
+const newBar = () => ({ bar: '', width: 144, fill: 60, color: 'gold', fade: 'both' });
 // 聚焦第 index 个段落块里的输入框（textarea 或图片 URL 输入），可指定光标位置
 function focusBlockInput(index, caret = 0) {
   const inp = $('editor').querySelector(`.block[data-index="${index}"] textarea.text, .block[data-index="${index}"] input.text`);
@@ -514,7 +579,8 @@ function focusBlockInput(index, caret = 0) {
 }
 
 function blockEl(node, item, i) {
-  const isImg = item && typeof item === 'object' && 'img' in item;
+  const isImg = isImgItem(item);
+  const isBar = isBarItem(item);
   const wrap = el('div', 'block'); wrap.dataset.index = i;
 
   const head = el('div', 'block-head');
@@ -523,6 +589,7 @@ function blockEl(node, item, i) {
   head.appendChild(handle);
   const kindLabel = () => {
     if (isImg) return '图片';
+    if (isBar) return '属性条';
     const t = textOf(item) ?? '', sz = sizeOf(item);
     return !t.trim() ? '空行' : ('文字' + (sz !== 'm' ? '·' + SIZE_LABEL[sz] : ''));
   };
@@ -536,6 +603,7 @@ function blockEl(node, item, i) {
     return b;
   };
   head.appendChild(mkAdd('+段', '在本段后插入文字段落', () => '', true));
+  head.appendChild(mkAdd('+条', '在本段后插入属性条', () => newBar(), false));
   head.appendChild(mkAdd('+空行', '在本段后插入空行（排版留白）', () => '', false));
   head.appendChild(mkAdd('+图', '在本段后插入图片段落', () => ({ img: '' }), false));
   const up = el('button', 'btn sm', '↑'); up.disabled = i === 0; up.addEventListener('click', () => moveBlock(node, i, i - 1));
@@ -576,6 +644,70 @@ function blockEl(node, item, i) {
       const f = e.dataTransfer?.files?.[0];
       if (f && f.type.startsWith('image/')) { e.preventDefault(); uploadTarget = { node, index: i }; doUpload(f); }
     });
+  } else if (isBar) {
+    // 属性条：{bar:并排文字, width:长度px, fill:填充%, color, fade:渐隐侧}——正式 UI 同款细条。
+    // 旧段式 {value,max} 首次编辑时固化为新式（normBar 已负责读时折算）。
+    const fossilize = () => {
+      if (item.fill == null && item.max != null) {
+        const n = normBar(item);
+        item.width = n.width; item.fill = n.fill;
+        delete item.value; delete item.max;
+      }
+    };
+    const barprev = el('div', 'blk-barprev');
+    barprev.appendChild(barEl(item));
+    bd.appendChild(barprev);
+    const redraw = () => { barprev.replaceChildren(barEl(item)); markDirty(); renderPreview(); };
+
+    // 并排文字（支持 **金字**）
+    const labRow = el('div', 'bar-row');
+    labRow.appendChild(el('label', 'bar-lab', '文字'));
+    const labIn = el('input', 'text'); labIn.placeholder = '与条并排的文字（可留空，支持 **金字**）'; labIn.value = item.bar || '';
+    labIn.addEventListener('input', () => { pushHistory('bar:' + node.id + ':' + i); fossilize(); item.bar = labIn.value; redraw(); });
+    labRow.appendChild(labIn);
+    bd.appendChild(labRow);
+
+    // 长度(px) / 填充(%)：− 数字 + 步进
+    const numRow = el('div', 'bar-row');
+    const mkStep = (labelText, key, lo, hi, step, fallback) => {
+      const g = el('div', 'bar-step');
+      g.appendChild(el('label', 'bar-lab', labelText));
+      const dec = el('button', 'btn sm', '−'); dec.type = 'button';
+      const inp = el('input', 'text bar-num'); inp.value = normBar(item)[key];
+      const inc = el('button', 'btn sm', '+'); inc.type = 'button';
+      const cur = () => { const n = Math.round(Number(item[key])); return Number.isFinite(n) ? n : fallback; };
+      const stepTo = (v) => { pushHistory(); fossilize(); item[key] = clampNum(v, lo, hi); redraw(); inp.value = normBar(item)[key]; };
+      dec.addEventListener('click', () => stepTo(cur() - step));
+      inc.addEventListener('click', () => stepTo(cur() + step));
+      // 打字时只存不回写(不打断输入)，失焦再夹取回显
+      inp.addEventListener('input', () => { pushHistory('barnum:' + key + ':' + node.id + ':' + i); fossilize(); item[key] = clampNum(inp.value, lo, hi); redraw(); });
+      inp.addEventListener('blur', () => { inp.value = normBar(item)[key]; });
+      g.appendChild(dec); g.appendChild(inp); g.appendChild(inc);
+      return g;
+    };
+    numRow.appendChild(mkStep('长度', 'width', BAR_W.lo, BAR_W.hi, 12, BAR_W.def));
+    numRow.appendChild(mkStep('填充%', 'fill', 0, 100, 5, 60));
+    bd.appendChild(numRow);
+
+    // 颜色 + 渐隐（两组芯片；点击=互斥选中）
+    const mkChips = (labelText, options, cls, getCur, apply) => {
+      const row = el('div', 'bar-row');
+      row.appendChild(el('label', 'bar-lab', labelText));
+      options.forEach(([k, label]) => {
+        const b = el('button', 'btn sm ' + cls + (getCur() === k ? ' on' : ''), label);
+        b.type = 'button';
+        b.addEventListener('click', () => {
+          if (getCur() === k) return;
+          pushHistory(); fossilize(); apply(k);
+          row.querySelectorAll('.' + cls).forEach(x => x.classList.remove('on'));
+          b.classList.add('on'); redraw();
+        });
+        row.appendChild(b);
+      });
+      return row;
+    };
+    bd.appendChild(mkChips('颜色', BAR_COLORS, 'bar-col', () => normBar(item).color, (k) => { item.color = k; }));
+    bd.appendChild(mkChips('渐隐', BAR_FADES, 'bar-fade', () => normBar(item).fade, (k) => { item.fade = k; }));
   } else {
     // 普通段=纯字符串；调过字号=({text,size})。mk() 按当前字号把文本装回正确形态。
     const curSize = () => sizeOf(node.body[i]);
@@ -703,12 +835,13 @@ function renderPreview() {
   if (!node) { box.appendChild(el('div', 'empty-hint', '（无选中章节）')); return; }
   box.appendChild(el('div', 'prev-title', node.title || '(无标题)'));
   (node.body || []).forEach((item) => {
-    if (item && typeof item === 'object' && 'img' in item) {
+    if (isImgItem(item)) {
       if (!item.img) { box.appendChild(el('div', 'prev-img missing', '（图片段：未设置 URL）')); return; }
       const img = el('img', 'prev-img'); img.src = item.img; img.alt = item.alt || '';
       img.onerror = () => { const ph = el('div', 'prev-img missing', '（图片加载失败：' + item.img + '）'); img.replaceWith(ph); };
       box.appendChild(img); return;
     }
+    if (isBarItem(item)) { box.appendChild(barEl(item)); return; }
     const t = textOf(item) ?? '';
     if (!t.trim()) { box.appendChild(el('div', 'prev-gap')); return; }   // 空段=排版空行（与游戏内 .rules-gap 一致）
     const li = t.startsWith('- '); const text = li ? t.slice(2) : t;

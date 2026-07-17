@@ -12,6 +12,8 @@ const phase = new URLSearchParams(location.search).get('phase') || 'REVEAL';
 
 // 截图/自动化探针：暴露真实 store 实例（HMR 时间戳会让外部 import 拿到另一份模块）
 window.__gameStore = useGameStore;
+// 掷币演出探针：读 flightLive.restAt 可精确对准分镜/扫光/浪潮的时刻截图
+import('./scene/coinSim').then(m => { window.__coinSim = m; });
 
 const players = [
   { id: 'p1', name: '我', role: 'farmer', balance: 8, online: true, isHost: true, hasBet: true, bet: 3, confirmed: false, negotiateConfirmed: false, bounds: { minStake: 1, min: 1, max: 7, forceAllIn: false }, wage: { interval: 3, amount: 2, roundsToNext: 2 } },

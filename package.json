@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "concurrently \"npm run dev --workspace=server\" \"npm run dev --workspace=client\"",
     "build": "npm run build --workspace=client",
-    "tutorial": "node scripts/tutorial-editor-web/server.mjs"
+    "tutorial": "node scripts/tutorial-editor-web/server.mjs",
+    "tutorial:new": "npm run dev --workspace=client"
   },
   "devDependencies": {
     "concurrently": "^8.2.2"

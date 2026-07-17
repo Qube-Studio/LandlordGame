@@ -4,7 +4,7 @@
 // 游戏里的"打烊账房"氛围雾在这儿碍事(主项目参数不动)。
 // 布局 = 单人长桌酒馆(与行走碰撞体对位);摆放物 = 角色 / 导入 .vox,带旋转/缩放,虚影预览。
 import { useEffect, useRef, useState } from 'react';
-import { useFrame } from '@react-three/fiber';
+import { useFrame, useThree } from '@react-three/fiber';
 import { ContactShadows } from '@react-three/drei';
 import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing';
 import { Room, Fireplace, Barrels, Decor, Chandelier, Rug, Table, Chair, FireLight } from '../scene/Scene3D';
@@ -13,6 +13,8 @@ import MinecraftPlayer from '../scene/MinecraftPlayer';
 import VoxChandelier from '../voxel/VoxChandelier';
 import VoxModel, { VOXEL_SIZE } from '../voxel/VoxModel';
 import { VoxRoom, VoxTable, VoxChair } from './VoxProps';
+import { VoxFireplace, VoxBarrels, VoxDecor } from './VoxDecor';
+import VoxPlayer from './VoxPlayer';
 import { loadVox } from '../voxel/voxload';
 import { P } from '../assets/palette';
 import { ROLE_LABEL } from '../game/roles';
@@ -20,6 +22,33 @@ import { useLabStore, aimLive, ghostLive, brushImport, placeTransform } from './
 
 const SEATS = [...SINGLE_TEAM_SEATS, SINGLE_BOSS_SEAT];
 const SPOTS = SEATS.map(singleSpotOf);
+
+// 性能探针:fps/draw call/三角数,半秒一拍写 window.__voxperf(HUD PerfChip 显示;
+// 体素资产的几何量回归全靠这三个数把关)。不进 store——逐帧数据不触发 React。
+function PerfProbe() {
+  const { gl } = useThree();
+  const acc = useRef({ n: 0, t: 0, calls: 0, tris: 0 });
+  // EffectComposer 多 pass + info.autoReset 会把 info 冲成"最后一个全屏 pass"(1 call/1 tri)——
+  // 关掉自动重置,在每帧开头(useFrame 先于 render)读上一帧全程累计再手动清零
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/immutability -- three 惯用法:renderer.info 的开关就在实例上
+    gl.info.autoReset = false;
+    // eslint-disable-next-line react-hooks/immutability
+    return () => { gl.info.autoReset = true; };
+  }, [gl]);
+  useFrame((_, dt) => {
+    const a = acc.current;
+    a.n++; a.t += dt;
+    a.calls = gl.info.render.calls;
+    a.tris = gl.info.render.triangles;
+    gl.info.reset();
+    if (a.t >= 0.5) {
+      window.__voxperf = { fps: Math.round(a.n / a.t), calls: a.calls, tris: a.tris };
+      a.n = 0; a.t = 0;
+    }
+  });
+  return null;
+}
 
 // 吊灯点光:强度/位置同 ChandelierLight(Scene3D),不带游戏相位压光——隔离区无游戏
 function LabChandelierLight() {
@@ -128,6 +157,8 @@ function GhostPreview() {
         )
       ) : (
         <group ref={contentRef}>
+          {/* 虚影刻意保留 box 版(不随 swaps.players 切体素):透明化靠挂载后一次性克隆材质,
+              VoxPlayer 的部件异步加载,克隆时机抓不住;落子结果两条路径同值,预览差异可接受 */}
           <MinecraftPlayer
             player={{ id: 'ghost', name: '', role: brush, bankrupt: false, online: true }}
             expression="idle"
@@ -161,12 +192,12 @@ export default function Stage() {
       <LabChandelierLight />
       <directionalLight position={[-6, 4, 6]} intensity={0.30} color={P.coolFill} />
 
-      {/* 造景:体素资产经 swaps 逐项换入(V 吊灯 / B 桌 / N 椅 / M 墙梁),现有资产随时可切回 */}
+      {/* 造景:体素资产经 swaps 逐项换入(V 吊灯/B 桌/N 椅/M 墙梁/F 壁炉/G 木桶/T 装饰),随时切回现有 */}
       {swaps.room ? <VoxRoom /> : <Room />}
-      <Fireplace />
+      {swaps.fireplace ? <VoxFireplace /> : <Fireplace />}
       <FireLight />
-      <Barrels />
-      <Decor />
+      {swaps.barrels ? <VoxBarrels /> : <Barrels />}
+      {swaps.decor ? <VoxDecor /> : <Decor />}
       {swaps.chandelier ? <VoxChandelier /> : <Chandelier />}
       <Rug />
       {swaps.table ? <VoxTable /> : <Table spots={SPOTS} size={SINGLE_TABLE} />}
@@ -193,6 +224,12 @@ export default function Stage() {
                   Math.max(0.3, m.size.y * VOXEL_SIZE),
                 )}
               />
+            ) : swaps.players ? (
+              <VoxPlayer
+                player={{ id: c.id, name: ROLE_LABEL[c.role] ?? c.role, role: c.role, bankrupt: false, online: true }}
+                expression="idle"
+                seed={i * 1.7}
+              />
             ) : (
               <MinecraftPlayer
                 player={{ id: c.id, name: ROLE_LABEL[c.role] ?? c.role, role: c.role, bankrupt: false, online: true }}
@@ -205,6 +242,7 @@ export default function Stage() {
       })}
       <PlaceMarker />
       <GhostPreview />
+      <PerfProbe />
 
       <ContactShadows position={[0, 0.02, 0]} scale={18} blur={2.6} opacity={0.5} far={4.5} resolution={256} color={P.wood900} />
       <EffectComposer disableNormalPass multisampling={0}>

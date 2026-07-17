@@ -1,43 +1,26 @@
-// 豪华体素吊灯(VOXEL_PLAN P2 首件预演,VoxLab 首个体素资产):
-// 体素轮体/链条/铜冠 = props/chandelier-deluxe.vox(素材批次 3.6cm 版,附录 C;可进 MagicaVoxel 手修);
-// 火苗 = 交叉自发光面片(体素化明确不做,VOXEL_PLAN §2.2/§5-5);琥珀吊坠 = ember 色自发光子网格。
-// 吊装(吊杆+两梁横杆)沿用常规网格——房梁体系是 Room 的,不属于资产本体。
-// 烛位与体素几何同源(chandelierSpec 世界坐标,与体素尺度无关);castShadow=false 对齐现有吊灯。
-import * as THREE from 'three';
-import { useMemo } from 'react';
-import chandUrl from '../assets/vox/props/chandelier-deluxe.vox?url';
+// 双层圆盘吊灯(2026-07-16 新款,规格=chandelierSpec.TIERED,素材=props/chandelier-tiered.vox):
+// 双层黄铜圆盘金属质感 + 末地烛式自发光灯柱(ink 暖白,**无火苗面片**——灯柱本身就是光源,
+// 交给 Bloom;整灯明暗仍由吊灯点光闪烁承担)+ 下盘水晶吊坠(specGlass 玻璃 MATL,
+// 靠吊灯点光近距离直射透亮,不做自发光——保住冷色相)。
+// 旧款八角木轮(chandelier-deluxe)留在素材库可随时切回比对。
+// 吊装(吊杆+两梁横杆)沿用常规网格——房梁体系是 Room 的,不属于资产本体;castShadow=false 同旧款。
+import chandUrl from '../assets/vox/props/chandelier-tiered.vox?url';
 import VoxModel from './VoxModel';
 import { PROP_VOXEL_SIZE } from './propsSpec';
-import { CHAND, flamePoints } from './chandelierSpec';
+import { TIERED } from './chandelierSpec';
 import { P } from '../assets/palette';
-import { tex } from '../assets/texlib';
 
 export default function VoxChandelier() {
-  const frames = useMemo(() => [0, 1, 2].map(f => tex('flame', { frame: f })), []);
-  const pts = useMemo(() => flamePoints(), []);
-  const knotTop = CHAND.knotY + 0.14;
   return (
-    <group position={[0, CHAND.mountY, 0]}>
-      {/* 吊坠 emissive 0.85:1.5 会被 Bloom(阈值 0.72)打成白热,琥珀色相全丢 */}
-      <VoxModel url={chandUrl} scale={PROP_VOXEL_SIZE} emissiveColors={[P.ember]} emissiveIntensity={0.85} castShadow={false} />
-      {/* 火苗:交叉面片,帧位错开(静帧;整灯明暗交给点光闪烁,同现有吊灯手法) */}
-      {pts.map((pt, i) => (
-        [0, Math.PI / 2].map((ry, k) => (
-          <mesh key={`${i}-${k}`} position={[pt.x, pt.y, pt.z]} rotation={[0, ry + i, 0]}>
-            <planeGeometry args={[0.11, 0.17]} />
-            <meshStandardMaterial
-              map={frames[i % 3]} emissiveMap={frames[i % 3]} emissive={P.ink} emissiveIntensity={1.8}
-              transparent alphaTest={0.4} depthWrite={false} side={THREE.DoubleSide}
-            />
-          </mesh>
-        ))
-      ))}
-      {/* 吊杆 → 两梁间横杆(世界 y=6,同现有吊灯;横杆不投影) */}
-      <mesh position={[0, (knotTop + (6 - CHAND.mountY)) / 2, 0]}>
-        <boxGeometry args={[0.05, (6 - CHAND.mountY) - knotTop, 0.05]} />
+    <group position={[0, TIERED.mountY, 0]}>
+      {/* 灯柱 emissive 0.85:1.5 会被 Bloom(阈值 0.72)打成白热(琥珀吊坠时代的教训,暖白同理) */}
+      <VoxModel url={chandUrl} scale={PROP_VOXEL_SIZE} emissiveColors={[P.ink]} emissiveIntensity={0.85} castShadow={false} />
+      {/* 吊杆 → 两梁间横杆(世界 y=6,同旧款;横杆不投影) */}
+      <mesh position={[0, (TIERED.hoopTop + (6 - TIERED.mountY)) / 2, 0]}>
+        <boxGeometry args={[0.05, (6 - TIERED.mountY) - TIERED.hoopTop, 0.05]} />
         <meshStandardMaterial color={P.wood900} roughness={1} />
       </mesh>
-      <mesh position={[0, 6 - CHAND.mountY, 0]}>
+      <mesh position={[0, 6 - TIERED.mountY, 0]}>
         <boxGeometry args={[0.18, 0.18, 6.2]} />
         <meshStandardMaterial color={P.beam} roughness={1} flatShading />
       </mesh>

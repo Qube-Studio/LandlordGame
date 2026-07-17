@@ -1,0 +1,365 @@
+/* 教程编辑器 2.0 chrome（EDITOR_OVERHAUL §1.1）：全部类名走 .ted-* 命名空间，扁平——
+   严禁 pixel.css 的 .btn/.toast/.modal 立体浮雕皮肤（E2E 断言按钮无 inset box-shadow）。
+   本文件只被编辑器入口加载、排在最后：反污染重置要压过 pixel.css 的 body 级全局样式。 */
+
+/* ---- 反污染：pixel.css 在 body 铺扫描线背景 + user-select:none + 关字体平滑，编辑器全数重置 ---- */
+body {
+  background: #16181d;
+  background-image: none;
+  -webkit-font-smoothing: auto;
+  user-select: none; /* chrome 默认不可选；编辑列/预览单独放开（见下） */
+}
+#root { height: 100vh; }
+/* 预览里的游戏面板：关掉 ui-drift/入场动画（编辑器里不该飘也不该弹） */
+.ted-preview :is(.goal-hud, .rules-panel) { animation: none !important; }
+
+/* ---- 布局骨架 ---- */
+.ted-root {
+  display: flex; flex-direction: column;
+  height: 100vh;
+  color: #cfd3da;
+  font-family: var(--font-cjk);
+  font-size: 13px;
+}
+.ted-main { flex: 1; min-height: 0; display: flex; align-items: stretch; }
+.ted-flex { flex: 1; }
+
+/* ---- 工具栏 / 状态栏 ---- */
+.ted-toolbar {
+  flex: none;
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px;
+  background: #1b1e25;
+  border-bottom: 1px solid #2a2f3a;
+}
+.ted-title { color: #e8c96a; font-size: 14px; margin-right: 10px; }
+.ted-toolbar-gap { flex: 1; }
+.ted-statusbar {
+  flex: none;
+  display: flex; align-items: center; gap: 16px;
+  padding: 4px 12px;
+  background: #1b1e25;
+  border-top: 1px solid #2a2f3a;
+  font-size: 12px; color: #8b919e;
+}
+.ted-status-err { color: #e36262; }
+.ted-status-dirty { color: #e8c96a; }
+
+/* ---- 按钮：扁平（1px 边框 + hover 提亮，无任何 box-shadow） ---- */
+.ted-btn {
+  appearance: none;
+  background: #232730; color: #cfd3da;
+  border: 1px solid #3a4050; border-radius: 2px;
+  box-shadow: none;
+  padding: 4px 12px;
+  font-family: inherit; font-size: 12px; line-height: 1.5;
+  cursor: pointer;
+}
+.ted-btn:hover:not(:disabled) { background: #2c3140; border-color: #4a5268; }
+.ted-btn:disabled { opacity: 0.45; cursor: default; }
+.ted-btn.primary { border-color: #8a6d2f; color: #e8c96a; }
+.ted-btn.primary:hover:not(:disabled) { background: #2f2a1c; border-color: #a8862f; }
+.ted-btn.danger { border-color: #7a3a34; color: #e08a80; }
+.ted-btn.danger:hover:not(:disabled) { background: #35221f; border-color: #9a4a40; }
+.ted-btn.sm { padding: 1px 7px; font-size: 11px; }
+/* 芯片选中态（字号/颜色/渐隐互斥选项） */
+.ted-btn.on { background: #4a3f22; border-color: #a8862f; color: #f0cd6e; }
+
+/* ---- 输入控件：扁平深底（编辑列/搜索共用） ---- */
+.ted-input {
+  appearance: none;
+  background: #14161b; color: #e2e6ee;
+  border: 1px solid #3a4050; border-radius: 2px;
+  padding: 5px 8px;
+  font-family: var(--font-cjk); font-size: 13px; line-height: 1.55;
+  outline: none;
+  width: 100%;
+  user-select: text;
+}
+.ted-input:focus { border-color: #8a6d2f; }
+textarea.ted-input { resize: vertical; min-height: 46px; }
+
+/* ---- 横幅条（autosave 草稿恢复 / 多标签只读锁）：扁平通知条，插在工具栏与三栏之间 ---- */
+.ted-bar {
+  flex: none;
+  display: flex; align-items: center; gap: 10px;
+  padding: 5px 12px;
+  font-size: 12px;
+  border-bottom: 1px solid #2a2f3a;
+}
+.ted-draftbar { background: #2a2416; color: #e8c96a; }
+.ted-robar { background: #2c1c1a; color: #e08a80; }
+
+/* ---- 三栏拖宽的分隔条：5px 命中带，悬停/拖动提亮 ---- */
+.ted-gutter {
+  flex: none; width: 5px;
+  cursor: col-resize;
+  background: transparent;
+  touch-action: none; /* 指针捕获拖动，别让浏览器把它当滚动手势 */
+}
+.ted-gutter:hover, .ted-gutter:active { background: rgba(232, 201, 106, 0.25); }
+
+/* ---- 左：章节树（宽度由三栏拖宽注入，回落 250px） ---- */
+.ted-tree {
+  flex: none; width: var(--ted-tree-w, 250px);
+  display: flex; flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid #2a2f3a;
+}
+.ted-tree-head {
+  flex: none;
+  display: flex; align-items: center; gap: 4px;
+  padding: 6px 8px;
+  color: #8b919e; font-size: 12px;
+  border-bottom: 1px solid #2a2f3a;
+}
+.ted-search {
+  flex: none;
+  display: flex; align-items: center; gap: 4px;
+  padding: 6px 8px;
+  border-bottom: 1px solid #2a2f3a;
+}
+.ted-tree-body { flex: 1; overflow: auto; padding: 6px 0; display: flex; flex-direction: column; }
+/* 键盘导航焦点宿主：细线提示（非 inset 浮雕），只在键盘聚焦时显示 */
+.ted-tree-body:focus { outline: none; }
+.ted-tree-body:focus-visible { outline: 1px solid #4a5268; outline-offset: -1px; }
+.ted-tree-item {
+  position: relative; /* 拖拽 before/after 金线的定位基准 */
+  flex: none;
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  border: 1px solid transparent; /* drop-into 虚线占位，避免悬停时跳动 */
+}
+.ted-tree-item:hover { background: rgba(255, 255, 255, 0.05); }
+.ted-tree-item.sel { background: #2b3242; color: #f0cd6e; }
+.ted-tree-item.msel { background: rgba(43, 50, 66, 0.55); color: #d8c58a; } /* 多选中的非主选行 */
+.ted-tree-item.dragging { opacity: 0.4; }
+.ted-rename { padding: 1px 5px; font-size: 12px; height: 20px; } /* F2 行内重命名输入框 */
+.ted-tree-item.drop-into { border: 1px dashed #e8c96a; background: rgba(232, 201, 106, 0.08); }
+.ted-tree-item.drop-before::before,
+.ted-tree-item.drop-after::after {
+  content: ''; position: absolute; left: 0; right: 0; height: 2px;
+  background: #e8c96a; pointer-events: none;
+}
+.ted-tree-item.drop-before::before { top: -1px; }
+.ted-tree-item.drop-after::after { bottom: -1px; }
+.ted-tree-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.ted-tree-title.hit { color: #8fc46a; } /* 搜索命中绿高亮 */
+.ted-tree-item.sel .ted-tree-title.hit { color: #f0cd6e; }
+.ted-node-meta { flex: none; color: #5b6170; font-size: 10.5px; }
+.ted-node-add { flex: none; opacity: 0; }
+.ted-tree-item:hover .ted-node-add { opacity: 1; }
+.ted-root-drop { flex: none; min-height: 40px; border: 1px dashed transparent; margin: 2px 6px; }
+.ted-root-drop.into { border-color: #e8c96a; background: rgba(232, 201, 106, 0.05); }
+.ted-tri-btn {
+  appearance: none; background: none; border: none; padding: 0;
+  flex: none; width: 14px; height: 14px;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: #8b919e; cursor: pointer;
+}
+.ted-tree-item.sel .ted-tri-btn { color: #f0cd6e; }
+.ted-tri { transform: rotate(0deg); }
+.ted-tri.open { transform: rotate(90deg); }
+.ted-tri-pad { flex: none; width: 14px; }
+
+/* ---- 中：编辑列（宽度由三栏拖宽注入，回落 400px） ---- */
+.ted-editcol {
+  flex: none; width: var(--ted-edit-w, 400px);
+  overflow: auto;
+  padding: 10px 12px;
+  border-right: 1px solid #2a2f3a;
+  user-select: text;
+}
+.ted-editcol-hint { color: #5b6170; font-size: 11px; margin-bottom: 8px; }
+.ted-pane-hint { color: #6b7280; font-size: 12px; line-height: 1.7; padding: 6px 10px; display: grid; gap: 8px; justify-items: start; }
+.ted-pane-hint.err { color: #e36262; }
+.ted-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.ted-title-field { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; }
+.ted-title-field > label { flex: none; color: #5b6170; font-size: 11px; }
+.ted-title-field .ted-btn { flex: none; white-space: nowrap; }
+
+/* 段落块 */
+.ted-block {
+  border: 1px solid #2a2f3a;
+  background: rgba(0, 0, 0, 0.18);
+  margin-bottom: 8px;
+}
+.ted-block.dragging { opacity: 0.4; }
+.ted-block.drop-before { box-shadow: 0 -2px 0 #e8c96a; }
+.ted-block.drop-after { box-shadow: 0 2px 0 #e8c96a; }
+.ted-block.drop-file { border-color: #e8c96a; background: rgba(232, 201, 106, 0.08); }
+.ted-block.sel { border-color: #6a5a30; }      /* 多选中的块 */
+.ted-block.primary { border-color: #a8862f; }  /* 主选块（粘贴落点/Alt+↑↓ 的对象） */
+.ted-block-head {
+  display: flex; align-items: center; gap: 4px;
+  padding: 3px 6px;
+  background: #1b1e25;
+  border-bottom: 1px solid #2a2f3a;
+}
+.ted-block-kind { color: #5b6170; font-size: 10.5px; letter-spacing: 1px; }
+.ted-drag-handle { cursor: grab; color: #5b6170; padding: 0 4px; user-select: none; }
+.ted-drag-handle:active { cursor: grabbing; }
+.ted-quick { opacity: 0; } /* 快速插入按钮：悬停块时显现 */
+.ted-block:hover .ted-quick { opacity: 1; }
+.ted-block-body { padding: 7px; display: flex; flex-direction: column; gap: 6px; }
+
+/* 图片块 */
+.ted-img-row { display: flex; gap: 8px; align-items: flex-start; }
+.ted-img-thumb {
+  width: 88px; height: 66px; flex: none;
+  object-fit: contain; background: #000;
+  border: 1px solid #2a2f3a;
+  image-rendering: pixelated;
+}
+.ted-img-thumb.missing {
+  display: flex; align-items: center; justify-content: center;
+  color: #5b6170; font-size: 10px; text-align: center;
+}
+.ted-img-fields { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+
+/* 属性条块：块内小样底衬 + 数字步进 */
+.ted-bar-prev { padding: 6px 8px; background: rgba(0, 0, 0, 0.28); border: 1px solid #2a2f3a; }
+.ted-bar-lab { color: #5b6170; font-size: 11px; flex: none; }
+.ted-bar-step { display: flex; align-items: center; gap: 4px; }
+.ted-bar-step > label { color: #5b6170; font-size: 11px; }
+.ted-bar-num { width: 46px; text-align: center; flex: none; }
+
+.ted-add-row { display: flex; gap: 6px; margin-top: 4px; flex-wrap: wrap; }
+
+/* ---- 右：游戏同源预览 ----
+   .rules-panel 定宽 min(880px,92vw)（pixel.css），舞台居中、容器可滚——内容列宽与游戏逐像素一致。 */
+.ted-preview {
+  flex: 1; min-width: 0;
+  overflow: auto;
+  padding: 18px;
+  background: #101216;
+  display: flex; align-items: flex-start; justify-content: center;
+  user-select: text;
+}
+/* nav 占位列：保住 .tut-split 的 200px 左列 + 分隔线，使正文列宽与游戏一致（内容不渲染） */
+.ted-nav-ghost { min-height: 100%; }
+/* 空图片占位框（renderEmptyImg，编辑器专属；游戏内该块渲染 null） */
+.ted-img-empty {
+  align-self: flex-start;
+  border: 1px dashed #4a5268;
+  color: #6b7280;
+  font-size: 12px;
+  padding: 12px 18px;
+}
+
+/* ---- 模态（扁平，非游戏 .modal 皮肤）：409 冲突框 / 图库选择器共用蒙层 ---- */
+.ted-modal-mask {
+  position: fixed; inset: 0; z-index: 100;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex; align-items: center; justify-content: center;
+}
+.ted-modal {
+  width: 400px; max-width: calc(100vw - 40px);
+  background: #1e222b;
+  border: 1px solid #3a4050;
+  padding: 16px 18px;
+}
+.ted-modal h3 { margin: 0 0 8px; font-size: 14px; font-weight: normal; color: #e8c96a; }
+.ted-modal p { margin: 0 0 14px; line-height: 1.7; color: #aeb4c0; font-size: 12px; }
+.ted-modal-btns { display: flex; gap: 8px; justify-content: flex-end; }
+
+/* 图库选择器 */
+.ted-modal.ted-picker {
+  width: min(760px, 92vw); max-height: 80vh;
+  display: flex; flex-direction: column;
+  padding: 0;
+}
+.ted-picker-head {
+  flex: none;
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid #2a2f3a;
+  color: #e8c96a; font-size: 13px;
+}
+.ted-pick-grid {
+  overflow: auto; padding: 10px;
+  display: grid; gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+}
+.ted-pick-cell {
+  border: 1px solid #2a2f3a; background: rgba(0, 0, 0, 0.25);
+  cursor: pointer; padding: 6px;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.ted-pick-cell:hover { border-color: #e8c96a; background: rgba(232, 201, 106, 0.08); }
+.ted-pick-thumb { width: 100%; height: 90px; object-fit: contain; background: #000; image-rendering: pixelated; }
+.ted-pick-name { font-size: 10.5px; color: #8b919e; word-break: break-all; }
+
+/* ---- 右键菜单（扁平；items 由打开方现造，见 Menu.jsx） ---- */
+.ted-menu {
+  position: fixed; z-index: 120;
+  min-width: 170px;
+  background: #1e222b;
+  border: 1px solid #3a4050;
+  padding: 3px;
+  display: flex; flex-direction: column;
+}
+.ted-menu-item {
+  appearance: none; background: none; border: none;
+  display: flex; align-items: center; gap: 14px;
+  padding: 4px 10px;
+  color: #cfd3da; font-family: inherit; font-size: 12px; line-height: 1.5;
+  text-align: left; cursor: pointer;
+}
+.ted-menu-item > span:first-child { flex: 1; }
+.ted-menu-item:hover:not(:disabled) { background: #2b3242; color: #f0cd6e; }
+.ted-menu-item:disabled { opacity: 0.4; cursor: default; }
+.ted-menu-item.danger { color: #e08a80; }
+.ted-menu-item.danger:hover:not(:disabled) { background: #35221f; }
+.ted-menu-hint { color: #5b6170; font-size: 10.5px; }
+.ted-menu-sep { height: 1px; background: #2a2f3a; margin: 3px 6px; }
+
+/* ---- 校验面板：插在三栏与状态栏之间的问题清单，点击行定位 ---- */
+.ted-valpanel {
+  flex: none;
+  max-height: 180px;
+  display: flex; flex-direction: column;
+  border-top: 1px solid #2a2f3a;
+  background: #14161b;
+}
+.ted-valpanel-head {
+  flex: none;
+  display: flex; align-items: center; gap: 6px;
+  padding: 5px 12px;
+  color: #8b919e; font-size: 12px;
+  border-bottom: 1px solid #2a2f3a;
+}
+.ted-valpanel-body { flex: 1; overflow: auto; padding: 4px 0; }
+.ted-val-row {
+  appearance: none; background: none; border: none;
+  display: flex; align-items: baseline; gap: 8px;
+  width: 100%;
+  padding: 3px 12px;
+  color: #aeb4c0; font-family: inherit; font-size: 12px; line-height: 1.5;
+  text-align: left; cursor: pointer;
+}
+.ted-val-row:hover { background: rgba(255, 255, 255, 0.05); color: #f0cd6e; }
+.ted-val-kind { flex: none; color: #e8c96a; font-size: 10.5px; letter-spacing: 1px; }
+.ted-val-kind.bad { color: #e36262; }
+.ted-val-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---- 预览滚动跟随的短暂高亮：金色描边 1.1s 渐隐（outline 不挤压排版） ---- */
+@keyframes ted-flash-fade { 0% { outline-color: #e8c96a; } 100% { outline-color: transparent; } }
+.ted-preview .ted-flash {
+  outline: 2px solid transparent;
+  outline-offset: 3px;
+  animation: ted-flash-fade 1.1s ease-out;
+}
+
+/* ---- 轻提示（扁平，非游戏 .toast 皮肤） ---- */
+.ted-toast {
+  position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
+  z-index: 110;
+  background: #1e222b; border: 1px solid #3a4050; color: #cfd3da;
+  padding: 7px 16px; font-size: 12px;
+  opacity: 0; transition: opacity 0.2s; pointer-events: none;
+}
+.ted-toast.show { opacity: 1; }
+.ted-toast.err { color: #e36262; border-color: #7a3a34; }

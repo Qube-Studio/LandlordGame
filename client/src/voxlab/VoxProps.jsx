@@ -29,7 +29,7 @@ function WallLayer({ url, y }) {
     <VoxModel
       key={i} url={url} scale={PROP_VOXEL_SIZE}
       position={w.pos} rotation={[0, w.ry, 0]}
-      castShadow={false} receiveShadow
+      castShadow={false}
     />
   ));
 }

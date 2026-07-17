@@ -2,15 +2,13 @@
 // 左=章节树：默认全收起；点章节 = 选中（右侧显示其正文）+ 展开其**直接**子章节
 // （孙章节保持收起——收起某章节时连同后代一并从展开集合剔除，重开不会带出孙层）。
 // 右=选中章节的正文。章节数据在 text/tutorial.json（id/title/body[]/children[]），
-// 由专用编辑器脚本维护（scripts/tutorial-editor.mjs），本组件只渲染。
-// body 段落三种形态：字符串（**…** 金字、"- " 开头渲染为缩进列表项；空串 = 排版空行）、
-// {text, size}（带字号的文字段，size ∈ s/l/xl，档位像素值在 pixel.css 的 .rules-p.fs-*），
-// 或 {img, alt}（图片段落——img 为 URL 路径，图片文件放 client/public/tutorial/ 下）。
+// 由教程编辑器维护，本组件只渲染。正文段落渲染已抽到共享组件 ui/TutorialContent.jsx
+// （段落形态说明也在那里）——教程编辑器 2.0 的预览与游戏用同一份渲染器（EDITOR_OVERHAUL §1.1）。
 // 开合走全局 gameStore.panel('rules')：与设置面板/桌沿抽屉互斥；无关闭钮，点外部收起。
 import { useEffect, useRef, useState } from 'react';
 import { useGameStore } from '../store/gameStore';
 import PixelText from '../assets/pixelfont/PixelText';
-import { parseRuns } from '../game/richtext';
+import TutorialContent from './TutorialContent';
 import { T } from '../text';
 
 const CHAPTERS = T.rules.chapters ?? [];
@@ -304,38 +302,13 @@ export default function RulesPanel() {
                 <NavNode key={c.id} node={c} depth={0} openIds={openIds} selectedId={selectedId} onPick={pick} />
               ))}
             </div>
-            <div className="tut-content" ref={contentRef}>
-              {current ? (
-                <>
-                  <div className="tut-content-title">
-                    <PixelText size={2} color="var(--px-gold)">{current.title}</PixelText>
-                  </div>
-                  {(current.body ?? []).map((item, i) => {
-                    const obj = item && typeof item === 'object';
-                    if (obj && 'img' in item) {
-                      return item.img
-                        ? <img key={i} className="tut-img" src={item.img} alt={item.alt ?? ''} draggable={false} />
-                        : null;
-                    }
-                    const raw = String(obj ? item.text ?? '' : item);
-                    if (!raw.trim()) return <div key={i} className="rules-gap" />;
-                    const li = raw.startsWith('- ');
-                    const text = li ? raw.slice(2) : raw;
-                    const fs = obj && ['s', 'l', 'xl'].includes(item.size) ? ` fs-${item.size}` : '';
-                    return (
-                      <p key={i} className={`rules-p ${li ? 'li' : ''}${fs}`}>
-                        {li && <span className="rules-dash">-</span>}
-                        {parseRuns(text).map((r, j) => (
-                          <span key={j} className={r.hi ? 'hi' : ''}>{r.t}</span>
-                        ))}
-                      </p>
-                    );
-                  })}
-                </>
-              ) : (
-                <p className="rules-p">{T.rules.emptyHint}</p>
-              )}
-            </div>
+            {/* 正文渲染抽到共享组件 TutorialContent（教程编辑器 2.0 预览同源）；
+                空态提示文案留在这里经 fallback 传入——TutorialContent 有纯净性约束不 import text/* */}
+            <TutorialContent
+              chapter={current}
+              scrollRef={contentRef}
+              fallback={<p className="rules-p">{T.rules.emptyHint}</p>}
+            />
           </div>
         </div>
         </div>
