@@ -27,6 +27,8 @@ import { TABLE_TOP, CARD_W, CARD_T, CARD_D, cardMaterials, cardLocal, cardYaw, b
 import { coinFaceTexture } from './textures';
 import { getCoinRest } from './coinSim';
 import { setProjector } from './projection';
+import { pointerNDC } from './screen';
+import { clientToStage, STAGE } from '../ui/stageTransform';
 import { expressionFor } from './expression';
 import { P } from '../assets/palette';
 import { tex } from '../assets/texlib';
@@ -49,7 +51,12 @@ const PIXEL_BUDGET = 2_400_000;
 function adaptiveDpr() {
   if (typeof window === 'undefined') return 1;
   const base = Math.min(window.devicePixelRatio || 1, 1.5);
-  const budget = Math.sqrt(PIXEL_BUDGET / Math.max(1, window.innerWidth * window.innerHeight));
+  // 桌面套参考分辨率舞台：画布恒为 STAGE.W×STAGE.H（有效参考尺寸=1920/uiScale，与窗口无关）
+  // → 按参考像素折算预算，否则大屏会按窗口像素压出过低 dpr、把定尺渲染面拍糊。
+  // 触屏/无舞台（gallery 等直挂页）仍按窗口。
+  const rw = STAGE.active ? STAGE.W : window.innerWidth;
+  const rh = STAGE.active ? STAGE.H : window.innerHeight;
+  const budget = Math.sqrt(PIXEL_BUDGET / Math.max(1, rw * rh));
   return Math.max(0.75, Math.min(base, budget));
 }
 
@@ -1221,6 +1228,22 @@ function Projector() {
   return null;
 }
 
+// r3f 拾取坐标改走画布视觉 rect（scene/screen.js#pointerNDC）：默认 compute 用 offsetX/size.width，
+// 在 app-stage 缩放 + offsetSize 组合下两者空间不一致会拖偏射线；clientX 与 rect 恒同处视觉空间，
+// 任何舞台缩放/黑边/网页缩放下都正确（触屏无舞台同样成立）。
+function StagePointerCompute() {
+  const setEvents = useThree(s => s.setEvents);
+  useEffect(() => {
+    setEvents({
+      compute(event, state) {
+        pointerNDC(state.gl.domElement, event, state.pointer);
+        state.raycaster.setFromCamera(state.pointer, state.camera);
+      },
+    });
+  }, [setEvents]);
+  return null;
+}
+
 // 一张飞行中的牌：从手牌屏幕位置（反投影到世界）沿二次贝塞尔弧线落到桌面槽位，
 // 同时从「正面朝向相机」翻转为「反面朝上平躺」。
 function FlyingNote({ item, startRef, delay, duration, onDone }) {
@@ -1578,7 +1601,9 @@ export default function Scene3D() {
   const walkLocked = useGameStore(s => s.walkLocked);
   const walkAim = useGameStore(s => s.walkAim);
   // 渲染分辨率档位(反馈①):auto=像素预算自适应;low/medium/high 固定 dpr。R3F 对 dpr 热应用。
+  // 订阅 uiScale：界面大小换档改变有效参考尺寸(STAGE.W/H) → auto 档 dpr 须随之重算。
   const renderScale = useSettingsStore(s => s.renderScale);
+  useSettingsStore(s => s.uiScale);
   const dpr = renderScale === 'low' ? 0.75
     : renderScale === 'medium' ? 1.0
       : renderScale === 'high' ? Math.min((typeof window !== 'undefined' && window.devicePixelRatio) || 1, 1.5)
@@ -1615,10 +1640,13 @@ export default function Scene3D() {
         window.removeEventListener('pointercancel', up);
       };
     }
-    // 桌面：绝对鼠标位置 → 视角目标（原逻辑）
+    // 桌面：绝对鼠标位置 → 视角目标。以舞台(参考)空间归一化——留黑边/网页缩放下 window≠可视区，
+    // 直接除 innerWidth 会让环视中心偏到黑边里。STAGE.W/H 是有效参考尺寸（随 uiScale 档位变）；
+    // 无舞台（gallery 直挂页）回落 window。
     const onMove = (e) => {
-      look.current.x = (e.clientX / window.innerWidth) * 2 - 1;
-      look.current.y = (e.clientY / window.innerHeight) * 2 - 1;
+      const p = clientToStage(e.clientX, e.clientY);
+      look.current.x = (p.x / (STAGE.active ? STAGE.W : window.innerWidth)) * 2 - 1;
+      look.current.y = (p.y / (STAGE.active ? STAGE.H : window.innerHeight)) * 2 - 1;
     };
     window.addEventListener('pointermove', onMove);
     return () => window.removeEventListener('pointermove', onMove);
@@ -1649,12 +1677,17 @@ export default function Scene3D() {
 
   return (
     <div className="r3f-scene">
+      {/* resize offsetSize：r3f 默认用 getBoundingClientRect 量容器 = **视觉**尺寸（被 app-stage 缩放过），
+          drei Html 会按视觉像素定位再被舞台二次缩放（浮字/名牌整体飘出圈）；offsetWidth 是**布局**尺寸
+          （桌面舞台下恒 1920×1080 参考空间，触屏无舞台时两者相等）——r3f 全内部状态回到单一参考空间。 */}
       <Canvas
         shadows={!NO_SHADOW}
         dpr={dpr}
+        resize={{ offsetSize: true }}
         camera={{ position: [0, EYE_Y, 3.0], fov: 58, near: 0.1, far: 100 }}
         gl={{ antialias: false, powerPreference: 'high-performance' }}
       >
+        <StagePointerCompute />
         <SceneContents look={look} freeCam={freeCam} />
       </Canvas>
       {singleWalk && !IS_TOUCH && walkLocked && (

@@ -450,6 +450,12 @@ const settings = {
   copy: '复制',
   renderScale: '渲染分辨率',
   renderScaleNote: '卡顿请调低',
+  uiScale: '界面大小',
+  uiScaleNote: '整体缩放画面与 UI',
+  uiScaleOption: (v) => (v === 1 ? '标准' : `${Math.round(v * 100)}%`),
+  catDisplay: '画面',
+  catEffects: '光影',
+  catRoom: '房间',
 };
 
 // ---- 教程面板（RulesPanel 章节模式；**…** 为高亮标记）----

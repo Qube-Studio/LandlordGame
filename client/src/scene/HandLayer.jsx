@@ -19,6 +19,7 @@ import { decompose, splitNote, SPLITS } from '../game/notes';
 import { MoneyStack, ArcNote, cardMaterials, cardLocal, cardYaw, stackTopY, TABLE_TOP, CARD_W, CARD_T, CARD_D } from './cards';
 import PromptFloat from './PromptFloat';
 import { aimFromPointer, groundFromPointer, CarrySpring, CARRY_HEIGHT } from './carry';
+import { clientYFrac } from './screen';
 import { grab } from './grab';
 import KeyCap from '../assets/pixelfont/KeyCap';
 import PixelText from '../assets/pixelfont/PixelText';
@@ -286,7 +287,7 @@ export default function HandLayer({ look, rot, mySpot }) {
   const spaceHeld = useGameStore(s => s.spaceHeld); // 浮字确认行的合成按下态
   const placeTableStack = useGameStore(s => s.placeTableStack);
   const startBetFlight = useGameStore(s => s.startBetFlight);
-  const { camera, size } = useThree();
+  const { camera, size, gl } = useThree();
 
   const me = state.me;
   const bounds = me.bounds ?? { minStake: 1, min: 1, max: me.balance, forceAllIn: false };
@@ -401,9 +402,12 @@ export default function HandLayer({ look, rot, mySpot }) {
       setCarry({ notes, joins: [] });
     };
     const onMove = (e) => {
-      ndcRef.current.x = (e.clientX / window.innerWidth) * 2 - 1;
-      ndcRef.current.y = -(e.clientY / window.innerHeight) * 2 + 1;
-      const bandY = window.innerHeight * HAND_BAND;
+      // 舞台缩放/留黑边下 window≠画布可视区 → 一律以画布 rect 算坐标（触屏无舞台时同样正确）。
+      // 一次取 rect，NDC 与手牌带阈值 bandY 都从它导出（bandY 保持视觉 client 空间，与 e.clientY/像素滞回一致）。
+      const cr = gl.domElement.getBoundingClientRect();
+      ndcRef.current.x = ((e.clientX - cr.left) / cr.width) * 2 - 1;
+      ndcRef.current.y = -((e.clientY - cr.top) / cr.height) * 2 + 1;
+      const bandY = cr.top + cr.height * HAND_BAND;
       const c = carryRef.current;
       if (c) {
         // 捋牌吸收（离手前的捋牌阶段）：命中 = 本段实际划过的区间 ∪ 距指针 SWEEP_HIT_PX 内（容易捋到）。
@@ -420,7 +424,7 @@ export default function HandLayer({ look, rot, mySpot }) {
             mesh.getWorldPosition(_sweepV);
             const from = [_sweepV.x, _sweepV.y, _sweepV.z];
             _sweepV.project(camera);
-            const sx = (_sweepV.x * 0.5 + 0.5) * window.innerWidth;
+            const sx = cr.left + (_sweepV.x * 0.5 + 0.5) * cr.width; // 画布内视觉 client X（与 e.clientX 同空间）
             if ((sx >= lo && sx <= hi) || Math.abs(sx - e.clientX) < SWEEP_HIT_PX) {
               hits.push({ n, from, sx, mesh });
             }
@@ -495,7 +499,7 @@ export default function HandLayer({ look, rot, mySpot }) {
       const notes = [...c.notes, ...c.joins.map(j => j.note)]; // 含仍在飞入途中的牌
       const pos = c.spring.pos;   // 叠此刻的视觉位置（作滑入圈的 spawn 起点）
       // 在手牌带内松手不判圈：指针压在手牌上时毡面射线会钳到桌近缘，会被误判成「落进圈」
-      const inBand = e && e.clientY > window.innerHeight * HAND_BAND;
+      const inBand = e && clientYFrac(gl.domElement, e.clientY) > HAND_BAND;
       // 落点判定按「指针指到毡面哪里」——与玩家所见一致（反馈③）
       const felt = groundFromPointer(camera, ndcRef.current, _feltPoint);
       const dBet = inBand ? Infinity : Math.hypot(felt.x - worldSpot.x, felt.z - worldSpot.z);

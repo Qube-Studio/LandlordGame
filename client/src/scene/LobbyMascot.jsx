@@ -176,8 +176,9 @@ export default function LobbyMascot() {
       const el = wrapRef.current;
       if (!el) return;
       const r = el.getBoundingClientRect();
-      mouse.current[0] = (e.clientX - (r.left + r.width / 2)) / (window.innerWidth / 2);
-      mouse.current[1] = (e.clientY - (r.top + r.height * 0.35)) / (window.innerHeight / 2);
+      // 相对画布自身半宽/半高归一（分子分母同处视觉空间 → 舞台缩放/留黑边下尺度无关，倾摆手感恒定）
+      mouse.current[0] = (e.clientX - (r.left + r.width / 2)) / (r.width / 2 || 1);
+      mouse.current[1] = (e.clientY - (r.top + r.height * 0.35)) / (r.height / 2 || 1);
     };
     window.addEventListener('mousemove', onMove);
     return () => window.removeEventListener('mousemove', onMove);
@@ -188,6 +189,7 @@ export default function LobbyMascot() {
       <Canvas
         dpr={dpr}
         frameloop={REDUCED ? 'demand' : 'always'}
+        resize={{ offsetSize: true }} /* app-stage 舞台下量布局尺寸,避免视觉 rect 被二次缩放（同 Scene3D） */
         camera={{ position: [0, 1.45, 2.6], fov: 34, near: 0.1, far: 10 }}
         gl={{ antialias: false, powerPreference: 'low-power' }}
         onCreated={({ camera }) => camera.lookAt(0, 1.3, 0)}

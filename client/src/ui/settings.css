@@ -1,7 +1,7 @@
 /* ============================================================
-   画质设置（反馈①）：顶栏齿轮按钮 + 下拉面板布局。
-   面板本体复用 pixel.css 的 .goal-hud.hud-card 挂牌范式（木纹+铆钉+黄铜标题条），
-   这里只加定位/对齐/分段选择样式。颜色一律 --c-* 变量，动效走 --t-* 与 --e-* token。
+   设置面板：顶栏齿轮按钮 → 居中大窗（与教程面板 RulesPanel 同范式）。
+   窗口本体复用 pixel.css 的 .goal-hud.hud-card 挂牌范式；遮罩/弹入退场复用教程的全局
+   keyframes（rules-overlay-in/out、tut-pop/tut-pop-out）保持视觉一致。颜色走 --c-* / --px-* 变量。
    ============================================================ */
 
 /* 顶栏右侧组：齿轮 + 退出 并排 */
@@ -11,27 +11,82 @@
 .settings-gear { display: inline-flex; align-items: center; padding: 6px 9px; }
 .settings-gear svg { display: block; }
 
-/* 下拉面板：挂在齿轮正下方、右对齐；盖过玩家纵列（瞬态弹层） */
-.settings-panel.goal-hud.hud-card {
-  position: absolute; top: calc(100% + 8px); right: 0;
-  width: 252px;
-  align-items: stretch;
+/* 全屏遮罩：模糊游戏画面、暗化，点空白处收起（窗口本体挡住不透传）——与 .rules-overlay 同 */
+.settings-overlay {
+  position: fixed; inset: 0;
   z-index: 60;
-  animation: ui-rise var(--t-ui) var(--e-enter) both;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(6, 7, 10, 0.42);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  animation: rules-overlay-in var(--t-ui) linear both;
+}
+.settings-overlay.closing { animation: rules-overlay-out 0.2s ease both; }
+.settings-overlay.closing .settings-window.goal-hud.hud-card { animation: tut-pop-out 0.2s ease-in both; }
+
+/* 居中大窗：与教程面板 .rules-panel 同尺寸（min(1180px,92vw) × min(86vh,880px)），保持一致观感 */
+.settings-window.goal-hud.hud-card {
+  position: relative;
+  width: min(1180px, 92vw);
+  height: min(86vh, 880px);
+  display: flex; flex-direction: column;
+  align-items: stretch;
+  transform-origin: center;
+  animation: tut-pop 0.28s cubic-bezier(0.34, 1.42, 0.64, 1) both;
 }
 
-/* 关闭钮已删：面板点外部任意处收起（window pointerdown 捕获，见 SettingsPanel/RulesPanel） */
-
-/* 设置行：左标签（含小注脚）/ 右控件 */
-.settings-row {
-  display: flex; align-items: center; justify-content: space-between;
-  gap: 10px; padding: 4px 10px;
+/* 左分类导航 + 右设置区（同教程 .tut-split） */
+.settings-split {
+  flex: 1; min-height: 0;
+  display: flex; align-items: stretch;
 }
-.settings-label { display: inline-flex; flex-direction: column; gap: 3px; }
-.settings-seg { display: inline-flex; gap: 4px; }
-.settings-seg .btn.small { padding: 4px 7px; font-size: 12px; }
-.settings-toggle.btn.small { padding: 4px 12px; font-size: 12px; }
+.settings-nav {
+  flex: none; width: 200px;
+  overflow-y: auto; padding: 8px 0;
+  border-right: 2px solid rgba(255, 255, 255, 0.08);
+}
+.settings-cat {
+  position: relative;
+  display: flex; align-items: center;
+  padding: 10px 14px;
+  cursor: pointer;
+  user-select: none;
+}
+.settings-cat:hover { background: rgba(255, 255, 255, 0.06); }
+/* 选中：金色左边条 + 淡金高亮（与教程章节选中语言一致） */
+.settings-cat.sel {
+  box-shadow: inset 2px 0 0 var(--px-gold);
+  background: linear-gradient(90deg, rgba(240, 205, 110, 0.14), rgba(240, 205, 110, 0));
+}
+
+/* 右侧设置区：纵向字段列表，宽松间距 */
+.settings-body {
+  flex: 1; min-width: 0;
+  overflow-y: auto;
+  padding: 16px 20px;
+  display: flex; flex-direction: column; gap: 16px;
+}
+
+/* 字段：默认标题/注脚在上、控件在下；.settings-field-row 改为左右分布（开关、房号） */
+.settings-field {
+  display: flex; flex-direction: column; gap: 9px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+.settings-field:last-child { border-bottom: none; padding-bottom: 0; }
+.settings-field-row {
+  flex-direction: row; align-items: center; justify-content: space-between; gap: 12px;
+}
+.settings-field-head { display: inline-flex; flex-direction: column; gap: 4px; }
+
+/* 分段选择：一排按钮，选中金色实心（.btn.primary 已有） */
+.settings-seg { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+.settings-seg .btn { padding: 6px 14px; font-size: 13px; }
+.settings-toggle.btn { padding: 6px 18px; font-size: 13px; flex: none; }
 
 @media (prefers-reduced-motion: reduce) {
-  .settings-panel.goal-hud.hud-card { animation: none; }
+  .settings-window.goal-hud.hud-card { animation: none; }
+  .settings-overlay { animation: none; }
+  .settings-overlay.closing { animation: rules-overlay-out 0.01s linear both; }
+  .settings-overlay.closing .settings-window.goal-hud.hud-card { animation: none; }
 }

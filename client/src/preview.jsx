@@ -6,6 +6,7 @@ import './theme.css';
 import './App.css';
 import './pixel.css';
 import GameScreen from './screens/GameScreen';
+import AppStage from './ui/AppStage';
 import { useGameStore } from './store/gameStore';
 
 const phase = new URLSearchParams(location.search).get('phase') || 'REVEAL';
@@ -99,6 +100,8 @@ if (phase === 'FLIGHT') {
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
-    <GameScreen />
+    <AppStage>
+      <GameScreen />
+    </AppStage>
   </StrictMode>,
 );

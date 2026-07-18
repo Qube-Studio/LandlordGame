@@ -233,7 +233,8 @@ textarea.ted-input { resize: vertical; min-height: 46px; }
 .ted-add-row { display: flex; gap: 6px; margin-top: 4px; flex-wrap: wrap; }
 
 /* ---- 右：游戏同源预览 ----
-   .rules-panel 定宽 min(880px,92vw)（pixel.css），舞台居中、容器可滚——内容列宽与游戏逐像素一致。 */
+   .rules-panel 定宽 min(1180px,92vw)（pixel.css，与游戏同一条规则→列宽逐像素一致），舞台居中、容器可滚。
+   宽度按 vw 算（非本预览列宽），故编辑器与游戏在同一屏幕上取值相同；预览列窄于面板时横向滚动。 */
 .ted-preview {
   position: relative; /* 图片缩放把手的定位参照（ImgResizer 绝对定位在此层） */
   flex: 1; min-width: 0;

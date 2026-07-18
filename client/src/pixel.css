@@ -121,6 +121,11 @@ img, svg, canvas { -webkit-user-drag: none; user-drag: none; }
    ============================================================ */
 .r3f-scene { position: absolute; inset: 0; touch-action: none; }
 .r3f-scene canvas { display: block; }
+/* 参考分辨率舞台（见 ui/AppStage.jsx）下：r3f 用容器 getBoundingClientRect（已被舞台缩放的视觉尺寸）
+   给 canvas 设内联 px 宽高，会被舞台 transform 再缩一次 = 二次缩放（canvas 溢出容器）。
+   强制 canvas 填满容器（布局 1920×1080）→ 只随舞台缩放一次；drawing buffer（canvas.width/height）
+   仍是 r3f 按视觉尺寸算的高分辨率，清晰度不减。触屏无 .app-stage 包裹 → 不受影响。 */
+.app-stage .r3f-scene canvas { width: 100% !important; height: 100% !important; }
 
 /* 头顶名牌（drei <Html> 内容）：我的世界式纯文字——只有玩家名，无背景板；
    靠双层投影保证亮暗背景下都可读。角色由头饰表达，破产由灰皮歪身表达。 */
@@ -340,10 +345,13 @@ img, svg, canvas { -webkit-user-drag: none; user-drag: none; }
   0%   { opacity: 1; transform: scale(1) translateY(0); }
   100% { opacity: 0; transform: scale(0.92) translateY(8px); }
 }
+/* 尺寸档：旧值 880×660 的硬上限在 1080p 只占画面 28% 面积、1440p 仅 16%——教程框在画面里太小。
+   正文里的游戏截图原生 2160×1186、无标定宽度（靠 .tut-img 的 max-width:100% 压在列宽上），
+   故列宽变宽 = 截图 1:1 变大且降采样比更低（更清晰）；文字段落最长 67 字，1180 列宽下仍无一段超行。 */
 .rules-panel.goal-hud.hud-card {
   position: relative;
-  width: min(880px, 92vw);
-  height: min(80vh, 660px);
+  width: min(1180px, 92vw);
+  height: min(86vh, 880px);
   display: flex; flex-direction: column;
   align-items: stretch;
   transform-origin: center;
@@ -415,6 +423,11 @@ img, svg, canvas { -webkit-user-drag: none; user-drag: none; }
 .rules-panel .pixel-text { gap: 1px !important; }
 .tut-img {
   max-width: 100%;
+  /* 矮屏护栏：面板放大后在 1366×768 这类矮屏上变「宽而矮」，16:9 截图（无标定宽度=撑满列宽）
+     会独占近全部正文可视高度、把下方段落全挤出屏。62vh 只在矮屏咬合（1080p 及以上不生效，
+     截图仍满列宽）；img 同时受 max-width/max-height 约束时浏览器自动保比缩放，
+     标定 300px 的图标段（原生 160²）恒低于该阈值、不受影响。 */
+  max-height: 62vh;
   image-rendering: pixelated;
   border: 2px solid #000;
   box-shadow: inset 1px 1px 0 var(--px-bevel-l), inset -1px -1px 0 var(--px-bevel-d);

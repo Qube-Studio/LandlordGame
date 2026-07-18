@@ -12,6 +12,7 @@ import {
   LANDLORD_SIDE_ROLES, FARMER_SIDE_ROLES,
 } from '../game/roles';
 import { parseRuns } from '../game/richtext';
+import { clientToStage, STAGE } from './stageTransform';
 import { IS_TOUCH } from '../game/inputMode';
 import { T } from '../text';
 
@@ -95,17 +96,21 @@ function RoleSheet({ role, state, me, send, readonly, onClose }) {
 // 跟随鼠标的角色手册浮窗（黑底金字，与四类 HUD 同语言）：鼠标即面板。
 // 悬停招募令时飘在光标旁；因贴着光标必须 pointer-events:none（否则挡住 hover），
 // 故「高级信息」改为按住 Shift 展开（点击已无法命中浮窗）。
-// 经 portal 挂到 body：.drawer 有 transform，会把 position:fixed 锚死在抽屉内。
+// 经 portal 挂到舞台(#app-stage)：.drawer 有 transform，会把 position:fixed 锚死在抽屉内；
+// 挂到舞台则 fixed 以整块参考画面为包含块 → 浮窗随舞台缩放、与 HUD 同尺寸（无舞台时回退 body）。
+// pos 为视觉 client 坐标，换算到舞台(参考)空间再定位；翻转阈值对应参考宽高。
 function RoleTooltip({ role, pos, advOpen }) {
   const sheet = role ? ROLE_SHEET[role] : null;
   if (!role || !sheet?.intro) return null;
-  const vw = window.innerWidth, vh = window.innerHeight;
-  const flipX = pos.x > vw * 0.62;
-  const flipY = pos.y > vh * 0.55;
+  const sp = clientToStage(pos.x, pos.y);
+  const vw = STAGE.active ? STAGE.W : window.innerWidth; // STAGE.W/H=有效参考尺寸（随 uiScale 档位变）
+  const vh = STAGE.active ? STAGE.H : window.innerHeight;
+  const flipX = sp.x > vw * 0.62;
+  const flipY = sp.y > vh * 0.55;
   const style = {
     position: 'fixed',
-    left: pos.x + (flipX ? -16 : 16),
-    top: pos.y + (flipY ? -16 : 16),
+    left: sp.x + (flipX ? -16 : 16),
+    top: sp.y + (flipY ? -16 : 16),
     transform: `translate(${flipX ? '-100%' : '0'}, ${flipY ? '-100%' : '0'})`,
     pointerEvents: 'none',
     zIndex: 200,
@@ -119,7 +124,7 @@ function RoleTooltip({ role, pos, advOpen }) {
         </div>
       )}
     </div>,
-    document.body
+    (typeof document !== 'undefined' && document.getElementById('app-stage')) || document.body
   );
 }
 

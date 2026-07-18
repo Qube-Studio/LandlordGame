@@ -264,6 +264,20 @@ client/src/
 ```
 所有组件只用变量，不写死颜色。
 
+### 4.6 参考分辨率舞台（钉住视野与 UI，仅桌面）
+整个 App 钉在 **1920×1080 参考画面**上，等比缩放（letterbox）填入视口——**视野框选与 UI 尺寸不随窗口大小或网页缩放改变**（`ui/AppStage.jsx` + `ui/stageTransform.js`）：
+- `scale = min(vw/1920, vh/1080)`，居中，`transform: translate(offset) scale(scale)`；非 16:9 视口上下或左右留黑边（body 深色透出）。
+- **窗口变化**：舞台整体等比缩放，3D 相机宽高比恒为 16:9 → 视野框选恒定；UI 与场景同步缩放、相对布局不变。
+- **网页缩放（Ctrl±）**：缩放改变 `innerWidth/innerHeight`(CSS px)，`scale` 反向补偿 → 屏上尺寸恒定。
+- **触屏**不套舞台（移动端做过大量竖/横屏自适应，强套会挤出巨大黑边），`AppStage` 原样透传。
+- **「界面大小」档位**（`settingsStore.uiScale`：标准/115%/130%/150%，仅桌面）：把**有效参考分辨率**缩为 `1920/uiScale`（`STAGE.W/H` 动态）→ 舞台缩放倍率反向变大 → 整个画面（UI+场景）等比放大，仍恰好铺满 16:9 区、零裁切零额外黑边；3D 视野框选不变。网页缩放被舞台抵消后，这是玩家调整 UI 大小的正路。
+- **r3f 必须整体活在布局（参考）空间**：r3f 默认用 `getBoundingClientRect` 量容器 = **视觉**尺寸（被舞台缩放过），其 `size` 状态会带偏 drei `Html` 定位（浮字/名牌被二次缩放飘出圈）与事件 NDC（拖牌错位）。两针根治：① `<Canvas resize={{ offsetSize: true }}>` —— 量 `offsetWidth`（布局尺寸，恒 = 有效参考尺寸），r3f 内部全回单一参考空间（LobbyMascot 的 Canvas 同）；② `setEvents({ compute })` 用画布视觉 rect 算拾取 NDC（`StagePointerCompute`，任何缩放/黑边/网页缩放下正确）。
+- **坐标契约**：舞台有 `transform` → 其内 `position:fixed` 子层（`.game-screen`/`.toast`/`.modal-mask`）自动以参考画面为包含块、随舞台缩放。**但两类坐标必须换算**（否则留黑边/缩放下错位）：
+  1. **指针 → 画布 NDC**（HandLayer 下注拖拽、PayoutLayer 协商拖拽，触屏也跑）：一律用画布自身 `getBoundingClientRect`（视觉 client 空间，`scene/screen.js`），不用 `window.innerWidth`。
+  2. **视觉 client → 参考空间**（桌面绝对环视、MoneyHand betFlight、跟指针的角色浮窗、拿取飞向蜡烛）：用 `stageTransform.js#clientToStage`（舞台未激活时恒等）；参考尺寸一律读 `STAGE.W/H`（随 uiScale 变），不用 REF 常量。
+  - `pixel.css` 里 `.app-stage .r3f-scene canvas{width/height:100%!important}` 兜底钉住 canvas 布局（offsetSize 下 r3f 自己也写对，双保险）。
+  - 跟指针的浮窗 portal 到 `#app-stage`（非 `document.body`）才随舞台缩放。
+
 ---
 
 ## 5. 服务端文件结构

@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { useGameStore } from '../store/gameStore';
 import { getArt } from '../assets/registry';
+import { STAGE } from './stageTransform';
 
 const MoneyNote = getArt('moneyNote');
 const FALL_MS = 720;
@@ -15,7 +16,8 @@ function DropNote({ item }) {
     return () => { cancelAnimationFrame(raf); clearTimeout(timer); };
   }, [item.id, item.delay, remove]);
 
-  const y = fall ? window.innerHeight + 160 : item.y;
+  // 掉出底部：item.y 来自 Projector（画布/参考空间），桌面舞台下用参考高度 1080，触屏用窗口高度
+  const y = fall ? (STAGE.active ? STAGE.H : window.innerHeight) + 160 : item.y;
   const rot = fall ? item.spin : 0;
   return (
     <div

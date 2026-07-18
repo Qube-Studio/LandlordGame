@@ -154,6 +154,15 @@
 .room-id { font-family: monospace; letter-spacing: 1px; color: var(--gold); }
 .room-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* ============ 参考分辨率舞台（仅桌面，见 ui/AppStage.jsx） ============ */
+/* 视口占满、留黑边；舞台本体固定 1920×1080，JS 写入 transform:translate+scale 等比缩入。
+   .app-stage 有 transform → 其内 position:fixed 子层以它为包含块，自动落进参考画面并随之缩放。 */
+.app-stage-viewport {
+  position: fixed; inset: 0; overflow: hidden;
+  background: var(--c-bg-deep, #08090d);   /* 黑边色 */
+}
+.app-stage { position: absolute; top: 0; left: 0; transform-origin: top left; }
+
 /* ============ 游戏：场景层 ============ */
 /* (旧 CSS-3D 桌面实现已删——3D 场景由 react-three-fiber 渲染,见 scene/Scene3D.jsx) */
 

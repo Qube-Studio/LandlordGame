@@ -5,6 +5,7 @@ import LoginScreen from './screens/LoginScreen';
 import LobbyScreen from './screens/LobbyScreen';
 import GameScreen from './screens/GameScreen';
 import ViewportGuard from './ui/ViewportGuard';
+import AppStage from './ui/AppStage';
 import { T } from './text';
 
 export default function App() {
@@ -38,7 +39,7 @@ export default function App() {
   else screen = <GameScreen />;
 
   return (
-    <>
+    <AppStage>
       {screen}
       {toast && <div className={`toast ${toast.kind ?? 'error'}`}>{toast.text}</div>}
       {kicked && (
@@ -51,6 +52,6 @@ export default function App() {
         </div>
       )}
       <ViewportGuard />
-    </>
+    </AppStage>
   );
 }

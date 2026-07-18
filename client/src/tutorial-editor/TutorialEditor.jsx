@@ -1,7 +1,8 @@
 // 教程编辑器 2.0 主界面：工具栏 + 左章节树（Tree）+ 中编辑列（EditCol）+ 右游戏同源预览 + 状态栏。
 // chrome 全走 .ted-* 命名空间（EDITOR_OVERHAUL §1.1——pixel.css 的 .btn/.panel 是立体浮雕皮肤，禁止沾）。
 // 预览挂完整游戏骨架 .rules-panel.goal-hud.hud-card → .tut-split → nav 占位列 → TutorialContent：
-// 面板宽 880px 定值 + 祖先类名齐全（.rules-panel .pixel-text{gap:1px} 字距修正依赖它），内容列宽与游戏一致。
+// 面板宽走 pixel.css 同一条 .rules-panel 规则（min(1180px,92vw)）+ 祖先类名齐全
+// （.rules-panel .pixel-text{gap:1px} 字距修正依赖它），内容列宽与游戏一致。
 // T②b 落在这里的部分：三栏拖宽（persist）、autosave 草稿恢复条、多标签只读锁横幅、校验面板开关、
 // 预览 debounce ~100ms + 滚动跟随选中块 + 短暂高亮、window 级剪贴板统一裁决
 // （粘贴顺序 §1.2：图片文件 > 哨兵信封 > 含换行文本拆段 > 普通文本入光标）、右键菜单挂载。

@@ -15,6 +15,8 @@ import { IS_3D_INPUT } from '../game/inputMode';
 import { getCoinRest } from './coinSim';
 import { MoneyStack, ArcNote, cardLocal, cardYaw, stackTopY, promptAnchor, TABLE_TOP, CARD_W, CARD_T, CARD_D, cardMaterials } from './cards';
 import { aimFromPointer, groundFromPointer, CarrySpring, CARRY_HEIGHT } from './carry';
+import { pointerNDC } from './screen';
+import { clientToStage } from '../ui/stageTransform';
 import { TicketRow, TicketArc, ticketWorldPos, ticketGeometry, ticketMaterials } from './Tickets3D';
 import { grab } from './grab';
 import PromptFloat, { pushFloat } from './PromptFloat';
@@ -492,7 +494,7 @@ export default function PayoutLayer({ players, seats, spots, playerId, rot }) {
   const myStack = useGameStore(s => s.myStack);
   const send = useGameStore(s => s.send);
   const spaceHeld = useGameStore(s => s.spaceHeld); // 协商确认行的合成按下态（空格松开才触发）
-  const { camera, size } = useThree(); // camera 另用于协商松手时按指针所指毡面点判定落圈（反馈③）
+  const { camera, size, gl } = useThree(); // camera 另用于协商松手时按指针所指毡面点判定落圈（反馈③）
   // 导演是「可变外部模型」：每次变动调 bump 触发重渲，render = f(dir.model)。挂载期恒定单例。
   const [, bump] = useState(0);
   const ctxRef = useRef(null);
@@ -540,8 +542,10 @@ export default function PayoutLayer({ players, seats, spots, playerId, rot }) {
       hand: () => {
         const el = document.querySelector('.balance-hud') ?? document.querySelector('[data-hand-anchor]');
         const r = el?.getBoundingClientRect();
-        const sx = r ? r.x + r.width / 2 : size.width * 0.82;
-        const sy = r ? r.y + r.height / 2 : size.height * 0.86;
+        // getBoundingClientRect 是视觉 client 空间；NDC 按 size(参考)算 → 先换算到舞台空间（触屏无舞台恒等）
+        const c = r ? clientToStage(r.x + r.width / 2, r.y + r.height / 2) : null;
+        const sx = c ? c.x : size.width * 0.82;
+        const sy = c ? c.y : size.height * 0.86;
         const v = new THREE.Vector3((sx / size.width) * 2 - 1, -(sy / size.height) * 2 + 1, 0.82)
           .unproject(camera).applyAxisAngle(UP, -rot);
         v.y = Math.max(v.y, TABLE_TOP + 0.1);
@@ -622,8 +626,8 @@ export default function PayoutLayer({ players, seats, spots, playerId, rot }) {
     if (!canNegotiate) return undefined;
     const onDown = () => { pressActiveRef.current = true; };
     const onMove = (e) => {
-      ndcRef.current.x = (e.clientX / window.innerWidth) * 2 - 1;
-      ndcRef.current.y = -(e.clientY / window.innerHeight) * 2 + 1;
+      // 舞台缩放/留黑边下 window≠画布可视区 → 以画布 rect 算 NDC（触屏无舞台时同样正确）
+      pointerNDC(gl.domElement, e, ndcRef.current);
       // 票按下超阈值 → 转为携带。起点=**排里消失的那张的槽位**（末位；排减一张会重排居中，
       // 从消失位起飞视觉最顺）——起点设在指针点会瞬移（钱牌从牌堆位起飞同理，踩过）。
       const td = ticketDownRef.current;
@@ -771,7 +775,7 @@ export default function PayoutLayer({ players, seats, spots, playerId, rot }) {
         dir.bump();
       }
     };
-  }, [canNegotiate, playerId, dir, send, camera, rot]);
+  }, [canNegotiate, playerId, dir, send, camera, rot, gl]);
 
   const m = dir.model;
   const potAmount = m.potAmount;

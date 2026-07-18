@@ -26,7 +26,9 @@ export default function TutorialContent({ chapter, fallback = null, scrollRef, r
       {chapter ? (
         <>
           <div className="tut-content-title">
-            <PixelText size={2} color="var(--px-gold)">{chapter.title}</PixelText>
+            {/* 章节大标题 size 3（字高 21px）——旧 size 2 仅 14px、几近正文 13px 不成层级；
+                正文列宽 ~976px 空间充裕，放大只增强层级不挤版。左侧章节树受 200px 列宽所限保持 size 2。 */}
+            <PixelText size={3} color="var(--px-gold)">{chapter.title}</PixelText>
           </div>
           {(chapter.body ?? []).map((item, i) => {
             const aRef = blockRef ? blockRef(i) : undefined;

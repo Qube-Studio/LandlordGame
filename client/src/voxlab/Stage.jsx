@@ -38,7 +38,7 @@ function EnvBake() {
     const rt = new THREE.WebGLCubeRenderTarget(128, { type: THREE.HalfFloatType });
     const cam = new THREE.CubeCamera(0.1, 60, rt);
     cam.position.set(0, 2.3, 0);           // 桌面上方、吊灯下方——金属件密集带的视点
-    rigRef.current = { rt, cam, queue: [1.5, 5], mark: false };
+    rigRef.current = { rt, cam, queue: [1.5, 5, 12], mark: false };
   }
   useEffect(() => {
     rigRef.current.mark = true;            // swaps 变化(含首挂)→ 下一帧起 1.5s 后重烘
@@ -51,10 +51,17 @@ function EnvBake() {
   useFrame((st) => {
     const rig = rigRef.current;
     const t = st.clock.elapsedTime;
-    if (rig.mark) { rig.mark = false; rig.queue.push(t + 1.5); rig.queue.sort((a, b) => a - b); }
+    // 两拍补拍(2026-07-18,voxel 树同款):+1.5s 快拍可能落在资产/光照未就绪的暗帧上
+    // (环境图拍黑 → 金属反射死掉),+7s 第二拍覆盖;冷启动多排一拍 12s(queue 初值)。
+    if (rig.mark) { rig.mark = false; rig.queue.push(t + 1.5, t + 7); rig.queue.sort((a, b) => a - b); }
     if (rig.queue.length && t >= rig.queue[0]) {
       rig.queue.shift();
+      // 拍摄净化(2026-07-18,voxel 树同款):拍摄瞬间 env 强度归零,环境图=纯一手光,
+      // 否则 env 自反馈会让亮度逐拍爬升(voxel 树的跨模式携带实锤了这条链路)
+      const keep = scene.environmentIntensity;
+      scene.environmentIntensity = 0;
       rig.cam.update(gl, scene);
+      scene.environmentIntensity = keep;
       scene.environment = rig.rt.texture;
       // 0.6:全强度会给漫反射材质叠一层可感的 IBL 底光,冲淡「打烊账房」压暗氛围;
       // 环境本身是暗酒馆,金属反射在 0.6 下已可读。调观感改这一个数。
@@ -75,7 +82,6 @@ function PerfProbe() {
   useEffect(() => {
     // eslint-disable-next-line react-hooks/immutability -- three 惯用法:renderer.info 的开关就在实例上
     gl.info.autoReset = false;
-    // eslint-disable-next-line react-hooks/immutability
     return () => { gl.info.autoReset = true; };
   }, [gl]);
   useFrame((_, dt) => {

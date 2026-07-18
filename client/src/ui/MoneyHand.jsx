@@ -9,6 +9,7 @@ import { useGameStore } from '../store/gameStore';
 import { getArt } from '../assets/registry';
 import CandleMark from '../assets/pixelfont/CandleMark';
 import { decompose, splitNote, sumNotes, SPLITS, insStackStyle } from '../game/notes';
+import { clientToStage } from './stageTransform';
 import { T } from '../text';
 
 const MoneyNote = getArt('moneyNote');
@@ -123,7 +124,9 @@ export default function MoneyHand() {
       const els = containerRef.current.querySelectorAll('[data-flyable="1"]');
       const items = [...els].map((el, i) => {
         const r = el.getBoundingClientRect();
-        return { id: `bn-${Date.now()}-${i}`, value: Number(el.dataset.value), fromScreen: { x: r.x + r.width / 2, y: r.y + r.height / 2 } };
+        // getBoundingClientRect 是视觉 client 空间；FlyingNotes 按参考(size.width)反投影 → 换算到舞台空间
+        const c = clientToStage(r.x + r.width / 2, r.y + r.height / 2);
+        return { id: `bn-${Date.now()}-${i}`, value: Number(el.dataset.value), fromScreen: { x: c.x, y: c.y } };
       });
       count = items.length;
       if (items.length) startBetFlight({ round: state.round, items });
