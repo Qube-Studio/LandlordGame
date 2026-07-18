@@ -92,6 +92,10 @@ export const ERR = {
   notTakePhase: '当前不是拿取阶段',
   nothingToTake: '没有可拿取的钱',                                  // ⚠ 测试断言
   alreadyTaken: '已经拿过了',                                       // ⚠ 测试断言
+  // 处决窗（§3.9）
+  notExecution: '当前不是处决阶段',
+  notExecutioner: '你不是行刑者',
+  pardonCantAfford: (cost) => `资金不足，无法赦免（需赔偿 ¥${cost}）`, // ⚠ 测试断言
   // 聊天
   chatInvalid: '消息无效',
   chatTooFast: '发言太快了，稍等片刻',
@@ -131,6 +135,13 @@ export const SYS = {
   accuseMiss: (name) => `对质落空，${name} 未能命中`,
   accuseCancel: '指控取消，虚惊一场',
   bankrupt: (name, roleLabel) => `${name}（${roleLabel}）已破产`,
+  // 处决窗（§3.9）
+  executionStart: (judge, jRole, target, tRole) =>
+    `${target}（${tRole}）破产伏地——${judge}（${jRole}）拿起左轮，处决还是赦免？`,
+  executed: (judge, target) => `${judge} 扣下扳机——${target} 被处决出局`,
+  pardoned: (judge, target, cost) => `${judge} 对空鸣枪赦免了 ${target}，自掏 ¥${cost} 补偿其本回合损失`,
+  executionTimeout: (judge) => `${judge} 迟迟未决——默认处决`,
+  executionNoEnemy: (target) => `${target} 的敌对阵营已无活人行刑——维持出局`,
 };
 
 // ---- 结算 adjust 步骤 label（客户端 payoutSteps 未收录的 source 直接展示这些）----

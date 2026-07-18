@@ -223,6 +223,17 @@ textarea.ted-input { resize: vertical; min-height: 46px; }
 .ted-lab { color: #8b919e; font-size: 11px; flex: none; }
 .ted-dim { color: #6c7280; font-size: 10.5px; flex: none; }
 
+/* 图文并排编辑：两栏编辑格**上下堆叠**、各占全宽（编辑列放不下两个并列的图片编辑器 → 挤成多行）。
+   预览里才是真正的左右并排；编辑格靠标签「左栏/右栏」标明对应预览的哪一侧。 */
+.ted-rowedit { display: flex; flex-direction: column; gap: 8px; }
+.ted-row2col { display: flex; flex-direction: column; gap: 8px; }
+.ted-row2col .ted-subcol { display: flex; flex-direction: column; gap: 6px;
+  padding: 8px; border: 1px solid #2a2f3a; background: rgba(0, 0, 0, 0.18); }
+.ted-subcol-h { color: #e8c96a; font-size: 11px; }
+.ted-rowtext { min-height: 76px; resize: vertical; }
+/* 宽度步进组：−[框]+px 绑成一体，永不被 flex-wrap 拆散 */
+.ted-stepgroup { display: inline-flex; align-items: center; gap: 4px; flex: none; }
+
 /* 属性条块：块内小样底衬 + 数字步进 */
 .ted-bar-prev { padding: 6px 8px; background: rgba(0, 0, 0, 0.28); border: 1px solid #2a2f3a; }
 .ted-bar-lab { color: #5b6170; font-size: 11px; flex: none; }
@@ -236,13 +247,32 @@ textarea.ted-input { resize: vertical; min-height: 46px; }
    .rules-panel 定宽 min(1180px,92vw)（pixel.css，与游戏同一条规则→列宽逐像素一致），舞台居中、容器可滚。
    宽度按 vw 算（非本预览列宽），故编辑器与游戏在同一屏幕上取值相同；预览列窄于面板时横向滚动。 */
 .ted-preview {
-  position: relative; /* 图片缩放把手的定位参照（ImgResizer 绝对定位在此层） */
+  position: relative; /* 图片缩放把手/缩放徽标的定位参照 */
   flex: 1; min-width: 0;
   overflow: auto;
   padding: 18px;
   background: #101216;
   display: flex; align-items: flex-start; justify-content: center;
   user-select: text;
+}
+/* 缩放舞台：面板按游戏满宽真实渲染，整体 zoom 适配预览列（JS 设 inline zoom）。
+   用 zoom 而非 transform:scale——zoom 会改变布局占位为缩放后尺寸，故不产生多余的横向滚动条
+   （transform 缩放后仍按原尺寸占位、会横向溢出）。zoom 广泛支持（Chromium/Safari/新 Firefox），
+   老浏览器忽略=退化为原尺寸+滚动，不崩。 */
+.ted-stage { flex: none; }
+/* 预览里的面板：固定游戏满宽（换行所见即所得），高度按内容全展开、不模拟游戏的内部滚动（编辑者要通览）。 */
+.ted-preview .rules-panel.goal-hud.hud-card {
+  width: var(--tut-panel-max, 1180px);
+  height: auto; max-height: none;
+}
+.ted-preview .tut-split { flex: none; }
+.ted-preview .tut-content { overflow: visible; }
+/* 缩放比徽标：右下角常驻，提示当前不是 1:1 */
+.ted-preview-scale {
+  position: absolute; right: 8px; bottom: 8px;
+  padding: 1px 6px; font-size: 10.5px;
+  background: rgba(16, 18, 22, 0.85); border: 1px solid #2a2f3a; color: #8b919e;
+  pointer-events: none;
 }
 
 /* 图片缩放把手：浮在预览里选中图片的右下角，拖动改显示宽度（见 ImgResizer.jsx） */

@@ -46,6 +46,7 @@ const PHASE_META = {
     hint: IS_3D_INPUT ? T.phase.NEGOTIATE.hint3d : T.phase.NEGOTIATE.hint2d,
   },
   FINALIZE: { label: T.phase.FINALIZE.label, hint: T.phase.FINALIZE.hint },
+  EXECUTION: { label: T.phase.EXECUTION.label, hint: T.phase.EXECUTION.hint },
   ENDED: { label: T.phase.ENDED.label, hint: '' },
 };
 
@@ -141,6 +142,9 @@ function useGameKeys() {
       }
       // DISCUSSION 是纯过场短喘息（反馈②）：空格不再做「准备/跳过」——自动进下注。
       else if (phase === 'REVEAL' && !me?.confirmed && !me?.spectator) send({ type: 'confirm_reveal' });
+      // REFLIP：暴食者空格=重掷（与浮字「重掷 [空格]」同效；不重掷走浮字点击）
+      else if (phase === 'REFLIP' && me?.role === 'glutton' && !me?.spectator
+        && (me.reflipsLeft ?? 0) > 0 && !me.passedReflip) send({ type: 'request_reflip' });
       else if (phase === 'NEGOTIATE' && state.roundFarmerIds?.includes(playerId)) {
         send({ type: 'negotiate_confirm', confirmed: !me?.negotiateConfirmed });
       } else if (phase === 'FINALIZE' && canTake) useGameStore.getState().takePayout(); // 冻结余额显示→飞行落地才跳数
@@ -164,11 +168,7 @@ function useGameKeys() {
         e.preventDefault(); send({ type: 'start_game' }); return;
       }
       if (e.key === 'Escape') { if (panel) { e.preventDefault(); setPanel(null); } return; }
-      // 拿取 (F)：FINALIZE 从桌面收取自己的钱堆（§3.8），空格同效
-      const po = state.payout;
-      const canTake = state.phase === 'FINALIZE' && !!po
-        && po.eligible?.includes(playerId) && !po.taken?.includes(playerId);
-      if ((e.key === 'f' || e.key === 'F') && canTake) { e.preventDefault(); useGameStore.getState().takePayout(); return; }
+      // 拿取：FINALIZE 只走空格（doSpaceAction；F 键位已让出，留给未来机制）
       // 对质 (Z)：CHALLENGE 决定窗，农民有票且无进行中指控 → 指控敌方（§8.8；桌面悬停仅为视觉瞄准）
       if (e.key === 'z' || e.key === 'Z') {
         const ch = state.challenge; const me = state.me;
@@ -849,6 +849,7 @@ function ReflipPanel() {
       </div>
     );
   }
+  if (IS_3D_INPUT) return null; // 3D 模式：重掷决策/等待全走桌面浮字（FeltPrompts REFLIP 分支），面板仅 ?input=2d 保留
   const isGlutton = me?.role === 'glutton' && !me?.spectator;
   const canReflip = isGlutton && (me.reflipsLeft ?? 0) > 0 && !me.passedReflip;
   return (
@@ -867,6 +868,39 @@ function ReflipPanel() {
         <p className="dim">{T.reflipPanel.exhausted}</p>
       )}
       <p className="dim">{T.reflipPanel.note}</p>
+    </div>
+  );
+}
+// 处决窗面板（§3.9）：桌面 3D 全走准心开枪（ExecutionRig），面板只给触屏/2D 兜底两按钮。
+function ExecutionPanel() {
+  const state = useGameStore(s => s.state);
+  const send = useGameStore(s => s.send);
+  const me = state.me;
+  const ex = state.execution;
+  if (IS_3D_INPUT && !IS_TOUCH) return null;
+  if (!ex?.targetId) return null;
+  const target = state.players.find(p => p.id === ex.targetId);
+  const judge = state.players.find(p => p.id === ex.executionerId);
+  const iAmJudge = !!me?.isExecutioner;
+  return (
+    <div className="phase-panel">
+      {iAmJudge ? (
+        <>
+          <p className="danger">{T.execution.watching(judge?.name ?? '', target?.name ?? '')}</p>
+          <div className="role-pick">
+            <button className="btn danger-btn" onClick={() => send({ type: 'execute' })}>{T.execution.executeBtn}</button>
+            <button className="btn primary" disabled={!me.canPardon} onClick={() => send({ type: 'pardon' })}>
+              {T.execution.pardonBtn(me.pardonCost ?? ex.compensation ?? 0)}
+            </button>
+          </div>
+          {!me.canPardon && <p className="dim">{T.execution.denyPoor(me.pardonCost ?? ex.compensation ?? 0)}</p>}
+        </>
+      ) : (
+        <p className="dim">
+          {ex.targetId === me?.id ? T.execution.targetWaiting(judge?.name ?? '') : T.execution.watching(judge?.name ?? '', target?.name ?? '')}
+        </p>
+      )}
+      {ex.deadline && <Countdown deadline={ex.deadline} suffix={T.execution.autoSuffix} />}
     </div>
   );
 }
@@ -1078,7 +1112,7 @@ function NullPanel() { return null; }
 const PHASE_PANELS = {
   LOBBY: LobbyPanel, DISCUSSION: DiscussionPanel, BETTING: BettingPanel, CHALLENGE: ChallengePanel, REVEAL: RevealPanel,
   COIN_FLIP: CoinFlipPanel, REFLIP: ReflipPanel,
-  SETTLE: SettlePanel, NEGOTIATE: NegotiatePanel, FINALIZE: FinalizePanel, ENDED: EndedPanel,
+  SETTLE: SettlePanel, NEGOTIATE: NegotiatePanel, FINALIZE: FinalizePanel, EXECUTION: ExecutionPanel, ENDED: EndedPanel,
 };
 
 // （旧「FINALIZE 桌面→手牌 2D 幽灵飞行」已退役：拿取的钱由 3D 编导层 PayoutLayer 飞向资金蜡烛，§3.8）

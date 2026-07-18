@@ -9,7 +9,7 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import {
   useTedStore, findByUid,
-  isImgData, isBarData, textOf, sizeOf, normBar, newBar, imgUsage,
+  isImgData, isBarData, isRowData, rowImgIdx, rowTextIdx, textOf, sizeOf, normBar, newBar, newRow, imgUsage,
 } from './store';
 import { listImages, deleteImage } from './api';
 import { doUpload, confirmDeleteChapters, copyBlocksToClipboard, pasteFromClipboardAfterBlock, countRender } from './helpers';
@@ -92,55 +92,121 @@ function TextBody({ chUid, block }) {
   );
 }
 
-// ---- 图片段 ----
-function ImgBody({ chUid, block, onUploadTo }) {
-  const d = block.data;
-  // 记「加载失败的那个 URL」而非布尔：URL 一变自然不等于失败记录 → 直接重试，无需 effect 重置
-  const [brokenUrl, setBrokenUrl] = useState(null);
-  const [nat, setNat] = useState(null); // 原图像素尺寸（缩略图 onLoad 读 naturalWidth/Height）
-  const st = () => useTedStore.getState();
-  const setW = (v, key) => st().setBlockWidth(chUid, block.uid, v, key ? { key } : {});
-  const curW = Number.isFinite(Number(d.width)) && Number(d.width) > 0 ? Math.round(Number(d.width)) : null;
-  const stepFrom = curW ?? nat?.w ?? 200; // 未设宽度时以原图宽为步进基准（点 + 即从原图尺寸开始调）
+// ---- 图片编辑字段（URL/alt/宽度/上传/图库）：普通图片块与双栏图片栏共用 ----
+// 全走回调，不认识 store：ImgBody 传普通块动作、RowImgBody 传双栏图片栏动作。
+// widthKey 是宽度输入的合并键（一次连续输入=一步撤回）。
+function ImgFields({ img, alt, width, widthKey, onImg, onAlt, onWidth, onUpload, onPicker }) {
+  const [brokenUrl, setBrokenUrl] = useState(null); // 记失败的那个 URL：URL 一变即重试，无需 effect 重置
+  const [nat, setNat] = useState(null);             // 原图像素尺寸（缩略图 onLoad 读）
+  const curW = Number.isFinite(Number(width)) && Number(width) > 0 ? Math.round(Number(width)) : null;
+  const stepFrom = curW ?? nat?.w ?? 200;           // 未设宽度时以原图宽为步进基准
   return (
     <div className="ted-img-row">
-      {d.img && brokenUrl !== d.img
-        ? <img className="ted-img-thumb" src={d.img} alt="" onError={() => setBrokenUrl(d.img)}
+      {img && brokenUrl !== img
+        ? <img className="ted-img-thumb" src={img} alt="" onError={() => setBrokenUrl(img)}
             onLoad={(e) => setNat({ w: e.target.naturalWidth, h: e.target.naturalHeight })} />
-        : <div className="ted-img-thumb missing">{d.img ? '加载失败' : '无图'}</div>}
+        : <div className="ted-img-thumb missing">{img ? '加载失败' : '无图'}</div>}
       <div className="ted-img-fields">
-        <input
-          className="ted-input"
-          placeholder="URL（/tutorial/xxx.png 或 http…）"
-          value={d.img || ''}
-          onChange={(e) => st().setBlockImg(chUid, block.uid, e.target.value, { key: 'img:' + block.uid })}
-        />
-        <input
-          className="ted-input"
-          placeholder="替代文字（可选）"
-          value={d.alt || ''}
-          onChange={(e) => st().setBlockAlt(chUid, block.uid, e.target.value)}
-        />
-        {/* 宽度精调：空=原图尺寸（不落 width 键）。拖拽调节在右侧预览的把手上（所见即所得） */}
+        <input className="ted-input" placeholder="URL（/tutorial/xxx.png 或 http…）"
+          value={img || ''} onChange={(e) => onImg(e.target.value)} />
+        <input className="ted-input" placeholder="替代文字（可选）"
+          value={alt || ''} onChange={(e) => onAlt(e.target.value)} />
+        {/* 宽度精调：空=原图尺寸（不落 width 键）。普通图片块另可在预览把手拖拽。
+            −[框]+ 绑成 stepgroup 不换行；窄栏里整组一起走 */}
         <div className="ted-row ted-imgw">
           <label className="ted-lab">宽度</label>
-          <button type="button" className="ted-btn sm" title="减 10px" onClick={() => setW(stepFrom - 10)}>−</button>
-          <input
-            className="ted-input ted-num"
-            placeholder={nat ? String(nat.w) : '原图'}
-            value={curW ?? ''}
-            onChange={(e) => setW(e.target.value, 'imgw:' + block.uid)}
-          />
-          <button type="button" className="ted-btn sm" title="加 10px" onClick={() => setW(stepFrom + 10)}>+</button>
-          <span className="ted-dim">px</span>
+          <span className="ted-stepgroup">
+            <button type="button" className="ted-btn sm" title="减 10px" onClick={() => onWidth(stepFrom - 10)}>−</button>
+            <input className="ted-input ted-num" placeholder={nat ? String(nat.w) : '原图'}
+              value={curW ?? ''} onChange={(e) => onWidth(e.target.value, widthKey)} />
+            <button type="button" className="ted-btn sm" title="加 10px" onClick={() => onWidth(stepFrom + 10)}>+</button>
+            <span className="ted-dim">px</span>
+          </span>
           <button type="button" className={`ted-btn sm ${curW ? '' : 'on'}`} title="清除宽度 = 按原图尺寸显示"
-            onClick={() => setW(null)}>原图</button>
+            onClick={() => onWidth(null)}>原图</button>
           {nat && <span className="ted-dim" title="原图像素尺寸">{nat.w}×{nat.h}</span>}
         </div>
         <div className="ted-row">
-          <button type="button" className="ted-btn sm" onClick={() => onUploadTo(block.uid)}>上传图片…</button>
-          <button type="button" className="ted-btn sm" title="从已入库图片（client/public/tutorial/）中选择" onClick={() => st().openPicker(chUid, block.uid)}>图库…</button>
+          <button type="button" className="ted-btn sm" onClick={onUpload}>上传图片…</button>
+          <button type="button" className="ted-btn sm" title="从已入库图片（client/public/tutorial/）中选择" onClick={onPicker}>图库…</button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ---- 图片段 ----
+function ImgBody({ chUid, block, onUploadTo }) {
+  const d = block.data;
+  const st = () => useTedStore.getState();
+  return (
+    <ImgFields
+      img={d.img} alt={d.alt} width={d.width} widthKey={'imgw:' + block.uid}
+      onImg={(v) => st().setBlockImg(chUid, block.uid, v, { key: 'img:' + block.uid })}
+      onAlt={(v) => st().setBlockAlt(chUid, block.uid, v)}
+      onWidth={(v, key) => st().setBlockWidth(chUid, block.uid, v, key ? { key } : {})}
+      onUpload={() => onUploadTo(block.uid)}
+      onPicker={() => st().openPicker(chUid, block.uid)}
+    />
+  );
+}
+
+// ---- 双栏并排段（左图右文，可交换）----
+function RowBody({ chUid, block, onUploadTo }) {
+  const d = block.data;
+  const st = () => useTedStore.getState();
+  const imgLeft = rowImgIdx(d) === 0;
+  const imgCol = d.row[rowImgIdx(d)] ?? { img: '' };
+  const txtCol = d.row[rowTextIdx(d)];
+  const txt = textOf(txtCol) ?? '';
+  const size = sizeOf(txtCol);
+  const valign = d.valign === 'center' ? 'center' : 'top';
+
+  const imgEdit = (
+    <ImgFields
+      img={imgCol.img} alt={imgCol.alt} width={imgCol.width} widthKey={'rowimgw:' + block.uid}
+      onImg={(v) => st().setRowImg(chUid, block.uid, v, { key: 'rowimg:' + block.uid })}
+      onAlt={(v) => st().setRowAlt(chUid, block.uid, v)}
+      onWidth={(v, key) => st().setRowImgWidth(chUid, block.uid, v, key ? { key } : {})}
+      onUpload={() => onUploadTo(block.uid, true)}
+      onPicker={() => st().openPicker(chUid, block.uid, true)}
+    />
+  );
+  const txtEdit = (
+    <>
+      <textarea className="ted-input ted-rowtext" rows={4} value={txt}
+        placeholder="右栏文字（支持 **金字**、「- 」列表；每行一段，可多行）"
+        onChange={(e) => st().setRowText(chUid, block.uid, e.target.value, { key: 'rowtext:' + block.uid })} />
+      <div className="ted-row">
+        {SIZES.map(([k, label]) => (
+          <button key={k} type="button" className={`ted-btn sm${size === k ? ' on' : ''}`}
+            title={`字号：${label}（${SIZE_PX[k]}px）`} onClick={() => st().setRowSize(chUid, block.uid, k)}>{label}</button>
+        ))}
+      </div>
+    </>
+  );
+
+  return (
+    <div className="ted-rowedit">
+      <div className="ted-row">
+        <button type="button" className="ted-btn sm" title="左右两栏对调" onClick={() => st().swapRow(chUid, block.uid)}>⇄ 左右交换</button>
+        <span className="ted-dim">图在{imgLeft ? '左' : '右'} · 文在{imgLeft ? '右' : '左'}</span>
+        <span className="ted-flex" />
+        <label className="ted-lab">对齐</label>
+        {[['top', '顶部'], ['center', '居中']].map(([k, lab]) => (
+          <button key={k} type="button" className={`ted-btn sm${valign === k ? ' on' : ''}`}
+            onClick={() => st().setRowValign(chUid, block.uid, k)}>{lab}</button>
+        ))}
+      </div>
+      {/* 两栏按 row 数组顺序排布，编辑区左右 = 预览左右（交换后编辑格跟着换位）。
+          store 的 setRow* 按图栏/文栏语义定位，与数组位置解耦，故编辑器内部动作恒作用于对的栏。 */}
+      <div className="ted-row2col">
+        {d.row.slice(0, 2).map((col, c) => (
+          <div className="ted-subcol" key={c}>
+            <div className="ted-subcol-h">{c === 0 ? '左栏' : '右栏'} · {isImgData(col) ? '图片' : '文字'}</div>
+            {isImgData(col) ? imgEdit : txtEdit}
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -229,14 +295,15 @@ const Block = memo(function Block(props) {
   const { chUid, block, index, count, primary, msel, dragging, dz, h } = props;
   countRender('b:' + block.uid);
   const d = block.data;
-  const kind = isImgData(d) ? 'img' : isBarData(d) ? 'bar' : 'text';
+  const kind = isImgData(d) ? 'img' : isBarData(d) ? 'bar' : isRowData(d) ? 'row' : 'text';
   const [dropFile, setDropFile] = useState(false); // 图片文件悬停高亮
   const st = () => useTedStore.getState();
 
   const kindLabel = kind === 'img' ? '图片'
     : kind === 'bar' ? '属性条'
-      : !(textOf(d) ?? '').trim() ? '空行'
-        : '文字' + (sizeOf(d) !== 'm' ? '·' + SIZE_LABEL[sizeOf(d)] : '');
+      : kind === 'row' ? '图文并排'
+        : !(textOf(d) ?? '').trim() ? '空行'
+          : '文字' + (sizeOf(d) !== 'm' ? '·' + SIZE_LABEL[sizeOf(d)] : '');
 
   // 在本段之后插入（快速插入按钮，悬停显现）；focus=文字段落插入后落焦点
   const quick = (data, focus = false) => {
@@ -293,6 +360,7 @@ const Block = memo(function Block(props) {
         <button type="button" className="ted-btn sm ted-quick" title="在本段后插入属性条" onClick={() => quick(newBar())}>+条</button>
         <button type="button" className="ted-btn sm ted-quick" title="在本段后插入空行（排版留白）" onClick={() => quick('')}>+空行</button>
         <button type="button" className="ted-btn sm ted-quick" title="在本段后插入图片段落" onClick={() => quick({ img: '' })}>+图</button>
+        <button type="button" className="ted-btn sm ted-quick" title="在本段后插入图文并排（左图右文）" onClick={() => quick(newRow())}>+并排</button>
         <button type="button" className="ted-btn sm" disabled={index === 0} title="上移（Alt+↑）" onClick={() => st().moveBlock(chUid, index, index - 1)}>↑</button>
         <button type="button" className="ted-btn sm" disabled={index === count - 1} title="下移（Alt+↓）" onClick={() => st().moveBlock(chUid, index, index + 1)}>↓</button>
         <button type="button" className="ted-btn sm danger" title="删除段落" onClick={() => st().removeBlock(chUid, block.uid)}>✕</button>
@@ -301,6 +369,7 @@ const Block = memo(function Block(props) {
         {kind === 'text' && <TextBody chUid={chUid} block={block} />}
         {kind === 'img' && <ImgBody chUid={chUid} block={block} onUploadTo={h.uploadTo} />}
         {kind === 'bar' && <BarBody chUid={chUid} block={block} />}
+        {kind === 'row' && <RowBody chUid={chUid} block={block} onUploadTo={h.uploadTo} />}
       </div>
     </div>
   );
@@ -325,7 +394,8 @@ function ImagePicker() {
   const state = (result.for === picker && result.gen === gen) ? result : { status: 'loading', images: [], error: null };
   const st = useTedStore.getState();
   const pick = (im) => {
-    st.setBlockImg(picker.chUid, picker.uid, im.url); // 离散一步撤回
+    if (picker.row) st.setRowImg(picker.chUid, picker.uid, im.url); // 双栏图片栏
+    else st.setBlockImg(picker.chUid, picker.uid, im.url);          // 普通图片块（离散一步撤回）
     st.closePicker();
   };
   // 删除图库文件：先查全文引用（删了引用处会变坏图，但不替用户改文档——校验面板会标出来）。
@@ -474,6 +544,7 @@ export default function EditCol({ chapter }) {
           { label: '其后插入：属性条', onClick: () => insertAfter(newBar()) },
           { label: '其后插入：空行', onClick: () => insertAfter('') },
           { label: '其后插入：图片', onClick: () => insertAfter({ img: '' }) },
+          { label: '其后插入：图文并排', onClick: () => insertAfter(newRow()) },
           { sep: true },
           { label: n > 1 ? `复制 ${n} 块` : '复制', onClick: () => copyBlocksToClipboard(chUid, sel) },
           {
@@ -510,9 +581,9 @@ export default function EditCol({ chapter }) {
         if (from < to) to--;
         if (from !== to) st().moveBlock(chUid, from, to);
       },
-      // 上传按钮：记住目标块再唤起文件选择框（change 时机才知道选了什么）
-      uploadTo: (uid) => {
-        uploadTargetRef.current = { chUid, uid };
+      // 上传按钮：记住目标块（row=true 写双栏图片栏）再唤起文件选择框（change 时机才知道选了什么）
+      uploadTo: (uid, row = false) => {
+        uploadTargetRef.current = { chUid, uid, row };
         if (fileRef.current) { fileRef.current.value = ''; fileRef.current.click(); }
       },
     };
@@ -545,7 +616,7 @@ export default function EditCol({ chapter }) {
     const f = e.target.files?.[0];
     const t = uploadTargetRef.current;
     uploadTargetRef.current = null;
-    if (f && t) doUpload(f, t.chUid, t.uid, true);
+    if (f && t) doUpload(f, t.chUid, t.uid, true, t.row);
   };
 
   // 末尾添加行（legacy 同款四按钮；+文字段落插入后落焦点）
@@ -580,6 +651,7 @@ export default function EditCol({ chapter }) {
         <button type="button" className="ted-btn" onClick={() => append('', true)}>+ 文字段落</button>
         <button type="button" className="ted-btn" onClick={() => append({ img: '' })}>+ 图片段落</button>
         <button type="button" className="ted-btn" title="插入自定长度的分段属性条/进度条" onClick={() => append(newBar())}>+ 属性条</button>
+        <button type="button" className="ted-btn" title="图文并排：左图右文，两栏互不干扰" onClick={() => append(newRow())}>+ 图文并排</button>
         <button type="button" className="ted-btn" title="排版留白：渲染为一个空行" onClick={() => append('')}>+ 空行</button>
       </div>
       <input type="file" ref={fileRef} accept="image/*" style={{ display: 'none' }} onChange={onFilePicked} />

@@ -122,6 +122,8 @@ export default function TutorialEditor() {
   const colsBase = useRef(cols); // 拖动起点快照（onStart 时记）
   const applyCols = (next) => { colsRef.current = next; setCols(next); };
   const previewRef = useRef(null);
+  const stageRef = useRef(null);
+  const [previewScale, setPreviewScale] = useState(1);
   const lock = useTabLock(); // 多标签 BroadcastChannel 锁：后开标签只读，lock.current.seize() 夺锁
 
   // 首载（StrictMode 双跑幂等：load 只是重复 GET）
@@ -254,6 +256,30 @@ export default function TutorialEditor() {
     };
   }, []);
 
+  // 预览等比缩放：面板按游戏满宽（--tut-panel-max）真实渲染（换行/布局所见即所得），整体 scale 适配预览列宽。
+  // 单一真源：满宽读游戏 CSS 变量，游戏改尺寸编辑器自动跟随。scale ≤1（不放大），预览列窄就缩、宽就 1:1。
+  useEffect(() => {
+    const host = previewRef.current;
+    if (!host || typeof ResizeObserver === 'undefined') return undefined;
+    const panelW = () => {
+      const raw = getComputedStyle(document.documentElement).getPropertyValue('--tut-panel-max');
+      const n = parseFloat(raw);
+      return Number.isFinite(n) && n > 0 ? n : 1180;
+    };
+    let raf = 0;
+    const recompute = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        const avail = host.clientWidth - 36; // .ted-preview 左右 padding 各 18
+        setPreviewScale(Math.max(0.25, Math.min(1, avail / panelW())));
+      });
+    };
+    const ro = new ResizeObserver(recompute);
+    ro.observe(host);
+    recompute();
+    return () => { cancelAnimationFrame(raf); ro.disconnect(); };
+  }, []);
+
   const sel = selUid ? findByUid(chapters, selUid) : null;
 
   // 预览快照（uid 对齐锚点）+ ~100ms 防抖：连续打字时预览重排跟在后面，编辑列不被拖慢
@@ -271,9 +297,14 @@ export default function TutorialEditor() {
     if (!selN || !shown) return undefined;
     const uid = useTedStore.getState().selBlks.at(-1);
     if (!uid) return undefined;
-    const el = previewRef.current?.querySelector(`[data-ted-uid="${uid}"]`);
-    if (!el) return undefined;
-    el.scrollIntoView({ block: 'nearest' });
+    const host = previewRef.current;
+    const el = host?.querySelector(`[data-ted-uid="${uid}"]`);
+    if (!el || !host) return undefined;
+    // 手动滚（不用 el.scrollIntoView）：预览面板在 zoom 舞台内，scrollIntoView 在 zoom 祖先下定位失准；
+    // 用视口 rect 差直接调 host.scrollTop（host 未缩放，rect 已含 zoom，差值即正确滚动量）。
+    const er = el.getBoundingClientRect(), hr = host.getBoundingClientRect(), m = 12;
+    if (er.top < hr.top + m) host.scrollTop += er.top - hr.top - m;
+    else if (er.bottom > hr.bottom - m) host.scrollTop += er.bottom - hr.bottom + m;
     el.classList.add('ted-flash');
     const id = setTimeout(() => el.classList.remove('ted-flash'), 1200);
     return () => clearTimeout(id);
@@ -337,24 +368,28 @@ export default function TutorialEditor() {
           onEnd={persistCols}
         />
 
-        {/* 预览：完整游戏骨架，宽度/字距与游戏逐像素一致（入场动画由 editor.css 反污染关闭）。
-            选中图片段时 ImgResizer 在此浮出缩放把手（编辑器 chrome，不进共享渲染器） */}
+        {/* 预览：完整游戏骨架按游戏满宽真实渲染（宽度/换行/字距逐像素一致），外层 stage 整体等比缩放
+            适配预览列宽——教程框在游戏里改多大，这里就按比例显示多大。入场动画由 editor.css 反污染关闭。
+            选中图片段时 ImgResizer 在此浮出缩放把手（编辑器 chrome，不进共享渲染器；缩放比传入以换算拖拽量） */}
         <div className="ted-preview" ref={previewRef}>
-          <ImgResizer previewRef={previewRef} />
-          <div className="goal-hud hud-card rules-panel">
-            <div className="goal-line hud-card-title">
-              <PixelText size={2} color="var(--px-gold)">教程</PixelText>
-            </div>
-            <div className="tut-split">
-              <div className="tut-nav ted-nav-ghost" aria-hidden="true" />
-              <TutorialContent
-                chapter={chapterView}
-                fallback={<p className="rules-p">未选择章节。</p>}
-                renderEmptyImg={(item, i) => <div className="ted-img-empty" data-ted-uid={shown?.uids[i]}>图片路径为空</div>}
-                blockProps={(i) => ({ 'data-ted-uid': shown?.uids[i] })}
-              />
+          <ImgResizer previewRef={previewRef} scale={previewScale} />
+          <div className="ted-stage" ref={stageRef} style={{ zoom: previewScale }}>
+            <div className="goal-hud hud-card rules-panel">
+              <div className="goal-line hud-card-title">
+                <PixelText size={2} color="var(--px-gold)">教程</PixelText>
+              </div>
+              <div className="tut-split">
+                <div className="tut-nav ted-nav-ghost" aria-hidden="true" />
+                <TutorialContent
+                  chapter={chapterView}
+                  fallback={<p className="rules-p">未选择章节。</p>}
+                  renderEmptyImg={(item, i) => <div className="ted-img-empty" data-ted-uid={shown?.uids[i]}>图片路径为空</div>}
+                  blockProps={(i) => ({ 'data-ted-uid': shown?.uids[i] })}
+                />
+              </div>
             </div>
           </div>
+          <div className="ted-preview-scale" title="预览缩放比（教程框按游戏满宽渲染后整体缩放适配）">{Math.round(previewScale * 100)}%</div>
         </div>
       </div>
 

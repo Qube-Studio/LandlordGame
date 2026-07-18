@@ -36,7 +36,7 @@ export const useGameStore = create((set, get) => ({
   disconnect() {
     disconnectSocket();
     sessionStorage.removeItem('llg_room');
-    set({ connected: false, joining: false, roomId: null, playerId: null, state: null, chat: [], chatTab: 'all', chatFlash: 0, insuranceDrops: [], betFlight: null, myStack: null, looks: {}, panel: null, cine: 'off' });
+    set({ connected: false, joining: false, roomId: null, playerId: null, state: null, chat: [], chatTab: 'all', chatFlash: 0, insuranceDrops: [], betFlight: null, myStack: null, looks: {}, panel: null, cine: 'off', walkLocked: false, walkAim: null });
   },
 
   joinRoom(roomId) {
@@ -59,7 +59,7 @@ export const useGameStore = create((set, get) => ({
   leaveRoom() {
     sendMsg({ type: get().roomId === 'SINGLE' ? 'single_quit' : 'leave_room' });
     sessionStorage.removeItem('llg_room');
-    set({ roomId: null, playerId: null, state: null, chat: [], chatTab: 'all', chatFlash: 0, joining: false, insuranceDrops: [], betFlight: null, myStack: null, looks: {}, panel: null, balanceFreeze: null, singleCam: 'walk', cine: 'off' });
+    set({ roomId: null, playerId: null, state: null, chat: [], chatTab: 'all', chatFlash: 0, joining: false, insuranceDrops: [], betFlight: null, myStack: null, looks: {}, panel: null, balanceFreeze: null, singleCam: 'walk', cine: 'off', walkLocked: false, walkAim: null });
   },
 
   send(msg) {

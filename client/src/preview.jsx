@@ -51,6 +51,18 @@ if (phase === 'SETTLE') {
   base.settlement = { events: [{ type: 'landlord_win', target: 5, surplus: 0 }], landlordTake: 5, takes: { p3: 2 }, debts: {} };
 }
 if (phase === 'COIN_FLIP') base.coinResult = 'heads'; // 掷币分镜演出（§3.4）截图核对
+if (phase === 'REFLIP') {
+  // 重掷决策窗浮字核对：me=暴食者（可重掷）。加 ?wait=1 看非暴食者的等待视角。
+  base.coinResult = 'heads';
+  base.reflipDeadline = Date.now() + 8000;
+  const meGlutton = new URLSearchParams(location.search).get('wait') !== '1';
+  base.players = players.map(p => (p.id === 'p3' ? { ...p, role: 'glutton', reflipsLeft: 2, reflipsMax: 3 } : p));
+  if (meGlutton) {
+    base.players[0] = { ...base.players[0], role: 'glutton', reflipsLeft: 2, reflipsMax: 3, passedReflip: false };
+    base.roundFarmerIds = ['p1', 'p3', 'p4'];
+  }
+  base.me = base.players[0];
+}
 if (phase === 'LOBBY') {
   base.players = players.map(p => ({ ...p, hasBet: false, bet: null }));
   base.me = base.players[0];
@@ -59,6 +71,28 @@ if (phase === 'FLIGHT') {
   base.phase = 'BETTING';
   base.me = { ...players[0], bet: null, hasBet: false };
   base.players = [base.me, ...players.slice(1)];
+}
+if (phase === 'EXECUTION') {
+  // 处决窗（§3.9）截图核对：me=行刑者（指针锁+准心+左轮）；?wait=1 = 旁观视角；?target=1 = 目标视角。
+  const view = new URLSearchParams(location.search);
+  base.players = players.map(p => (p.id === 'p3' ? { ...p, bankrupt: true, balance: 0 } : p));
+  const execIsMe = !view.get('wait') && !view.get('target');
+  base.execution = {
+    targetId: view.get('target') === '1' ? 'p1' : 'p3',
+    executionerId: execIsMe ? 'p1' : 'p2',
+    deadline: Date.now() + 20000,
+    compensation: 5,
+    queueLeft: 1,
+    results: [],
+  };
+  if (view.get('target') === '1') {
+    base.players = players.map(p => (p.id === 'p1' ? { ...p, bankrupt: true, balance: 0 } : p));
+    base.me = { ...base.players[0], spectator: true };
+  } else {
+    base.me = execIsMe
+      ? { ...base.players[0], isExecutioner: true, canPardon: true, pardonCost: 5 }
+      : base.players[0];
+  }
 }
 if (phase === 'ENDED') {
   // 终局演出（§阶段七）：me 是农民 → winnerSide='farmers' 展示「胜利！」正面态（改 'landlord' 看败北态）

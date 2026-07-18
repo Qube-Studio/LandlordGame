@@ -20,6 +20,8 @@ import PixelText from '../assets/pixelfont/PixelText';
 import { RoleDetailBody } from '../ui/RoleWall';
 import Coin from './Coin';
 import CineRig from './CineRig';
+import ExecutionRig from './ExecutionRig';
+import RevolverView from './RevolverView';
 import PayoutLayer from './PayoutLayer';
 import HandLayer from './HandLayer';
 import FeltPrompts from './FeltPrompts';
@@ -28,6 +30,7 @@ import { coinFaceTexture } from './textures';
 import { getCoinRest } from './coinSim';
 import { setProjector } from './projection';
 import { pointerNDC } from './screen';
+import { rayHitsBox } from './aim';
 import { clientToStage, STAGE } from '../ui/stageTransform';
 import { expressionFor } from './expression';
 import { P } from '../assets/palette';
@@ -200,22 +203,7 @@ function clampWalk(p) {
 // 射线 ∩ 轴对齐盒（slab 法）,命中返回距离、未中返回 Infinity。
 // 角色命中用它替代旧锥角判定（用户五轮反馈:锥角以躯干中心点为准——身旁空隙误中、
 // 头/帽/侧身等偏离中心的部位漏中;包围盒贴合坐姿模型轮廓,远近一致）。
-function rayHitsBox(origin, dir, cx, cz, y0, y1, hx, hz) {
-  let tmin = 0, tmax = 30;
-  const axes = [
-    [origin.x, dir.x, cx - hx, cx + hx],
-    [origin.y, dir.y, y0, y1],
-    [origin.z, dir.z, cz - hz, cz + hz],
-  ];
-  for (const [o, d, lo, hi] of axes) {
-    if (Math.abs(d) < 1e-9) { if (o < lo || o > hi) return Infinity; continue; }
-    let t0 = (lo - o) / d, t1 = (hi - o) / d;
-    if (t0 > t1) { const tt = t0; t0 = t1; t1 = tt; }
-    tmin = Math.max(tmin, t0); tmax = Math.min(tmax, t1);
-    if (tmin > tmax) return Infinity;
-  }
-  return tmin;
-}
+// rayHitsBox 已抽到 scene/aim.js（多人处决准心 ExecutionRig 共用）。
 // 坐姿角色包围盒:y 0.15-2.05(腿到帽顶)、xz 半宽 0.5(身体+摆臂)。取射线最近命中。
 function aimBodyTarget(camera, players, { includeBoss = false } = {}) {
   const fwd = camera.getWorldDirection(_walkDir);
@@ -1368,6 +1356,8 @@ function SceneContents({ look, freeCam = false }) {
   // cine 状态机其余的推进在别处：CineRig 归位完成/卸载 → 'enter'，GameScreen 计时/任意键 → 'off'。
   const cine = useGameStore(s => s.cine);
   const cineEligible = !single && !freeCam && !REDUCED;
+  // 处决窗（§3.9）：我是行刑者（桌面 3D）→ ExecutionRig 接管相机（指针锁+准心+左轮）。
+  const execRigOn = !single && !IS_TOUCH && state.phase === 'EXECUTION' && state.execution?.executionerId === playerId;
   useEffect(() => {
     if (state.phase === 'COIN_FLIP' && cineEligible) useGameStore.getState().setCine('hide');
   }, [state.phase, cineEligible]);
@@ -1437,9 +1427,13 @@ function SceneContents({ look, freeCam = false }) {
         ? <OrbitControls target={[0, 1.05, 0]} makeDefault />
         : single
           ? <SingleRig mode={possessed ? 'seat' : 'walk'} seat={possessed ? mySeat : null} shakeRef={shakeRef} />
-          : cine === 'hide'
-            ? <CineRig camZ={camZ} eyeY={EYE_Y} lookY={LOOK_Y} rot={rot} tableTop={TABLE_TOP} />
-            : <CameraRig look={look} shakeRef={shakeRef} camZ={camZ} />}
+          : execRigOn
+            ? <ExecutionRig players={players} seats={seats} rot={rot} camZ={camZ} eyeY={EYE_Y} playerId={playerId} />
+            : cine === 'hide'
+              ? <CineRig camZ={camZ} eyeY={EYE_Y} lookY={LOOK_Y} rot={rot} tableTop={TABLE_TOP} />
+              : <CameraRig look={look} shakeRef={shakeRef} camZ={camZ} />}
+      {/* 处决窗行刑者的第一人称左轮（§3.9）：与 ExecutionRig 同挂同卸 */}
+      {execRigOn && <RevolverView />}
       <Projector />
 
       {/* 场景旋转组:把「我的座位」转到 +z 近侧——不同玩家看到自己坐在桌边不同位置(反馈⑫)。
@@ -1497,8 +1491,10 @@ function SceneContents({ look, freeCam = false }) {
         })}
 
         {/* 桌面钱堆(每人落在自己座位前的烘焙圆圈里;自己的堆飞行中隐藏,落定后无缝接力)。
-            单人（交互 v3）:无手牌层,全部席位统一按服务端口径渲染（下注期=暂存注的背面堆） */}
-        {!payoutActive && players.map((p, i) => {
+            单人（交互 v3）:无手牌层,全部席位统一按服务端口径渲染（下注期=暂存注的背面堆）。
+            EXECUTION（§3.9）不渲染：不在 PAYOUT_PHASES、payout 已 null 而 hasBet 仍真——
+            已被结算收走的注若按此渲染会凭空回桌（真回归点） */}
+        {!payoutActive && state.phase !== 'EXECUTION' && players.map((p, i) => {
           if (!p.hasBet) return null;
           const spot = spots[i];
           if (!single && p.id === playerId) {
@@ -1525,9 +1521,9 @@ function SceneContents({ look, freeCam = false }) {
           <PayoutLayer players={players} seats={seats} spots={spots} playerId={playerId} rot={rot} />
         )}
 
-        {/* 圈上提示层（反馈⑪⑫）：大厅选角/准备/开始、讨论期准备下注、下注后金额驻留、揭牌确认——
+        {/* 圈上提示层（反馈⑪⑫）：大厅选角/准备/开始、讨论期准备下注、下注后金额驻留、重掷决策、揭牌确认——
             底部木板面板退役；BETTING 只在已下注后有内容（下注操作中浮字由 HandLayer 负责） */}
-        {IS_3D_INPUT && !single && ['LOBBY', 'DISCUSSION', 'BETTING', 'CHALLENGE', 'REVEAL'].includes(state.phase) && (
+        {IS_3D_INPUT && !single && ['LOBBY', 'DISCUSSION', 'BETTING', 'CHALLENGE', 'REFLIP', 'REVEAL', 'EXECUTION'].includes(state.phase) && (
           <FeltPrompts mySpot={mySpot} players={players} spots={spots} playerId={playerId} />
         )}
 
@@ -1600,6 +1596,8 @@ export default function Scene3D() {
   const singleWalk = useGameStore(s => !!s.state?.single && s.singleCam === 'walk');
   const walkLocked = useGameStore(s => s.walkLocked);
   const walkAim = useGameStore(s => s.walkAim);
+  // 处决窗行刑者的准心（§3.9）：ExecutionRig 挂载期间复用同一套 walk-crosshair 罩层
+  const execCrosshair = useGameStore(s => s.state?.phase === 'EXECUTION' && s.state.execution?.executionerId === s.playerId);
   // 渲染分辨率档位(反馈①):auto=像素预算自适应;low/medium/high 固定 dpr。R3F 对 dpr 热应用。
   // 订阅 uiScale：界面大小换档改变有效参考尺寸(STAGE.W/H) → auto 档 dpr 须随之重算。
   const renderScale = useSettingsStore(s => s.renderScale);
@@ -1690,10 +1688,14 @@ export default function Scene3D() {
         <StagePointerCompute />
         <SceneContents look={look} freeCam={freeCam} />
       </Canvas>
-      {singleWalk && !IS_TOUCH && walkLocked && (
+      {(singleWalk || execCrosshair) && !IS_TOUCH && walkLocked && (
         // 四条臂独立成元素:可交互时各自向外平移+微缩短(CSS 过渡出"张开"动程)。
-        // data-aim 暴露目标类型（'circle:s0'/'coin'/'seat:s1'）——E2E 断言用。未锁定=系统光标,无提示文案。
-        <div className={`walk-crosshair ${walkAim ? 'aim' : ''}`} data-aim={walkAim ?? undefined}>
+        // data-aim 暴露目标类型（'circle:s0'/'coin'/'seat:s1'/'exec:p1'/'deny:living'）——E2E 断言用。
+        // 处决窗三态（§3.9）：exec=张开、deny:*=容器旋 45° 成斜叉、null=闭合。未锁定=系统光标。
+        <div
+          className={`walk-crosshair ${typeof walkAim === 'string' && walkAim.startsWith('deny') ? 'deny' : walkAim ? 'aim' : ''}`}
+          data-aim={walkAim ?? undefined}
+        >
           <i className="ch-n" /><i className="ch-s" /><i className="ch-w" /><i className="ch-e" />
         </div>
       )}

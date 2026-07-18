@@ -651,9 +651,17 @@ try {
   await st((ch) => window.__h.st().pasteBlocks(ch, null, Array.from({ length: 30 }, (_, i) => `滚动行${i + 1}`)), chBlk);
   await until(() => st(() => {
     const col = document.querySelector('.ted-editcol');
-    const prev = document.querySelector('.ted-preview .tut-content'); // 坑③：内滚容器，不是 .ted-preview 外壳
-    return col.scrollTop > 0 && prev && prev.scrollTop > 0;
-  }), 'S10c 粘 30 块选中末块：编辑列与预览内滚容器双双跟随');
+    // 编辑列不缩放、30 块必超高 → 选末块必滚（scrollTop>0）。
+    // 预览面板按游戏满宽渲染、内容全展开、整体 zoom 适配（不模拟游戏面板内部滚动），滚动容器是外壳
+    // .ted-preview——但内容 zoom 后未必超过预览列高，故跟随的本质断言=选中的末块落在预览可视区内可见。
+    const prev = document.querySelector('.ted-preview');
+    const uid = window.__tedStore.getState().selBlks.at(-1);
+    const el = prev?.querySelector(`[data-ted-uid="${uid}"]`);
+    if (!col || !el) return false;
+    const er = el.getBoundingClientRect(), hr = prev.getBoundingClientRect();
+    const visible = er.top < hr.bottom && er.bottom > hr.top; // 末块与预览视口相交=跟随到位
+    return col.scrollTop > 0 && visible;
+  }), 'S10c 粘 30 块选中末块：编辑列滚动跟随 + 预览末块可见');
   await undo();
 
   // ---------------- S11 撤回焦点恢复 / 打字合并 / memo 定标 ----------------

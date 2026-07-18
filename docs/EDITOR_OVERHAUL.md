@@ -42,6 +42,21 @@
   React key/多选/剪贴板/定位一律用 uid。**逐字节兼容四规则**：m 档字号存纯字符串（非 {text,size:'m'}）、
   alt 空时删键、旧式属性条 {value,max} 仅在用户编辑该块时固化为 {width,fill}、
   **图片 width 未设/清空时删键**（无 width = 原图尺寸；存量图片段零字节变动）。
+- **预览等比缩放**（2026-07-17 增）：游戏教程面板宽抽成 CSS 变量 `--tut-panel-max`（pixel.css :root，单一真源）；
+  编辑器预览面板固定按该满宽真实渲染（换行/布局所见即所得），外层 `.ted-stage` 用 **zoom**（非 transform:scale
+  ——zoom 改变布局占位、无横向溢出）整体缩放适配预览列宽（ResizeObserver 读 --tut-panel-max 算比例，≤1 不放大），
+  右下角缩放比徽标。游戏改面板尺寸编辑器自动跟随、不脱钩。预览面板 height:auto 全展开、不模拟游戏内部滚动
+  （编辑者通览），滚动容器是外壳 `.ted-preview`；预览滚动跟随改**手动算 scrollTop**（zoom 祖先下 scrollIntoView
+  定位失准）。ImgResizer 把手在 zoom 下拖拽量 `/scale` 换算、标签显示逻辑宽（getBoundingClientRect/鼠标都是
+  缩放后视口坐标，把手定位天然正确）。S10c 断言改「选中末块在预览可视区可见」（zoom 后内容未必超列高、不再必滚）。
+- **图文并排双栏**（2026-07-17 增）：`{row: [左, 右], valign}`——两栏各是一个完整段落（复用 renderBlock），
+  flex 两列 align-items:flex-start **互不干扰**（不是 float 环绕，文字再长也不绕到图下）；默认左图右文
+  `{row:[{img:''},'']}`。图片栏有 width → 该列按宽固定、文字栏占余。渲染器抽 `renderBlock(item,key,{aRef,aProps,top})`
+  统一段落渲染，顶层现有类型输出逐字节不变（保 S14）；row 只在 top 层展开（不嵌套）；**双栏文字栏（!top）
+  按 \n 拆多行、每行独立成段**（右栏能放多行带列表/金字；顶层字符串仍单段、\n 当空格，S14 依赖此）。
+  store 的 setRow*(图栏/文栏按 rowImgIdx/rowTextIdx 语义定位，与数组位置解耦，swapRow 后仍对) + swapRow +
+  setRowValign（top 删 valign 键）；picker/doUpload 加 row 标志写图片栏。编辑器 RowBody 两栏编辑格按 row
+  数组序排布（=预览左右），ImgFields 抽出与普通图片块共用。
 - **图片显示宽度**（2026-07-17 增）：`{img, alt, width}`，width=px（IMG_W 24–1200，store 与 TutorialContent
   双写夹取——后者不能 import store，属性条 width 已是同款先例）。编辑器两条路径：编辑列数值精调
   （−/+ 步进、占位符=原图宽、「原图」清键）与**预览内拖拽把手**（ImgResizer.jsx，浮在真实宽度的预览上，

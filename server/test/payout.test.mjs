@@ -33,6 +33,7 @@ const FAST = {
     revealAnimMs: 1, coinAnimMs: 20, settleViewMs: 20, finalizeMs: 20,
     negotiateTimeoutMs: 60000, takeTimeoutMs: 60000, takeAutoDelayMs: 20,
     betMs: 60000, revealConfirmMs: 60000, // 下注/确认倒计时留大：测试全手动驱动（超时用例单独覆盖）
+    executionMs: 30, // 处决窗（§3.9）超时默认处决=旧「破产即出局」语义——存量用例自动穿窗
   },
 };
 
@@ -474,6 +475,12 @@ async function playRoundThrough(room, ids, bets, coin, { beforeBet = null } = {}
   if (room.phase === 'NEGOTIATE') for (const id of room.roundFarmerIds) room.negotiateConfirm(id, true);
   await until(() => room.phase === 'FINALIZE', '进 FINALIZE');
   for (const id of room.payout.eligible) room.takePayout(id);
+  // 处决窗（§3.9）：有破产者时穿窗——显式处决当前目标（比等 executionMs 超时快且确定）。
+  await until(() => ['EXECUTION', 'DISCUSSION', 'ENDED'].includes(room.phase), '穿过收尾');
+  while (room.phase === 'EXECUTION') {
+    if (room.execution?.targetId) room.execute(room.execution.executionerId);
+    else await sleep(5);
+  }
   await until(() => room.phase === 'DISCUSSION' || room.phase === 'ENDED', '下一回合');
 }
 
@@ -619,6 +626,178 @@ await test('揭牌确认超时（timing.revealConfirmMs）：到点自动全员�
   await until(() => room.phase !== 'COIN_FLIP', '硬币动画结束');
   restoreCoin();
   assert.equal(room.phase, 'SETTLE');
+  room.destroy();
+});
+
+// ===========================================================================
+// 处决窗（§3.9）：破产者的生死判决
+// ===========================================================================
+
+// 构造单农民破产局（照「地主胜·缺口」用例）：农 4 地 4、乘数 2 → A 付光破产。
+// executionMs 传大值防超时抢跑（要手动开枪的用例用它）。
+async function playToExecution({ executionMs = 60000 } = {}) {
+  const { room, L, fids: [A] } = setupRoom({
+    farmers: 1,
+    config: {
+      initialBalance: { farmer: 4 },
+      landlordAttrs: { landlord: { greed: 2, squeeze: 2 } },
+      timing: { executionMs },
+    },
+  });
+  await playToSettle(room, L, [A], { [L]: 3, [A]: 1 }, 'heads');
+  await until(() => room.phase === 'FINALIZE', '进 FINALIZE');
+  room.takePayout(L);
+  await until(() => room.phase === 'EXECUTION', '进处决窗');
+  return { room, L, A };
+}
+
+await test('处决窗·赦免（§3.9）：行刑者=敌方最富活人、自掏赔偿、目标复活回合初余额、游戏继续', async () => {
+  const { room, L, A } = await playToExecution();
+  assert.equal(room.execution.targetId, A);
+  assert.equal(room.execution.executionerId, L);        // 敌对阵营唯一活人=地主
+  assert.equal(room.players.get(A).bankrupt, true);     // FINALIZE 已落破产标记
+  const vL = room.viewFor(L);
+  assert.equal(vL.me.isExecutioner, true);
+  assert.equal(vL.me.pardonCost, 4);                    // A 回合初 4 → 现 0，本轮输 4
+  assert.equal(vL.me.canPardon, true);                  // L 此刻 8（1+7），赔 4 后 4 > 0
+  assert.equal(vL.execution.compensation, 4);
+  const before = room.players.get(L).balance;
+  assert.equal(room.pardon(L).ok, true);
+  assert.equal(room.players.get(A).bankrupt, false);    // 复活
+  assert.equal(room.players.get(A).balance, 4);         // 回到回合初快照
+  assert.equal(room.players.get(L).balance, before - 4);
+  await until(() => room.phase === 'DISCUSSION', '赦免后游戏继续');
+  assert.equal(room.round, 2);
+  const rec = room.history[0].executions;
+  assert.deepEqual(rec, [{ targetId: A, executionerId: L, outcome: 'pardoned', compensation: 4, auto: false }]);
+  room.destroy();
+});
+
+await test('处决窗·超时默认处决：行刑者不动 → auto executed → 终局照旧', async () => {
+  const { room, A } = await playToExecution({ executionMs: 60 });
+  await until(() => room.phase === 'ENDED', '超时默认处决 → 全农民破产终局');
+  assert.equal(room.players.get(A).bankrupt, true);
+  assert.equal(room.winnerSide, 'landlord');
+  assert.equal(room.history[0].executions[0].outcome, 'executed');
+  assert.equal(room.history[0].executions[0].auto, true);
+  room.destroy();
+});
+
+await test('处决窗·非行刑者/相位外校验 + 显式处决路径', async () => {
+  const { room, L, A } = await playToExecution();
+  assert.equal(room.execute(A).error, '你不是行刑者');   // 目标自己不能开枪
+  assert.equal(room.execute(L).ok, true);
+  await until(() => room.phase === 'ENDED', '处决后终局');
+  assert.equal(room.execute(L).error, '当前不是处决阶段');
+  room.destroy();
+});
+
+// 地主破产 → 处决窗（目标罚款压垮地主）：赦免=续命、处决=农民胜。
+// 单农民局：农 4 地 4；农民胜地主输注（剩 2），检查点必不达标罚光（minPenalty 2）→ 地主破产；
+// 罚金+pot 全归唯一农民（4−1+3+2=8），赔偿 cost=地主回合初 4−0=4 付得起。
+async function playToLandlordExecution() {
+  const { room, L, fids: [A] } = setupRoom({
+    farmers: 1,
+    config: {
+      initialBalance: { farmer: 4 },
+      landlordGoal: { enabled: true, goalMultiplier: 99, penaltyRate: 1, minPenalty: 2, interval: { min: 1, max: 1, mean: 1, sd: 0 } },
+      timing: { executionMs: 60000 },
+    },
+  });
+  await playToSettle(room, L, [A], { [L]: 2, [A]: 1 }, 'tails');
+  await until(() => room.phase === 'FINALIZE', '进 FINALIZE');
+  for (const id of room.payout.eligible) room.takePayout(id);
+  await until(() => room.phase === 'EXECUTION', '地主破产进处决窗');
+  return { room, L, A };
+}
+
+await test('处决窗·地主破产被赦免=续命不终局；行刑者=农民侧最富活人', async () => {
+  const { room, L, A } = await playToLandlordExecution();
+  assert.equal(room.execution.targetId, L);
+  assert.equal(room.execution.executionerId, A);        // 敌对阵营（农民侧）最富活人=唯一农民
+  const cost = room.viewFor(A).me.pardonCost;
+  assert.equal(cost, room.roundStartBalances[L] - room.players.get(L).balance);
+  const before = room.players.get(A).balance;
+  assert.equal(room.pardon(A).ok, true);
+  assert.equal(room.players.get(L).bankrupt, false);    // 地主复活
+  assert.equal(room.players.get(L).balance, room.roundStartBalances[L]);
+  assert.equal(room.players.get(A).balance, before - cost);
+  await until(() => room.phase === 'DISCUSSION', '地主续命，游戏继续');
+  room.destroy();
+});
+
+await test('处决窗·地主破产被处决=农民胜终局', async () => {
+  const { room } = await playToLandlordExecution();
+  assert.equal(room.execute(room.execution.executionerId).ok, true);
+  await until(() => room.phase === 'ENDED', '处决地主终局');
+  assert.equal(room.winnerSide, 'farmers');
+  room.destroy();
+});
+
+await test('处决窗·行刑者离线=立即默认处决（不等超时）', async () => {
+  const { room, L, fids: [A] } = setupRoom({
+    farmers: 1,
+    config: {
+      initialBalance: { farmer: 4 },
+      landlordAttrs: { landlord: { greed: 2, squeeze: 2 } },
+      timing: { executionMs: 60000 },   // 大超时：若走的是超时路径用例会卡 3s until 失败
+    },
+  });
+  await playToSettle(room, L, [A], { [L]: 3, [A]: 1 }, 'heads');
+  await until(() => room.phase === 'FINALIZE', '进 FINALIZE');
+  room.players.get(L).online = false;   // 行刑者提前掉线
+  room.takePayout(L);
+  await until(() => room.phase === 'ENDED', '离线行刑者自动处决 → 终局');
+  assert.equal(room.history[0].executions[0].auto, true);
+  room.destroy();
+});
+
+await test('处决窗·付不起禁赦（白盒）+ 多目标依次 + 资本家池口径 + 无行刑者跳过', async () => {
+  // 白盒：竞技局取真实角色对象，手搓处决窗状态，逐条验证边界。
+  const { room, L, fids: [A, B] } = setupRoom({
+    mode: 'competitive',
+    farmers: 2,
+    roles: { landlord: 'capitalist', farmers: ['farmer', 'farmer'] },
+    config: { timing: { executionMs: 0 } },   // 0=不自动，白盒手动驱动
+  });
+  const cap = room.players.get(L);
+  const pa = room.players.get(A);
+  const pb = room.players.get(B);
+  room._setPhase('EXECUTION');
+  room.roundStartBalances = { [A]: 15, [B]: 15, [L]: cap.balance };
+  room.roundStartPools = { [L]: cap.pool };
+
+  // ① 付不起禁赦：目标 A 本轮输 15，行刑者手搓成农民 B 且只剩 10 → error 逐字
+  pa.bankrupt = true; pa.balance = 0;
+  pb.balance = 10;
+  room.execution = { queue: [A], idx: 0, targetId: A, executionerId: B, deadline: null, results: [] };
+  assert.equal(room.pardon(B).error, '资金不足，无法赦免（需赔偿 ¥15）');   // ⚠ text.js 同步
+  // ② 资本家行刑者赦免：扣池不扣钱包
+  room.execution.executionerId = L;
+  const poolBefore = cap.pool; const balBefore = cap.balance;
+  assert.equal(room.pardon(L).ok, true);
+  assert.equal(cap.pool, poolBefore - 15);
+  assert.equal(cap.balance, balBefore);
+  assert.equal(pa.bankrupt, false);
+  assert.equal(pa.balance, 15);
+  // ③ 资本家被赦免：池回快照（目标=资本家，行刑者=农民）。
+  // ②的 pardon 已走完推进链（队列尽 → _afterRound → 离开 EXECUTION），重设相位再手搓。
+  room._setPhase('EXECUTION');
+  cap.bankrupt = true; cap.pool = 0;
+  pb.balance = 99;
+  room.execution = { queue: [L], idx: 0, targetId: L, executionerId: B, deadline: null, results: [] };
+  assert.equal(room.viewFor(B).me.pardonCost, room.roundStartPools[L]);
+  assert.equal(room.pardon(B).ok, true);
+  assert.equal(cap.pool, room.roundStartPools[L]);
+  assert.equal(cap.bankrupt, false);
+  // ④ 敌对阵营无活人：目标 A 破产、地主侧（资本家）也破产 → pickExecutioner null → auto executed
+  room._setPhase('EXECUTION');
+  pa.bankrupt = true; pa.balance = 0;
+  cap.bankrupt = true;
+  pb.bankrupt = true;                                    // 农民全灭（B 也倒）→ A 的敌方=资本家已破产
+  room.execution = { queue: [A], idx: -1, targetId: null, executionerId: null, deadline: null, results: [] };
+  room._advanceExecution();                              // 无行刑者 → auto executed → 队列清空 → _afterRound
+  assert.equal(room.phase, 'ENDED');                     // 全场破产 → 终局（地主侧破产优先判农民胜）
   room.destroy();
 });
 

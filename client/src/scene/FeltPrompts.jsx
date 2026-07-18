@@ -66,7 +66,9 @@ export default function FeltPrompts({ mySpot, players, spots, playerId }) {
   const betFlight = useGameStore(s => s.betFlight);
   const spaceHeld = useGameStore(s => s.spaceHeld); // 空格行合成按下态（松开才触发）
   const me = state.me;
-  if (!me || me.spectator) return null;
+  // 处决窗（§3.9）例外：破产目标在 viewFor 里 spectator=true，但他必须看到「枪口对着你」——
+  // 该相位不早退（旁观真观战者也随之可见处决进程行，无害且合理）。
+  if (!me || (me.spectator && state.phase !== 'EXECUTION')) return null;
 
   let lines = [];       // 主浮字 {text, k?, color, onClick?, quiet?} | {deadline}（倒计时行）
   let custom = null;    // 自定义主浮字内容（对质选择器等，替代 lines 渲染）
@@ -151,6 +153,41 @@ export default function FeltPrompts({ mySpot, players, spots, playerId }) {
     } else {
       lines = [{ text: T.felt.decidingAccuse, color: 'var(--ink-dim)' }, { deadline: dl }];
     }
+  } else if (state.phase === 'REFLIP') {
+    // 重掷决策窗（§8.4）：底部木板面板退役（与其他阶段一致，走圈上浮字）。
+    // 暴食者=决策行（重掷[空格]/不重掷）；其余人=等待行；均带倒计时（reflipDeadline）。
+    lines = [{ text: T.reflipPanel.farmersLost, color: 'var(--danger)' }];
+    if (me.role === 'glutton') {
+      if (me.passedReflip) lines.push({ text: T.reflipPanel.passed, color: 'var(--ok)' });
+      else if ((me.reflipsLeft ?? 0) > 0) {
+        lines.push({ text: T.reflipPanel.reflip(me.reflipsLeft), k: 'space', color: 'var(--px-gold)', onClick: () => send({ type: 'request_reflip' }) });
+        lines.push({ text: T.reflipPanel.pass, color: 'var(--ink-dim)', onClick: () => send({ type: 'pass_reflip' }) });
+      } else lines.push({ text: T.reflipPanel.exhausted, color: 'var(--ink-dim)' });
+    } else {
+      lines.push({ text: T.reflipPanel.waiting, color: 'var(--ink-dim)' });
+    }
+    if (state.reflipDeadline) lines.push({ deadline: state.reflipDeadline });
+  } else if (state.phase === 'EXECUTION') {
+    // 处决窗（§3.9）：行刑者=瞄准提示+赦免价码；目标=「枪口对着你」；其他人=旁观行。均带倒计时。
+    const ex = state.execution;
+    if (ex?.targetId) {
+      const judge = state.players.find(p => p.id === ex.executionerId);
+      const target = state.players.find(p => p.id === ex.targetId);
+      if (me.isExecutioner) {
+        lines = [
+          { text: T.execution.aimHint, color: 'var(--px-gold)' },
+          me.canPardon
+            ? { text: T.execution.pardonHint(me.pardonCost ?? ex.compensation ?? 0), color: 'var(--ink-dim)' }
+            : { text: T.execution.denyPoor(me.pardonCost ?? ex.compensation ?? 0), color: 'var(--danger)' },
+        ];
+      } else if (ex.targetId === me.id) {
+        lines = [{ text: T.execution.targetWaiting(judge?.name ?? ''), color: 'var(--danger)' }];
+      } else {
+        lines = [{ text: T.execution.watching(judge?.name ?? '', target?.name ?? ''), color: 'var(--ink-dim)' }];
+      }
+      if (ex.queueLeft > 1) lines.push({ text: T.execution.queueLeft(ex.queueLeft - 1), color: 'var(--ink-dim)' });
+      if (ex.deadline) lines.push({ deadline: ex.deadline });
+    }
   } else if (state.phase === 'REVEAL') {
     const confirmed = state.players.filter(p => p.confirmed).length;
     const active = state.players.filter(p => factionOf(p.role) && !p.bankrupt).length;
@@ -189,7 +226,7 @@ export default function FeltPrompts({ mySpot, players, spots, playerId }) {
   };
 
   // BETTING 起圈内可能有钱（哪怕当前没有）→ 西北锚点；房主已准备时主浮字也让位到西北（给东北的开局浮字腾位）
-  const nw = state.phase === 'BETTING' || state.phase === 'CHALLENGE' || state.phase === 'REVEAL' || !!secondary;
+  const nw = state.phase === 'BETTING' || state.phase === 'CHALLENGE' || state.phase === 'REVEAL' || state.phase === 'REFLIP' || state.phase === 'EXECUTION' || !!secondary;
   return (
     <>
       {(custom || lines.length > 0) && <PromptFloat spot={mySpot} nw={nw}>{custom || lines.map(row)}</PromptFloat>}

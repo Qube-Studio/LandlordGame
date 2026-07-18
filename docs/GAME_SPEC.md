@@ -77,6 +77,8 @@ confirm_reveal     {}                    // REVEAL 阶段确认
 negotiate_transfer {toId, kind: 'take'|'debt', amount}   // NEGOTIATE，把自己的钱/债转给队友
 negotiate_confirm  {confirmed: bool}     // NEGOTIATE 确认/撤销确认
 take_payout        {}                    // FINALIZE，从桌面拿取自己的钱堆（此刻余额才入账，见 §3.8）
+execute            {}                    // EXECUTION，行刑者对破产目标开枪=处决（§3.9）
+pardon             {}                    // EXECUTION，行刑者对空鸣枪=赦免（自掏赔偿复活目标，§3.9）
 chat               {channel: 'public'|'farmer', text}
 restart_game       {}                    // 仅房主，ENDED 内=「下一局」（回大厅重开）；默认不自动回大厅，见 §3.4
 get_state          {}
@@ -117,7 +119,8 @@ kicked   {reason}           // 顶号或被移出
 ```
 LOBBY ──房主开始──► DISCUSSION ──短喘息定时──► BETTING ──全员下注──► CHALLENGE(竞技·对质窗)
    ──指控落定/全员跳过/超时/无票自动跳过──► REVEAL ──全员确认──► COIN_FLIP ──动画定时──► SETTLE
-   ──定时──► NEGOTIATE ──全部农民确认(或超时)──► FINALIZE ──定时──► 破产判定 ──► DISCUSSION(下一回合) 或 ENDED
+   ──定时──► NEGOTIATE ──全部农民确认(或超时)──► FINALIZE ──全员拿取+定时──► 破产判定
+   ──有新破产者──► EXECUTION(处决窗·逐个生死判决,§3.9) ──队列清空──► 终局判定 ──► DISCUSSION(下一回合) 或 ENDED
 ```
 - **DISCUSSION（讨论/准备）**：游戏从讨论开始；农民可在农民频道密谈战术（频道可切公开/农民私聊；语音接口预留）。地主与农民都要点"准备"，全员准备进入下注。
 - **BETTING（下注中）**：见 3.3。已下注玩家对他人显示"已下注"（反面牌），金额保密。
@@ -130,7 +133,7 @@ LOBBY ──房主开始──► DISCUSSION ──短喘息定时──► BETT
 - **分钱（四个子阶段，全部在桌面上显式演出，见 §3.8）**：
   1. **SETTLE 系统结算**：服务端按 3.5 计算默认分配方案，并生成**编导脚本**：桌上各家下注堆**聚拢成彩池 → 按方案分成几份 → 各份滑进每人面前的圆圈**；缺口债务以红色债务牌出现在欠款农民圈内。`settleViewMs` 后自动进入下一步。
   2. **NEGOTIATE 农民协商**：每个农民以钞票牌形式看到分给自己的钱或债务，可拖拽给队友（金额守恒，仅在农民之间转移）；**桌面钱堆实时镜像协商结果**（钱牌在圆圈间飞移）。任何变动会重置所有人的确认。全部活跃农民确认（或 `negotiateTimeoutMs` 超时按当前方案）后生效。若只有 1 个活跃农民、或本回合农民既无钱可分也无债可摊，则自动跳过。
-  3. **FINALIZE 正式结算（收账 + 调整 + 拿取）**：确认后**钱不入账、留在桌上**——先播放收账（债务补偿从欠款者手中飞向地主堆）与**调整步**（技能/机制逐条改变钱堆：地主目标罚金、工资、饭账、资金池换算、税收…每条带浮动标签），然后每个有钱堆的玩家的堆上浮现「**拿取 (F)**」：按 F（或点击）钱堆才飞回手中、余额此刻入账。**显示时序**：按下拿取即冻结右下余额显示（`gameStore.balanceFreeze`），钱牌飞行落到资金蜡烛的那一刻才放开——数字跳动/动画恰在「钱碰到数字」时播，此前数字不变。全员拿取完成后记录回合历史、判定破产。
+  3. **FINALIZE 正式结算（收账 + 调整 + 拿取）**：确认后**钱不入账、留在桌上**——先播放收账（债务补偿从欠款者手中飞向地主堆）与**调整步**（技能/机制逐条改变钱堆：地主目标罚金、工资、饭账、资金池换算、税收…每条带浮动标签），然后每个有钱堆的玩家的堆上浮现「**拿取（空格）**」：按空格（或点击）钱堆才飞回手中、余额此刻入账（F 键位已让出）。**显示时序**：按下拿取即冻结右下余额显示（`gameStore.balanceFreeze`），钱牌飞行落到资金蜡烛的那一刻才放开——数字跳动/动画恰在「钱碰到数字」时播，此前数字不变。全员拿取完成后记录回合历史、判定破产。
   4. **农民讨论**：即下一回合的 DISCUSSION——结算后回到讨论阶段，农民复盘战术、全员再点准备，形成循环。
 - **ENDED**：地主破产 → 农民胜；全部农民破产 → 地主胜。**终局演出**（§阶段七，客户端 `VictoryOverlay`，仅 3D 输入模式）：按阵营区分文案（胜方「胜利！」金/绿、败方「败北」冷灰、观战「X 胜利」）逐字机甲组装式砸入 → 组装完成爆金色粒子 → 驻留 → 收尾淡出（罩层不含高斯模糊，pointer-events:none 不挡转视角）。**淡出后不自动进下一局：留在终局对局、露出桌面，浮现操作行——房主见「下一局」按钮（`restart_game`）、其余见「等待房主开下一局」；移动端不显示「按 L 查看战绩」（无键盘，账本仍走桌沿 Dock）。** `timing.endedToLobbyMs` 默认 **0=不自动回**；仅 >0 才在到点后服务端自动回大厅（`viewFor().endedReturnAt` 给客户端对齐收尾）。2D 输入模式（`?input=2d`）仍用带按钮的 `EndedPanel`。移动端另有触觉反馈：有人破产→短震、终局→脉冲震动（Vibration API，Android 支持）。
 
@@ -218,6 +221,22 @@ step 词汇（可扩展）：
 **隐私边界**：script/piles 里的金额（下注、takes、debts、工资、罚金、饭账、池差额）在结算阶段本就全部公开（见 §5.1 与 history 公开字段），无新增泄露。唯一例外：**NEGOTIATE 期间地主看到的 `piles` 冻结在系统方案**（协商过程仍是农民私密，与 `allocation` 的可见性一致），FINALIZE 进入时地主的桌面用一次快速对账动画追平最终方案。
 
 **客户端**（`scene/PayoutLayer.jsx`，纯表现）：SETTLE 起接管全部桌面钱渲染（自己的堆沿用下注飞行那批牌模型，零跳变）；顺序播放脚本步骤（每步 = 一组世界坐标贝塞尔弧飞牌 + 落定重组，错峰 80ms）；播完与 `payout.piles` 对账、差额自动飞牌追平——协商实时镜像与地主的 FINALIZE 追平共用这一机制。拿取 = 自己的堆飞向手牌区（反投影）、他人的堆飞向其身体收拢。
+
+### 3.9 处决窗（EXECUTION；`logic/execution.js`）
+
+FINALIZE 落破产标记之后、终局判定之前，插入处决窗：**每个新破产者由其敌对阵营中钱最多的活人持枪定夺生死**。破产不再是静默出局，而是一次全场戏眼——且**终局判定被推迟到窗后**（地主破产被赦免即续命，游戏继续）。适用 quick 与 competitive；`execution.enabled` 总开关（默认开）。
+
+**规则**：
+- **触发**：`payout.newlyBankrupt` 非空（且窗口开始时仍破产）。多人同轮破产 = 一个窗内**依次**处理（`queue` 按破产名单序）；每个目标的行刑者按**当时状态**重算——上一次赦免的扣款/复活可能改变谁最富、谁活着。
+- **行刑者**（`pickExecutioner`）：目标敌对阵营（`factionOf` 对面）中 `!bankrupt && !spectator` 的最富者；「钱」的口径统一为 `wealthOf`——资本家=担保资金池（pool），其余=余额。并列取座位号小者。敌对阵营无活人 → 该目标自动处决跳过（SYS 播报）。
+- **处决**（`execute`）：维持出局（bankrupt 不变）。
+- **赦免**（`pardon`）：行刑者**自掏腰包赔偿目标本回合输掉的钱**（`compensationOf`：资本家=回合初池−当前池、其余=回合初余额−当前余额，快照 `roundStartBalances`/`roundStartPools` 在 BETTING 进入时截取）→ 目标复活（`bankrupt=false`、余额/池回到回合初值）。行刑者扣款口径同 wealthOf（资本家扣池、其余扣余额）。**付不起禁赦**：赔后须仍 > `bankruptcyThreshold`（不许把自己赔破产），否则 `pardon` 返回 ERR（客户端准心对空也是叉）。
+- **超时/离线**：`timing.executionMs`（默认 20s，0=不自动）到点、或行刑者离线（`autoActForOffline`）→ **默认处决**（不能替 AFK 玩家掏钱）。超时计时器按目标 id 闩存，多目标依次时旧计时器不误伤下一个。
+- **记录**：结果并入 `history[last].executions = [{targetId, executionerId, outcome, compensation, auto}]`，随对局记录持久化。
+
+**协议**：意图 `execute` / `pardon`（无参数，服务端校验行刑者身份）；`viewFor()` 顶层 `execution = {targetId, executionerId, deadline, compensation, queueLeft, results}` 全公开（赔偿额=本回合公开结算可推出，无泄密）；行刑者的 `me` 额外带 `isExecutioner / pardonCost / canPardon`。
+
+**客户端演出**（桌面 3D）：行刑者由 `scene/ExecutionRig.jsx` 接管相机——**指针锁 + 定点自由环视**（照单人 SingleRig 同款：CTRL 按住/开面板=放开鼠标，ESC 强退后任意键静默回锁）+ 第一人称左轮视模（`scene/RevolverView.jsx`，`assets/vox/props/revolver.vox`）+ **三态准心**（复用 `.walk-crosshair`，`walkAim` 词表扩展）：瞄着可处决的破产目标=**张开十字**（`exec:<pid>`）、空处=**闭合十字**（可开枪赦免）、活人或赔不起=**斜 45° 叉**（`deny:living`/`deny:poor`，开枪无效并本地提示）。左键开枪：命中目标发 `execute`、对空发 `pardon`。命中判定 = 解析式射线∩坐姿包围盒（`scene/aim.js#rayHitsBox`，多人座位乘场景旋转 rot 转世界系）。非行刑者/目标/旁观维持 CameraRig；桌面浮字（FeltPrompts）：行刑者=瞄准提示+赦免价码、目标=「X 正用枪口对着你…」、其他=「X 正在决定 Y 的生死…」，均带倒计时；触屏/`?input=2d` 走 `ExecutionPanel` 两按钮兜底。EXECUTION 期不渲染下注钱堆（相位不在 PAYOUT_PHASES、payout 已清，按 hasBet 渲染会让已收走的注凭空回桌）。后置打磨：开枪后坐/枪口火光/枪声、他人视角行刑者座位模型持枪、判决落定目标特写短分镜、赦免赔偿的飞钱演出。
 
 ---
 
@@ -335,6 +354,8 @@ data/              运行时数据（gitignore）
 | timing.negotiateTimeoutMs | 30000 | 协商超时（0=不超时） |
 | timing.takeTimeoutMs | 45000 | FINALIZE 拿取超时，到点全员自动拿取（0=不超时） |
 | timing.takeAutoDelayMs | 2600 | 进入拿取阶段后，代离线玩家自动拿取的延迟（让观众看完演出） |
+| timing.executionMs | 20000 | 处决窗每个目标的决断时限：到点默认处决（§3.9；0=不自动，调试用会卡场） |
+| execution.enabled | true | 处决窗总开关（§3.9；quick/competitive 均生效） |
 | reconnectGraceSec | 0 | 断线保座；0=永久保座（永不超时降级），>0=超时降级观战 |
 | autoActForOffline | true | 离线玩家自动准备/确认 |
 | heartbeatSec | 30 | 心跳 |
@@ -349,7 +370,7 @@ data/              运行时数据（gitignore）
 4. REVEAL：翻牌显金额，可聊天，全员确认进硬币。
 5. COIN_FLIP：动画后正/反对应地主/农民胜。
 6. SETTLE→NEGOTIATE：>1 农民时可拖拽转移钱/债，全员确认生效；1 农民自动跳过。
-7. FINALIZE：余额变动正确（含缺口分摊、付不起破产）；钱留在桌上、技能调整逐条演出、按 F 拿取后余额才入账（§3.8）；回合历史落盘。
+7. FINALIZE：余额变动正确（含缺口分摊、付不起破产）；钱留在桌上、技能调整逐条演出、按空格拿取后余额才入账（§3.8）；回合历史落盘。
 8. 循环回 DISCUSSION，round+1；地主或全部农民破产 → ENDED，房主可重开。
 9. 断线重连回原座位；顶号踢旧连接；大厅在线人数正确。
 10. `npm run build` 与 `npm run lint` 通过；经典在大厅显示但禁用（竞技见 §8）。

@@ -93,12 +93,21 @@
 | `timing.negotiateTimeoutMs` | `30000` | 协商超时按当前方案生效（`0` = 不超时）。 |
 | `timing.challengeMs` | `30000` | 对质「决定窗」（§8.11）：进 CHALLENGE 后无人指控则到点自动揭牌；`0` = 立即跳过对质。 |
 | `timing.accuseDeliberateMs` | `25000` | 指控后「交流窗」上限：发起者须在此内选定 多/少，超时自动取消并揭牌（非硬控，选定即提前进）。 |
-| `timing.takeTimeoutMs` | `45000` | FINALIZE 拿取（§3.8）超时：到点未按 F 的玩家自动拿取（`0` = 不超时，AFK 会卡住全场，慎用）。 |
+| `timing.takeTimeoutMs` | `45000` | FINALIZE 拿取（§3.8）超时：到点未按空格拿取的玩家自动拿取（`0` = 不超时，AFK 会卡住全场，慎用）。 |
 | `timing.takeAutoDelayMs` | `2600` | 进入拿取阶段后，代**离线**玩家自动拿取的延迟——让在线观众看完收账/技能调整演出再看到该堆飞走。 |
+| `timing.executionMs` | `20000` | 处决窗（§3.9）**每个目标**的决断时限：到点默认处决。比 reflip（8s）长——它是全场戏眼、行刑者要环视瞄准；比协商（30s）短——悬而不决会拖垮节奏。`0` = 不自动（调试用，AFK 行刑者会卡场）。 |
 | `timing.endedToLobbyMs` | `0` | ENDED 后自动回大厅的延时。**默认 `0` = 不自动回：留在终局对局（演出播完淡出、露出桌面），等房主手动点「下一局」（`restart_game`）才回大厅重开。** `>0` 才到点自动跑回大厅（清角色/准备回 LOBBY）；`endedReturnAt` 供客户端对齐收尾淡出。 |
 
-> 硬币动画是**客户端**预烘焙的（`client/src/scene/coinSim.js`），单条时长常量 `DURATION = 2.4s`。
-> 若把 `coinAnimMs` 调到小于 2400，硬币会还没落定就切换阶段；要更快/更慢请同时改 `coinSim.js` 的 `DURATION`。
+> 硬币动画是**客户端实时刚体模拟**的（`client/src/scene/coinSim.js`，每掷现场模拟、无预烘焙），单条上限常量 `DURATION = 6.0s`。
+> 若把 `coinAnimMs` 调到小于 6000，最慢的抛掷会还没演完就切阶段；要整体加速请同时收紧 `coinSim.js` 的落定重试窗与 `DURATION`。
+
+## 处决（execution，§3.9）
+
+| 键 | 默认 | 说明 |
+|----|------|------|
+| `execution.enabled` | `true` | 处决窗总开关（quick/competitive 均生效）。关掉 = 破产直接出局、终局判定不推迟（旧行为）。 |
+
+调参心法：处决窗的价值在「赦免的代价感」——赔偿=目标本回合全部损失，行刑者要真金白银掏（资本家掏池）。若实测赦免率过高（拖局），可考虑给赔偿加成数（未实装，需改 `compensationOf`）；若几乎没人赦免，先检查 `executionMs` 是否太短（没时间纠结就默认处决了）。
 
 ## 对质 / 指控（accusation，§8.11）
 

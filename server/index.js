@@ -220,6 +220,8 @@ wss.on('connection', (ws, req) => {
       case 'accuse_cancel': result = room.accuseCancel(pid); break;                                   // 对质：取消（票不退，回决定窗）
       case 'challenge_skip': result = room.challengeSkip(pid); break;                                 // 对质：投票跳过
       case 'take_payout': result = room.takePayout(pid); break;                              // 桌面显式结算：拿取（§3.8）
+      case 'execute': result = room.execute(pid); break;                                     // 处决窗：对破产者开枪（§3.9）
+      case 'pardon': result = room.pardon(pid); break;                                       // 处决窗：对空鸣枪赦免（自掏赔偿）
       case 'chat': result = room.chat(pid, msg.channel ?? 'public', msg.text); break;
       case 'set_emote': result = room.setEmote(pid, msg.emote ?? null); break; // 任务⑧ 预留：手动表情
       case 'look':

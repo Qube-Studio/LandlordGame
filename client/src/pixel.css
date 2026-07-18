@@ -348,9 +348,11 @@ img, svg, canvas { -webkit-user-drag: none; user-drag: none; }
 /* 尺寸档：旧值 880×660 的硬上限在 1080p 只占画面 28% 面积、1440p 仅 16%——教程框在画面里太小。
    正文里的游戏截图原生 2160×1186、无标定宽度（靠 .tut-img 的 max-width:100% 压在列宽上），
    故列宽变宽 = 截图 1:1 变大且降采样比更低（更清晰）；文字段落最长 67 字，1180 列宽下仍无一段超行。 */
+/* 教程面板满宽基准（单一真源）：教程编辑器预览读它做等比缩放，游戏改这里编辑器自动跟随、不脱钩。 */
+:root { --tut-panel-max: 1180px; }
 .rules-panel.goal-hud.hud-card {
   position: relative;
-  width: min(1180px, 92vw);
+  width: min(var(--tut-panel-max), 92vw);
   height: min(86vh, 880px);
   display: flex; flex-direction: column;
   align-items: stretch;
@@ -439,6 +441,14 @@ img, svg, canvas { -webkit-user-drag: none; user-drag: none; }
   color: #ece7d6;
 }
 .rules-p .hi { color: var(--px-gold); }
+/* 双栏并排（左图右文等）：flex 两列，各占一列、各自独立高度——不是 float 环绕，故「完全不干扰」。
+   图片栏有固定 width → .fixed 按宽，另一列 flex 占余；都无固定宽则均分。窄屏 gap 略收。
+   .tut-img align-self:flex-start 在列内保持左上；文字列 min-width:0 防长词撑破。 */
+.rules-row { display: flex; gap: 12px; align-items: flex-start; align-self: stretch; }
+.rules-row.v-center { align-items: center; }
+.rules-row > .rules-col { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.rules-row > .rules-col.fixed { flex: 0 0 auto; }
+.rules-row > .rules-col > .tut-img { max-height: none; } /* 列内图不吃 62vh 矮屏护栏（并排本就受列宽约束） */
 .rules-p.li { padding-left: 14px; position: relative; }
 .rules-p .rules-dash { position: absolute; left: 2px; color: var(--ink-dim); }
 /* 教程段落字号档位（编辑器可选 小/大/特大；标准段是纯字符串走 13px 基准） */
@@ -1941,3 +1951,7 @@ body {
 .walk-crosshair.aim .ch-s { transform: translateY(3px); height: 5px; }
 .walk-crosshair.aim .ch-w { transform: translateX(-3px); width: 5px; }
 .walk-crosshair.aim .ch-e { transform: translateX(3px); width: 5px; }
+/* 处决窗第三态（§3.9）：斜 45° 叉 = 不可开枪（活人/赔不起）。容器整体旋转，四臂即成 X；
+   与 .aim 张开态互斥（className 逻辑保证），同一 difference 混合观感。 */
+.walk-crosshair { transition: transform 0.13s ease-out; }
+.walk-crosshair.deny { transform: translate(-50%, -50%) rotate(45deg); }

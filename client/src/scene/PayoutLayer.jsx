@@ -883,13 +883,13 @@ export default function PayoutLayer({ players, seats, spots, playerId, rot }) {
         </PromptFloat>
       )}
 
-      {/* 拿取 [F]：与钱堆金额标签同款纯文字（无背景板），呼吸提示可点（可交互 → 无受击动效）。
+      {/* 拿取 [空格]：与钱堆金额标签同款纯文字（无背景板），呼吸提示可点（可交互 → 无受击动效）。
           位置同浮字规范：自己圈的「西北」压低（反馈⑤），distanceFactor 压小一档与金额标签视觉等大。 */}
       {canTake && mySpot && (
         <Html position={promptAnchor(mySpot.x, mySpot.z)} center distanceFactor={5} zIndexRange={[30, 0]}>
           <div className="money-3d-amount take-float prompt-line" onClick={() => useGameStore.getState().takePayout()}>
             <PixelText size={2} color={P.gold}>{T.payout3d.take}</PixelText>
-            <KeyCap k="F" color={P.gold} />
+            <KeyCap k="space" color={P.gold} />
           </div>
         </Html>
       )}

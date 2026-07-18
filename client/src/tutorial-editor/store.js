@@ -181,6 +181,13 @@ function fossilizeBar(d) {
 }
 export const newBar = () => ({ bar: '', width: BAR_W.def, fill: 60, color: 'gold', fade: 'both' });
 
+// ---- 双栏并排段 {row:[左,右], valign} ----
+export const isRowData = (d) => d != null && typeof d === 'object' && 'row' in d && Array.isArray(d.row);
+// 图片栏索引（0/1）；文字栏 = 另一个。newRow 保证一图一文，交换后仍成立。
+export const rowImgIdx = (d) => { const i = d.row.findIndex(isImgData); return i < 0 ? 0 : i; };
+export const rowTextIdx = (d) => (rowImgIdx(d) === 0 ? 1 : 0);
+export const newRow = () => ({ row: [{ img: '' }, ''] }); // 默认左图右文
+
 // ---- 撤回栈（photoStore 范式） ----
 const HIST_MAX = 100;
 export const DRAFT_KEY = 'fate-ted-draft'; // autosave 草稿（localStorage；E2E 也用这个键断言）
@@ -248,7 +255,7 @@ export const useTedStore = create((set, get) => {
     past: [], future: [],  // 撤回/重做快照栈
     query: '',             // 树搜索词（视图态，不进撤回历史）
     focusReq: null,        // {uid, caret, caretEnd?, n} 编辑列聚焦请求（拆/并段、快速插入、撤回后落焦点）
-    picker: null,          // {chUid, uid} 图库选择器目标块；null=关闭
+    picker: null,          // {chUid, uid, row?} 图库选择器目标块（row=true 时写双栏图片栏）；null=关闭
     toast: null,           // {msg, err, n} 轻提示（上传结果等）
     menu: null,            // {x, y, items} 右键菜单（视图态；items 由打开方现造）
     ro: false,             // 只读（多标签 BroadcastChannel 锁：后开标签只读，可夺锁）
@@ -388,7 +395,7 @@ export const useTedStore = create((set, get) => {
         selN: ++selN,
       });
     },
-    openPicker(chUid, uid) { set({ picker: { chUid, uid } }); },
+    openPicker(chUid, uid, row = false) { set({ picker: { chUid, uid, row } }); },
     closePicker() { set({ picker: null }); },
     showToast(msg, err = false) { set({ toast: { msg, err: !!err, n: ++toastN } }); },
     openMenu(x, y, items) { set({ menu: { x, y, items } }); },
@@ -683,6 +690,67 @@ export const useTedStore = create((set, get) => {
       }
       bump(loc.block);
       commit();
+    },
+    // ---- 双栏并排段（作用于 data.row 的图片栏 / 文字栏；标准三步）----
+    // 图片栏：URL（原地变异保未知键）、alt（空删键，同规则②）、宽度（同规则④ on/off）
+    setRowImg(chUid, uid, url, opts = {}) {
+      const loc = blockAt(chUid, uid);
+      if (!loc || !isRowData(loc.block.data)) return;
+      if (opts.history !== false) get().pushHistory(opts.key ?? null);
+      const col = loc.block.data.row[rowImgIdx(loc.block.data)];
+      col.img = url;
+      bump(loc.block); commit();
+    },
+    setRowAlt(chUid, uid, alt) {
+      const loc = blockAt(chUid, uid);
+      if (!loc || !isRowData(loc.block.data)) return;
+      get().pushHistory('rowalt:' + uid);
+      const col = loc.block.data.row[rowImgIdx(loc.block.data)];
+      if (alt) col.alt = alt; else delete col.alt;
+      bump(loc.block); commit();
+    },
+    setRowImgWidth(chUid, uid, width, opts = {}) {
+      const loc = blockAt(chUid, uid);
+      if (!loc || !isRowData(loc.block.data)) return;
+      const col = loc.block.data.row[rowImgIdx(loc.block.data)];
+      const n = Math.round(Number(width));
+      const on = width !== null && width !== '' && Number.isFinite(n) && n > 0;
+      if (!on && col.width === undefined) return;
+      get().pushHistory(opts.key ?? null);
+      if (on) col.width = clampNum(n, IMG_W.lo, IMG_W.hi); else delete col.width;
+      bump(loc.block); commit();
+    },
+    // 文字栏：整栏替换成 mkText（规则①：m 档回落纯字符串）
+    setRowText(chUid, uid, text, opts = {}) {
+      const loc = blockAt(chUid, uid);
+      if (!loc || !isRowData(loc.block.data)) return;
+      get().pushHistory(opts.key ?? null);
+      const i = rowTextIdx(loc.block.data);
+      loc.block.data.row[i] = mkText(text, sizeOf(loc.block.data.row[i]));
+      bump(loc.block); commit();
+    },
+    setRowSize(chUid, uid, size) {
+      const loc = blockAt(chUid, uid);
+      if (!loc || !isRowData(loc.block.data)) return;
+      const i = rowTextIdx(loc.block.data);
+      if (sizeOf(loc.block.data.row[i]) === size) return;
+      get().pushHistory();
+      loc.block.data.row[i] = mkText(textOf(loc.block.data.row[i]) ?? '', size);
+      bump(loc.block); commit();
+    },
+    swapRow(chUid, uid) {
+      const loc = blockAt(chUid, uid);
+      if (!loc || !isRowData(loc.block.data)) return;
+      get().pushHistory();
+      loc.block.data.row.reverse();
+      bump(loc.block); commit();
+    },
+    setRowValign(chUid, uid, v) {
+      const loc = blockAt(chUid, uid);
+      if (!loc || !isRowData(loc.block.data)) return;
+      get().pushHistory();
+      if (v === 'center') loc.block.data.valign = 'center'; else delete loc.block.data.valign; // top=默认删键
+      bump(loc.block); commit();
     },
     // Enter 拆段：两段沿用原字号；焦点落新段行首
     splitBlock(chUid, uid, before, after) {

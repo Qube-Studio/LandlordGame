@@ -12,7 +12,9 @@
 import { useCallback, useEffect, useLayoutEffect, useRef } from 'react';
 import { useTedStore, findByUid, isImgData, IMG_W } from './store';
 
-export default function ImgResizer({ previewRef }) {
+// scale：预览舞台的 zoom 比。zoom 下 getBoundingClientRect/鼠标都是缩放后视口坐标（把手定位天然正确），
+// 但拖拽位移要 /scale 才是图片的逻辑宽度增量。
+export default function ImgResizer({ previewRef, scale = 1 }) {
   const selUid = useTedStore((s) => s.selUid);
   const blkUid = useTedStore((s) => s.selBlks.at(-1) ?? null);
   const chapters = useTedStore((s) => s.chapters);
@@ -32,32 +34,28 @@ export default function ImgResizer({ previewRef }) {
     [blkUid, previewRef],
   );
 
-  // override 有值 = 拖拽中（位置/宽度由指针算）；否则从 DOM 量
-  const place = useCallback((override) => {
+  // 从 DOM 量把手位置（缩放后视口坐标，把手在未缩放的 host 上 absolute 定位天然正确）。
+  const place = useCallback(() => {
     const h = handleRef.current, tag = tagRef.current, host = previewRef.current;
     if (!h || !tag || !host) return;
     const hide = () => { h.style.display = 'none'; tag.style.display = 'none'; };
     const el = imgEl();
     if (!el) return hide();
-    let left, top, w;
-    if (override) {
-      ({ left, top, w } = override);
-    } else {
-      const hr = host.getBoundingClientRect();
-      const er = el.getBoundingClientRect();
-      const sc = el.closest('.tut-content');
-      if (sc) { // ④ 滚出可视区
-        const sr = sc.getBoundingClientRect();
-        if (er.bottom < sr.top + 4 || er.top > sr.bottom - 4) return hide();
-      }
-      left = er.right - hr.left; top = er.bottom - hr.top; w = Math.round(er.width);
+    const hr = host.getBoundingClientRect();
+    const er = el.getBoundingClientRect();
+    const sc = el.closest('.tut-content');
+    if (sc) { // ④ 滚出可视区
+      const sr = sc.getBoundingClientRect();
+      if (er.bottom < sr.top + 4 || er.top > sr.bottom - 4) return hide();
     }
+    const left = er.right - hr.left, top = er.bottom - hr.top;
+    const wLogical = Math.round(er.width / scale); // 标签显示逻辑宽（=落盘值），非 zoom 后视觉宽
     h.style.display = ''; tag.style.display = '';
     h.style.left = `${left}px`; h.style.top = `${top}px`;
     tag.style.left = `${left}px`; tag.style.top = `${top}px`;
-    tag.textContent = (override || hasW) ? `${w}px` : `${w}px · 原图`;
+    tag.textContent = hasW ? `${wLogical}px` : `${wLogical}px · 原图`;
     return undefined;
-  }, [imgEl, previewRef, hasW]);
+  }, [imgEl, previewRef, hasW, scale]);
 
   // 每次渲染后重量（选中/内容/宽度变了都会走到；预览内容防抖 100ms 落地时父组件重渲染会带上这里）
   useLayoutEffect(() => { if (active && !dragRef.current) place(); });
@@ -83,23 +81,21 @@ export default function ImgResizer({ previewRef }) {
 
   const onDown = (e) => {
     const el = imgEl();
-    const host = previewRef.current;
-    if (!el || !host) return;
+    if (!el) return;
     e.preventDefault();
     e.stopPropagation();
     e.currentTarget.setPointerCapture(e.pointerId);
-    const hr = host.getBoundingClientRect();
-    const er = el.getBoundingClientRect();
-    dragRef.current = { x0: e.clientX, w0: er.width, left0: er.right - hr.left, top0: er.bottom - hr.top, el, uid: blkUid, chUid: selUid };
+    // w0 = 缩放后视觉宽（=逻辑宽×scale）；onMove 里 (w0+dx)/scale 还原逻辑宽
+    dragRef.current = { x0: e.clientX, w0: el.getBoundingClientRect().width, el, uid: blkUid, chUid: selUid };
     e.currentTarget.classList.add('on');
   };
   const onMove = (e) => {
     const d = dragRef.current;
     if (!d) return;
-    const w = Math.max(IMG_W.lo, Math.min(IMG_W.hi, Math.round(d.w0 + (e.clientX - d.x0))));
-    d.el.style.width = `${w}px`;                                    // ③ 即时反馈，不等 100ms 防抖
-    place({ left: d.left0 + (w - d.w0), top: d.top0, w });          // ② 位置跟指针
-    useTedStore.getState().setBlockWidth(d.chUid, d.uid, w, { key: `imgw:${d.uid}` }); // 一次拖拽=一步撤回
+    const wL = Math.max(IMG_W.lo, Math.min(IMG_W.hi, Math.round((d.w0 + (e.clientX - d.x0)) / scale)));
+    d.el.style.width = `${wL}px`;                                    // ③ 即时反馈（逻辑宽，zoom 内显示为 wL×scale）
+    place();                                                          // ② img 已即时变宽，重量把手到右下
+    useTedStore.getState().setBlockWidth(d.chUid, d.uid, wL, { key: `imgw:${d.uid}` }); // 一次拖拽=一步撤回
   };
   const onUp = (e) => {
     if (!dragRef.current) return;

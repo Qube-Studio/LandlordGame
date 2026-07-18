@@ -57,7 +57,8 @@ const phase = {
     hint3d: '拖动圈里的钱牌/红色债务牌到队友圈重新分配（长按拆分），空格确认',
     hint2d: '农民内部重新分配钱与债务（桌面实时跟着变），空格确认',
   },
-  FINALIZE: { label: '正式结算', hint: '钱还在桌上——按 F 拿取自己那份才入账（按 L 翻账本）' },
+  FINALIZE: { label: '正式结算', hint: '钱还在桌上——按空格拿取自己那份才入账（按 L 翻账本）' },
+  EXECUTION: { label: '处决', hint: '有人破产——敌对阵营最富者持枪定夺：开枪处决，或对空鸣枪自费赦免' },
   ENDED: { label: '对局结束' },
 };
 
@@ -389,12 +390,31 @@ const guide = {
     title: '入账时刻',
     body: '这一回合的盈亏正式记进余额，顺便点名今天有没有人光荣破产。结清之后，下一回合接着来。',
   },
+  EXECUTION: {
+    title: '处决：生杀予夺',
+    body: '有人破产了。敌对阵营里钱最多的活人会拿到一把左轮：对准破产者开枪=处决出局；对着别处鸣枪=赦免——但赦免要自掏腰包，把对方这回合输掉的钱如数赔还，让他活着回到牌桌。对活人开枪是不允许的（准心会变成一把叉）。',
+  },
   ENDED: {
     title: '尘埃落定',
     body: '有人被打到破产，胜负就此分晓。房主点「再来一局」可重选角色，给翻盘（或再输一次）一个机会。',
   },
   skipHint: '按任意键跳过',
   ok: '知道了',
+};
+
+// ---- 处决窗（§3.9：ExecutionRig 准心/浮字/2D 面板）----
+const execution = {
+  aimHint: '瞄准破产者开枪处决 · 对空鸣枪赦免',
+  pardonHint: (cost) => `赦免需自掏 ¥${cost} 赔偿`,
+  denyLiving: '不许对活人开枪',
+  denyPoor: (cost) => `资金不足，无法赦免（需赔偿 ¥${cost}）——只能处决`,
+  targetWaiting: (name) => `${name} 正用枪口对着你…`,
+  watching: (judge, target) => `${judge} 正在决定 ${target} 的生死…`,
+  queueLeft: (n) => `还有 ${n} 人待判`,
+  executeBtn: '处决',
+  pardonBtn: (cost) => `赦免（自付 ¥${cost}）`,
+  autoSuffix: '后默认处决',
+  relockHint: '按任意键回到瞄准',
 };
 
 // ---- 2D 协商板（NegotiationBoard，仅 ?input=2d）----
@@ -804,6 +824,7 @@ export default {
   felt, hand3d, payout3d,
   lobbyPanel, discussionPanel, bettingPanel, revealPanel, reflipPanel,
   challengePanel, settlePanel, negotiatePanel, finalizePanel, endedPanel, coinPanel,
+  execution,
   chat, ledger, roleWall, guide, nego2d, hand2d, settings, rules,
   victory, viewport, dock, login, lobby, game, app, net,
   roles, settleEvents, payoutSteps, single, dev,

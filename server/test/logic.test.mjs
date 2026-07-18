@@ -13,6 +13,7 @@ import {
   settleSymmetric, splitLandlordSide, phantomReduction, ghostMaxBet, ghostBalance,
   singleSummonCost, summonCooldownOk, summonPenalty, luckyWinProb, singleWage,
 } from '../logic/settleSingle.js';
+import { wealthOf, pickExecutioner, compensationOf } from '../logic/execution.js';
 
 let passed = 0;
 const cfg = mergeConfig();
@@ -426,6 +427,35 @@ test('单人初始资金/Boss 梯度参数在 config.single 中且可记', () =>
   assert.deepEqual(cfg.single.boss.attrs.base, { greed: 2, squeeze: 2, rake: 0.8 });
   assert.equal(cfg.single.investor.maxPledge, 6);
   assert.equal(cfg.single.glutton.reflips, 3);
+});
+
+// ---- 处决窗纯逻辑（§3.9）：行刑者遴选 + 赔偿口径 ----
+test('处决：wealthOf 口径（资本家=池、其余=余额）', () => {
+  assert.equal(wealthOf({ role: 'farmer', balance: 7 }), 7);
+  assert.equal(wealthOf({ role: 'capitalist', balance: 3, pool: 20 }), 20);
+  assert.equal(wealthOf({ role: 'landlord', balance: null }), 0);
+});
+test('处决：pickExecutioner 敌对阵营最富活人、并列取小座位、跳过破产/观战、全灭 null', () => {
+  const t = { role: 'farmer' }; // 目标是农民 → 行刑者来自地主阵营
+  const mk = (role, balance, seat, extra = {}) => ({ role, balance, seat, bankrupt: false, spectator: false, ...extra });
+  // 地主侧只有一人时=那个人
+  assert.equal(pickExecutioner(t, [mk('landlord', 5, 0), mk('farmer', 99, 1)]).seat, 0);
+  // 目标是地主 → 农民侧最富；并列取小座位
+  const lt = { role: 'landlord' };
+  const picked = pickExecutioner(lt, [mk('landlord', 99, 0), mk('farmer', 8, 2), mk('farmer', 8, 1), mk('glutton', 3, 3)]);
+  assert.equal(picked.seat, 1);
+  // 破产/观战跳过；资本家按池比较（池大过农民余额）
+  const capT = { role: 'farmer' };
+  const c = pickExecutioner(capT, [mk('capitalist', 1, 0, { pool: 50 })]);
+  assert.equal(c.role, 'capitalist');
+  assert.equal(pickExecutioner(t, [mk('landlord', 9, 0, { bankrupt: true }), mk('landlord', 9, 1, { spectator: true })]), null);
+});
+test('处决：compensationOf（普通=余额缩水、资本家=池缩水、下限 0）', () => {
+  assert.equal(compensationOf({ role: 'farmer', balance: 0 }, 4, undefined), 4);
+  assert.equal(compensationOf({ role: 'farmer', balance: -3 }, 4, undefined), 7);     // 深负也补回
+  assert.equal(compensationOf({ role: 'farmer', balance: 6 }, 4, undefined), 0);      // 本轮没输 → 0
+  assert.equal(compensationOf({ role: 'capitalist', balance: 8, pool: 0 }, 8, 40), 40); // 池口径，无视余额
+  assert.equal(compensationOf({ role: 'capitalist', pool: 50 }, 0, 40), 0);
 });
 
 console.log(`\n全部通过：${passed} 项 ✅`);

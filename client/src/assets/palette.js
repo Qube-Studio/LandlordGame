@@ -83,6 +83,7 @@ export const PROP_COLORS = {
   coinGold: '#e8bf3c', coinTails: '#5f9ec2',  // 硬币双面底色（游戏内 2D/3D 币）
   coinGlow: '#6a4a10',                        // 硬币常驻微 emissive
   coinSilver: '#c2c6cb',                      // 体素硬币本体：银/镍流通币色（冷中性，暖光下自然染暖，非金）
+  gunSteel: '#49505c',                        // 左轮手枪：发蓝枪钢（冷蓝灰，shade 派生磨亮/阴影档）
 };
 
 // 面额(bg/ink/accent)——pixelnote(2D+3D 钞票)唯一色源。
