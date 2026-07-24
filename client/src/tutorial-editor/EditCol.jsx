@@ -6,10 +6,11 @@
 // 剪贴板（Ctrl+C/X/V）与贴图统一在 TutorialEditor 的 window 级裁决器，本组件不再自设 paste 钩子。
 // IME 修复（§0.7）：Enter 拆段前查 e.nativeEvent.isComposing——React 合成键盘事件不透传 isComposing，
 // 必须从 nativeEvent 上读；legacy 没查，中文输入法选词回车会误拆段，此处修复不复刻。
-import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, memo, useEffect, useMemo, useRef, useState } from 'react';
 import {
   useTedStore, findByUid,
-  isImgData, isBarData, isRowData, rowImgIdx, rowTextIdx, textOf, sizeOf, normBar, newBar, newRow, imgUsage,
+  isImgData, isBarData, isRowData, cellsOf, textOf, sizeOf, normBar, newBar, newRow, imgUsage,
+  mkTextN, nudgeOf,
 } from './store';
 import { listImages, deleteImage } from './api';
 import { doUpload, confirmDeleteChapters, copyBlocksToClipboard, pasteFromClipboardAfterBlock, countRender } from './helpers';
@@ -20,6 +21,27 @@ const SIZE_PX = { s: 11, m: 13, l: 16, xl: 20 };
 const SIZE_LABEL = Object.fromEntries(SIZES);
 const BAR_COLORS = [['gold', '金'], ['green', '绿'], ['red', '红'], ['blue', '蓝']];
 const BAR_FADES = [['both', '两端'], ['left', '左'], ['right', '右'], ['none', '无']];
+
+// 插入菜单项（斜杠菜单/＋插入线共用）：块类型 + 版式模板前若干 + 版式库入口。
+// put(data)=落一个块；putMany(datas)=落版式（多块）。
+function buildInsertItems(put, putMany) {
+  const st = useTedStore.getState();
+  const items = [
+    { label: '文字段落', onClick: () => put('', true) },
+    { label: '图片', onClick: () => put({ img: '' }) },
+    { label: '属性条', onClick: () => put(newBar()) },
+    { label: '多列并排', onClick: () => put(newRow()) },
+    { label: '空行', onClick: () => put('') },
+  ];
+  const tpls = st.templates.slice(0, 6);
+  if (tpls.length) {
+    items.push({ sep: true });
+    for (const t of tpls) items.push({ label: `版式：${t.name}（${t.blocks.length}块）`, onClick: () => putMany(t.blocks) });
+  }
+  items.push({ sep: true });
+  items.push({ label: '版式库…', onClick: () => st.openTplGallery() });
+  return items;
+}
 
 // ---- 文字段 ----
 function TextBody({ chUid, block }) {
@@ -47,6 +69,23 @@ function TextBody({ chUid, block }) {
       if (st().mergeBlockUp(chUid, block.uid)) e.preventDefault();
     }
   };
+  // 斜杠菜单（现代编辑器惯例）：空文字块打 "/" → 就地弹插入菜单换型/落版式
+  const onChange = (e) => {
+    const v = e.target.value;
+    if (text === '' && v === '/') {
+      e.target.value = ''; // store 未变不触发重渲染，手动吃掉 '/'
+      const r = e.target.getBoundingClientRect();
+      const s = st();
+      const ch = findByUid(s.chapters, chUid);
+      const i = ch ? ch.body.findIndex((b) => b.uid === block.uid) : -1;
+      s.openMenu(r.left + 10, r.top + 22, buildInsertItems(
+        (data, focus) => { st().convertBlock(chUid, block.uid, data); if (focus) st().requestFocus(block.uid, 0); },
+        (datas) => { st().insertBlocksAt(chUid, i < 0 ? 0 : i, datas); st().removeBlock(chUid, block.uid); },
+      ));
+      return;
+    }
+    st().setBlockText(chUid, block.uid, v);
+  };
   // 把选区包成 **…**（无选区=插「文字」占位）；离散一步撤回、恢复选区
   const bold = () => {
     const ta = taRef.current;
@@ -71,7 +110,8 @@ function TextBody({ chUid, block }) {
         className="ted-input"
         rows={2}
         value={text}
-        onChange={(e) => st().setBlockText(chUid, block.uid, e.target.value)}
+        placeholder="输入文字，或打「/」插入…"
+        onChange={onChange}
         onKeyDown={onKeyDown}
       />
       <div className="ted-row">
@@ -151,62 +191,144 @@ function ImgBody({ chUid, block, onUploadTo }) {
   );
 }
 
-// ---- 双栏并排段（左图右文，可交换）----
-function RowBody({ chUid, block, onUploadTo }) {
-  const d = block.data;
+// ---- 多列并排段（2-4 列 × 每列竖排堆叠任意块 × 列宽权重）----
+// 格子编辑器：按 (col, idx) 寻址，写回走 store 的 setCell/patchCellImg（保四条兼容规则）
+function CellEditor({ chUid, uid, col, idx, cell, onUploadTo }) {
   const st = () => useTedStore.getState();
-  const imgLeft = rowImgIdx(d) === 0;
-  const imgCol = d.row[rowImgIdx(d)] ?? { img: '' };
-  const txtCol = d.row[rowTextIdx(d)];
-  const txt = textOf(txtCol) ?? '';
-  const size = sizeOf(txtCol);
-  const valign = d.valign === 'center' ? 'center' : 'top';
-
-  const imgEdit = (
-    <ImgFields
-      img={imgCol.img} alt={imgCol.alt} width={imgCol.width} widthKey={'rowimgw:' + block.uid}
-      onImg={(v) => st().setRowImg(chUid, block.uid, v, { key: 'rowimg:' + block.uid })}
-      onAlt={(v) => st().setRowAlt(chUid, block.uid, v)}
-      onWidth={(v, key) => st().setRowImgWidth(chUid, block.uid, v, key ? { key } : {})}
-      onUpload={() => onUploadTo(block.uid, true)}
-      onPicker={() => st().openPicker(chUid, block.uid, true)}
-    />
-  );
-  const txtEdit = (
+  const kkey = `cell:${uid}:${col}:${idx}`;
+  if (isImgData(cell)) {
+    return (
+      <ImgFields
+        img={cell.img} alt={cell.alt} width={cell.width} widthKey={kkey + ':w'}
+        onImg={(v) => st().patchCellImg(chUid, uid, col, idx, { img: v }, { key: kkey + ':img' })}
+        onAlt={(v) => st().patchCellImg(chUid, uid, col, idx, { alt: v }, { key: kkey + ':alt' })}
+        onWidth={(v, key) => st().patchCellImg(chUid, uid, col, idx, { width: v }, key ? { key } : {})}
+        onUpload={() => onUploadTo(uid, { col, idx })}
+        onPicker={() => st().openPicker(chUid, uid, { col, idx })}
+      />
+    );
+  }
+  if (isBarData(cell)) {
+    const nb = normBar(cell);
+    // 写回=按归一值重建干净对象（旧式 {value,max} 编辑即固化，同规则③）；位移键保留
+    const put = (patch, key = null) => {
+      const out = { bar: cell.bar ?? '', width: nb.width, fill: nb.fill, color: nb.color, fade: nb.fade, ...patch };
+      const n = nudgeOf(cell);
+      if (Number.isFinite(n.dx) && n.dx) out.dx = n.dx;
+      if (Number.isFinite(n.dy) && n.dy) out.dy = n.dy;
+      st().setCell(chUid, uid, col, idx, out, key ? { key } : {});
+    };
+    return (
+      <>
+        <div className="ted-bar-prev"><BarSwatch data={cell} /></div>
+        <div className="ted-row">
+          <input className="ted-input" placeholder="并排文字（支持 **金字**）" value={cell.bar || ''}
+            onChange={(e) => put({ bar: e.target.value }, kkey + ':bar')} />
+        </div>
+        <div className="ted-row">
+          <StepNum label="长度" value={nb.width} step={12} onCommit={(v, typing) => put({ width: v }, typing ? kkey + ':bw' : null)} />
+          <StepNum label="填充%" value={nb.fill} step={5} onCommit={(v, typing) => put({ fill: v }, typing ? kkey + ':bf' : null)} />
+        </div>
+        <div className="ted-row">
+          {BAR_COLORS.map(([k, lab]) => (
+            <button key={k} type="button" className={`ted-btn sm${nb.color === k ? ' on' : ''}`} onClick={() => put({ color: k })}>{lab}</button>
+          ))}
+          <span className="ted-dim">·</span>
+          {BAR_FADES.map(([k, lab]) => (
+            <button key={k} type="button" className={`ted-btn sm${nb.fade === k ? ' on' : ''}`} onClick={() => put({ fade: k })}>{lab}</button>
+          ))}
+        </div>
+      </>
+    );
+  }
+  // 文字格（多行=多段；规则①经 mkTextN 保位移键）
+  const txt = textOf(cell) ?? '';
+  const size = sizeOf(cell);
+  return (
     <>
-      <textarea className="ted-input ted-rowtext" rows={4} value={txt}
-        placeholder="右栏文字（支持 **金字**、「- 」列表；每行一段，可多行）"
-        onChange={(e) => st().setRowText(chUid, block.uid, e.target.value, { key: 'rowtext:' + block.uid })} />
+      <textarea className="ted-input ted-rowtext" rows={3} value={txt}
+        placeholder="文字（支持 **金字**、「- 」列表；每行一段）"
+        onChange={(e) => st().setCell(chUid, uid, col, idx, mkTextN(e.target.value, size, nudgeOf(cell)), { key: kkey + ':t' })} />
       <div className="ted-row">
         {SIZES.map(([k, label]) => (
           <button key={k} type="button" className={`ted-btn sm${size === k ? ' on' : ''}`}
-            title={`字号：${label}（${SIZE_PX[k]}px）`} onClick={() => st().setRowSize(chUid, block.uid, k)}>{label}</button>
+            title={`字号：${label}（${SIZE_PX[k]}px）`}
+            onClick={() => st().setCell(chUid, uid, col, idx, mkTextN(txt, k, nudgeOf(cell)))}>{label}</button>
         ))}
       </div>
     </>
   );
+}
+
+function RowBody({ chUid, block, onUploadTo }) {
+  const d = block.data;
+  const st = () => useTedStore.getState();
+  const uid = block.uid;
+  const nCols = d.row.length;
+  const widths = Array.isArray(d.widths) ? d.widths : null;
+  const valign = d.valign === 'center' ? 'center' : 'top';
+  const cellKind = (c) => (isImgData(c) ? '图片' : isBarData(c) ? '属性条' : (textOf(c) ?? '').trim() ? '文字' : '空');
 
   return (
     <div className="ted-rowedit">
       <div className="ted-row">
-        <button type="button" className="ted-btn sm" title="左右两栏对调" onClick={() => st().swapRow(chUid, block.uid)}>⇄ 左右交换</button>
-        <span className="ted-dim">图在{imgLeft ? '左' : '右'} · 文在{imgLeft ? '右' : '左'}</span>
+        <button type="button" className="ted-btn sm" disabled={nCols >= 4} title="加一列（最多 4）"
+          onClick={() => st().addRowCol(chUid, uid)}>＋列</button>
+        <span className="ted-dim">{nCols} 列</span>
         <span className="ted-flex" />
+        <label className="ted-lab">列宽</label>
+        <button type="button" className={`ted-btn sm${!widths ? ' on' : ''}`} title="自动：带宽图片列按宽、其余均分"
+          onClick={() => st().setRowWidths(chUid, uid, null)}>自动</button>
+        <button type="button" className={`ted-btn sm${widths ? ' on' : ''}`} title="按比例权重分列宽"
+          onClick={() => st().setRowWidths(chUid, uid, d.row.map((_, c) => widths?.[c] ?? 1))}>比例</button>
         <label className="ted-lab">对齐</label>
         {[['top', '顶部'], ['center', '居中']].map(([k, lab]) => (
           <button key={k} type="button" className={`ted-btn sm${valign === k ? ' on' : ''}`}
-            onClick={() => st().setRowValign(chUid, block.uid, k)}>{lab}</button>
+            onClick={() => st().setRowValign(chUid, uid, k)}>{lab}</button>
         ))}
       </div>
-      {/* 两栏按 row 数组顺序排布，编辑区左右 = 预览左右（交换后编辑格跟着换位）。
-          store 的 setRow* 按图栏/文栏语义定位，与数组位置解耦，故编辑器内部动作恒作用于对的栏。 */}
       <div className="ted-row2col">
-        {d.row.slice(0, 2).map((col, c) => (
-          <div className="ted-subcol" key={c}>
-            <div className="ted-subcol-h">{c === 0 ? '左栏' : '右栏'} · {isImgData(col) ? '图片' : '文字'}</div>
-            {isImgData(col) ? imgEdit : txtEdit}
-          </div>
-        ))}
+        {d.row.map((col, c) => {
+          const cells = cellsOf(d, c);
+          return (
+            <div className="ted-subcol" key={c}>
+              <div className="ted-row ted-subcol-head">
+                <span className="ted-subcol-h">第{c + 1}列</span>
+                {widths && (
+                  <StepNum label="宽" value={widths[c] ?? 1} step={1}
+                    onCommit={(v) => { const w = [...widths]; w[c] = v; st().setRowWidths(chUid, uid, w); }} />
+                )}
+                <span className="ted-flex" />
+                <button type="button" className="ted-btn sm" disabled={c === 0} title="左移列" onClick={() => st().moveRowCol(chUid, uid, c, -1)}>◀</button>
+                <button type="button" className="ted-btn sm" disabled={c === nCols - 1} title="右移列" onClick={() => st().moveRowCol(chUid, uid, c, 1)}>▶</button>
+                <button type="button" className="ted-btn sm danger" disabled={nCols <= 2} title="删除本列（至少留两列）"
+                  onClick={() => st().removeRowCol(chUid, uid, c)}>✕列</button>
+              </div>
+              {cells.map((cell, k) => (
+                <div className="ted-cell" key={k}>
+                  <div className="ted-row ted-cell-head">
+                    <span className="ted-dim">{cellKind(cell)}{cells.length > 1 ? ` · 格${k + 1}` : ''}</span>
+                    <span className="ted-flex" />
+                    {cells.length > 1 && (
+                      <>
+                        <button type="button" className="ted-btn sm" disabled={k === 0} title="上移" onClick={() => st().moveCell(chUid, uid, c, k, k - 1)}>↑</button>
+                        <button type="button" className="ted-btn sm" disabled={k === cells.length - 1} title="下移" onClick={() => st().moveCell(chUid, uid, c, k, k + 1)}>↓</button>
+                        <button type="button" className="ted-btn sm danger" title="删除本格" onClick={() => st().removeCell(chUid, uid, c, k)}>✕</button>
+                      </>
+                    )}
+                  </div>
+                  <CellEditor chUid={chUid} uid={uid} col={c} idx={k} cell={cell} onUploadTo={onUploadTo} />
+                </div>
+              ))}
+              <div className="ted-row">
+                <span className="ted-dim">本列加：</span>
+                <button type="button" className="ted-btn sm" onClick={() => st().addCell(chUid, uid, c, '')}>文字</button>
+                <button type="button" className="ted-btn sm" onClick={() => st().addCell(chUid, uid, c, { img: '' })}>图片</button>
+                <button type="button" className="ted-btn sm" onClick={() => st().addCell(chUid, uid, c, newBar())}>属性条</button>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -394,8 +516,8 @@ function ImagePicker() {
   const state = (result.for === picker && result.gen === gen) ? result : { status: 'loading', images: [], error: null };
   const st = useTedStore.getState();
   const pick = (im) => {
-    if (picker.row) st.setRowImg(picker.chUid, picker.uid, im.url); // 双栏图片栏
-    else st.setBlockImg(picker.chUid, picker.uid, im.url);          // 普通图片块（离散一步撤回）
+    if (picker.cell) st.patchCellImg(picker.chUid, picker.uid, picker.cell.col, picker.cell.idx, { img: im.url }); // 多列段的格
+    else st.setBlockImg(picker.chUid, picker.uid, im.url); // 普通图片块（离散一步撤回）
     st.closePicker();
   };
   // 删除图库文件：先查全文引用（删了引用处会变坏图，但不替用户改文档——校验面板会标出来）。
@@ -444,13 +566,95 @@ function ImagePicker() {
   );
 }
 
+// ---- 块间插入线（悬停显现 ＋；点击弹与斜杠菜单同款插入菜单，落点=该缝隙） ----
+function InsertLine({ chUid, index }) {
+  const st = () => useTedStore.getState();
+  const open = (e) => {
+    e.preventDefault();
+    const s = st();
+    s.openMenu(e.clientX, e.clientY, buildInsertItems(
+      (data, focus) => { const uid = st().insertBlock(chUid, index, data); if (focus && uid) st().requestFocus(uid, 0); },
+      (datas) => st().insertBlocksAt(chUid, index, datas),
+    ));
+  };
+  return (
+    <div className="ted-insline" onClick={open} title="在此插入段落 / 版式…">
+      <span className="ted-insline-btn">＋</span>
+    </div>
+  );
+}
+
+// ---- 版式库（设计一种排版 → 存为版式 → 到处一键插入；持久化 client/tutorial.templates.json） ----
+function TemplateGallery() {
+  const open = useTedStore((s) => s.tplGallery);
+  const templates = useTedStore((s) => s.templates);
+  const selUid = useTedStore((s) => s.selUid);
+  const selBlks = useTedStore((s) => s.selBlks);
+  if (!open) return null;
+  const st = useTedStore.getState();
+  const insert = (name) => {
+    if (!selUid) return;
+    st.insertTemplate(selUid, selBlks.at(-1) ?? null, name);
+    st.closeTplGallery();
+  };
+  const saveSel = () => {
+    const ch = findByUid(st.chapters, selUid);
+    if (!ch || !selBlks.length) return;
+    const datas = ch.body.filter((b) => selBlks.includes(b.uid)).map((b) => b.data);
+    const name = window.prompt(`把选中的 ${datas.length} 块存为版式（同名覆盖）：`);
+    if (name) st.saveTemplate(name, datas);
+  };
+  return (
+    <div className="ted-modal-mask" onClick={(e) => { if (e.target === e.currentTarget) st.closeTplGallery(); }}>
+      <div className="ted-modal ted-tpl" role="dialog" aria-label="版式库">
+        <div className="ted-picker-head">
+          <span>版式库（client/tutorial.templates.json · 随 git 走）</span>
+          <span className="ted-flex" />
+          <button type="button" className="ted-btn sm" onClick={() => st.closeTplGallery()}>✕</button>
+        </div>
+        <div className="ted-tpl-list">
+          {templates.length === 0 && (
+            <div className="ted-pane-hint">还没有版式——在编辑列选中几个块（Ctrl/Shift 点），右键「存为版式…」，
+              或用下方按钮把当前选中保存进来。</div>
+          )}
+          {templates.map((t) => (
+            <div key={t.name} className="ted-tpl-row">
+              <span className="ted-tpl-name">{t.name}</span>
+              <span className="ted-dim">{t.blocks.length} 块</span>
+              <span className="ted-flex" />
+              <button type="button" className="ted-btn sm" disabled={!selUid} title="插到当前章节主选块之后（无选中=章末）"
+                onClick={() => insert(t.name)}>插入</button>
+              <button type="button" className="ted-btn sm" onClick={() => {
+                const nu = window.prompt('新名称：', t.name);
+                if (nu && nu !== t.name) st.renameTemplate(t.name, nu);
+              }}>重命名</button>
+              <button type="button" className="ted-btn sm danger" onClick={() => {
+                if (window.confirm(`删除版式「${t.name}」？（不影响已插入文档的内容）`)) st.removeTemplate(t.name);
+              }}>删除</button>
+            </div>
+          ))}
+        </div>
+        <div className="ted-row ted-tpl-foot">
+          <button type="button" className="ted-btn" disabled={!selBlks.length}
+            onClick={saveSel}>把当前选中的 {selBlks.length || 0} 块存为版式…</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ---- 标题行 ----
 function TitleField({ chapter }) {
   const st = () => useTedStore.getState();
+  const ts = chapter.rest?.titleSize ?? 'm';
   return (
     <div className="ted-title-field">
       <label>标题</label>
       <input className="ted-input" value={chapter.title} onChange={(e) => st().setTitle(chapter.uid, e.target.value)} />
+      {SIZES.map(([k, label]) => (
+        <button key={k} type="button" className={`ted-btn sm${ts === k ? ' on' : ''}`}
+          title={`标题字号：${label}`} onClick={() => st().setTitleSize(chapter.uid, k)}>{label}</button>
+      ))}
       <button type="button" className="ted-btn sm" title="复制本章节及其全部子章节，插到其后" onClick={() => st().duplicateChapter(chapter.uid)}>复制章节</button>
       {/* 批删规则（§1.2）统一适用：<5 章不 confirm（撤回兜底），≥5 章拦一道 */}
       <button type="button" className="ted-btn sm danger" onClick={() => confirmDeleteChapters([chapter.uid])}>删除章节</button>
@@ -554,6 +758,18 @@ export default function EditCol({ chapter }) {
           { label: '粘贴到其后', onClick: () => pasteFromClipboardAfterBlock(chUid, uid) },
           { sep: true },
           { label: n > 1 ? `删除 ${n} 块` : '删除', danger: true, onClick: () => st().removeBlocks(chUid, sel) },
+          { sep: true },
+          {
+            label: n > 1 ? `存为版式（${n} 块）…` : '存为版式…',
+            onClick: () => {
+              const ch2 = findByUid(st().chapters, chUid);
+              if (!ch2) return;
+              const datas = ch2.body.filter((b) => sel.includes(b.uid)).map((b) => b.data);
+              const name = window.prompt(`把选中的 ${datas.length} 块存为版式（同名覆盖）：`);
+              if (name) st().saveTemplate(name, datas);
+            },
+          },
+          { label: '版式库…', onClick: () => st().openTplGallery() },
         ]);
       },
       // 排序拖拽（落点换算 legacy 同款：after 折算 + 摘除位修正）
@@ -581,9 +797,9 @@ export default function EditCol({ chapter }) {
         if (from < to) to--;
         if (from !== to) st().moveBlock(chUid, from, to);
       },
-      // 上传按钮：记住目标块（row=true 写双栏图片栏）再唤起文件选择框（change 时机才知道选了什么）
-      uploadTo: (uid, row = false) => {
-        uploadTargetRef.current = { chUid, uid, row };
+      // 上传按钮：记住目标（cell={col,idx}=多列段的格）再唤起文件选择框（change 时机才知道选了什么）
+      uploadTo: (uid, cell = null) => {
+        uploadTargetRef.current = { chUid, uid, cell };
         if (fileRef.current) { fileRef.current.value = ''; fileRef.current.click(); }
       },
     };
@@ -607,6 +823,7 @@ export default function EditCol({ chapter }) {
       <div className="ted-editcol" ref={colRef}>
         <div className="ted-pane-hint">选择左侧章节以编辑其正文。</div>
         <ImagePicker />
+        <TemplateGallery />
       </div>
     );
   }
@@ -616,7 +833,7 @@ export default function EditCol({ chapter }) {
     const f = e.target.files?.[0];
     const t = uploadTargetRef.current;
     uploadTargetRef.current = null;
-    if (f && t) doUpload(f, t.chUid, t.uid, true, t.row);
+    if (f && t) doUpload(f, t.chUid, t.uid, true, t.cell);
   };
 
   // 末尾添加行（legacy 同款四按钮；+文字段落插入后落焦点）
@@ -633,20 +850,23 @@ export default function EditCol({ chapter }) {
       <div className="ted-editcol-hint">**金字** · 「- 」列表 · Enter拆段 · 空行=留白 · Ctrl+V贴图 · Ctrl/Shift点块=多选</div>
       <TitleField chapter={chapter} />
       {chapter.body.map((b, i) => (
-        <Block
-          key={b.uid}
-          chUid={chUid}
-          block={b}
-          v={b.v || 0}
-          index={i}
-          count={chapter.body.length}
-          primary={primaryBlk === b.uid}
-          msel={selSet.has(b.uid)}
-          dragging={blkDrag === i}
-          dz={blkDrop && blkDrop.index === i ? (blkDrop.after ? 'after' : 'before') : null}
-          h={h}
-        />
+        <Fragment key={b.uid}>
+          <InsertLine chUid={chUid} index={i} />
+          <Block
+            chUid={chUid}
+            block={b}
+            v={b.v || 0}
+            index={i}
+            count={chapter.body.length}
+            primary={primaryBlk === b.uid}
+            msel={selSet.has(b.uid)}
+            dragging={blkDrag === i}
+            dz={blkDrop && blkDrop.index === i ? (blkDrop.after ? 'after' : 'before') : null}
+            h={h}
+          />
+        </Fragment>
       ))}
+      <InsertLine chUid={chUid} index={chapter.body.length} />
       <div className="ted-add-row">
         <button type="button" className="ted-btn" onClick={() => append('', true)}>+ 文字段落</button>
         <button type="button" className="ted-btn" onClick={() => append({ img: '' })}>+ 图片段落</button>
@@ -656,6 +876,7 @@ export default function EditCol({ chapter }) {
       </div>
       <input type="file" ref={fileRef} accept="image/*" style={{ display: 'none' }} onChange={onFilePicked} />
       <ImagePicker />
+      <TemplateGallery />
     </div>
   );
 }

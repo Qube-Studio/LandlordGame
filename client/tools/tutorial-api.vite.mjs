@@ -51,6 +51,9 @@ export default function tutorialApi() {
       const root = server.config.root;
       const DOC = process.env.TUTORIAL_DOC_FILE || path.resolve(root, 'src/text/tutorial.json');
       const IMG_DIR = process.env.TUTORIAL_IMG_DIR || path.resolve(root, 'public/tutorial');
+      // 版式模板库（编辑器「设计一种排版然后保存」）：仓库内 JSON、随 git 走；不在任何模块图/public 里
+      // （谁也不 import 它、也不进 watch 反噬），游戏零感知。E2E 用 env 重定向隔离。
+      const TPL = process.env.TUTORIAL_TPL_FILE || path.resolve(root, 'tutorial.templates.json');
 
       const readDoc = () => {
         try {
@@ -112,6 +115,24 @@ export default function tutorialApi() {
             fs.writeFileSync(path.join(IMG_DIR, name), bytes); // 同名覆盖（与 legacy 一致，可预期）
             return sendJSON(res, 200, { url: `/tutorial/${name}`, name });
           }
+          // 版式模板库：整份读/写（列表小、无并发热点，不做乐观锁；写盘仍原子）
+          if (req.method === 'GET' && route === '/templates') {
+            let templates = [];
+            try {
+              const j = JSON.parse(fs.readFileSync(TPL, 'utf8'));
+              if (Array.isArray(j.templates)) templates = j.templates;
+            } catch { /* 首次/损坏 → 空库 */ }
+            return sendJSON(res, 200, { templates });
+          }
+          if (req.method === 'PUT' && route === '/templates') {
+            const body = (await readBody(req, DOC_LIMIT)).toString('utf8');
+            let payload;
+            try { payload = JSON.parse(body); } catch (e) { return sendJSON(res, 400, { error: 'JSON 解析失败：' + e.message }); }
+            if (!Array.isArray(payload.templates)) return sendJSON(res, 400, { error: '缺 templates 数组' });
+            atomicWrite(TPL, JSON.stringify({ fmt: 'fate-tutorial-templates', templates: payload.templates }, null, 2) + '\n');
+            return sendJSON(res, 200, { ok: true });
+          }
+
           // 删除图库文件（不可撤回——编辑器侧负责 confirm 与引用检查；Host 门禁已在上方拦过）
           if (req.method === 'DELETE' && route === '/images') {
             const name = safeName(url.searchParams.get('name'));

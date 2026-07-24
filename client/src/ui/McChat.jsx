@@ -72,7 +72,9 @@ export default function McChat() {
   const canPostFarmer = isFarmerSide(me?.role) && !isSpec; // 发密谈：仅在场农民阵营
   const factionChannel = canPostFarmer ? 'farmer' : isSpec ? 'spectator' : null;
   const tabIds = ['all', ...(factionChannel ? ['faction'] : []), 'system'];
-  const tab = chatTab === 'faction' && !factionChannel ? 'all' : chatTab;
+  // 处决画幅（§3.9 批次2）：聊天区暂时锁定系统频道（只读播报各笔判决）；离开处决自动回原频道
+  const execLock = state.phase === 'EXECUTION' && !state.single;
+  const tab = execLock ? 'system' : (chatTab === 'faction' && !factionChannel ? 'all' : chatTab);
   const tabLabel = tab === 'system' ? T.chat.tabSystem : tab === 'faction' ? (isSpec ? T.chat.tabSpectate : T.chat.tabFaction) : T.chat.tabAll;
   const tabColor = tab === 'system' ? 'var(--ink-faint)' : tab === 'faction' ? 'var(--warn)' : 'var(--ink-dim)';
   const sendChannel = tab === 'faction' ? factionChannel : (isSpec ? 'spectator' : 'public');
@@ -281,6 +283,7 @@ export default function McChat() {
       if (e.key === 'Tab') {
         e.preventDefault();     // 收起态也拦掉浏览器焦点循环
         if (e.repeat) return;   // 长按 Tab 不鬼畜连切
+        if (execLock) return;   // 处决画幅：频道锁定系统播报，不可切
         const cur = Math.max(0, tabIds.indexOf(tab));
         setChatTab(tabIds[(cur + 1) % tabIds.length]);
       } else if (e.key === 'Escape' && open) {
@@ -290,6 +293,11 @@ export default function McChat() {
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
   });
+
+  // 处决画幅开场：聊天区脉冲一下（「浮现」引导——判决播报都走这里的系统频道）
+  useEffect(() => {
+    if (execLock) useGameStore.setState(s => ({ chatFlash: s.chatFlash + 1 }));
+  }, [execLock]);
 
   // 高亮脉冲（localSys 重复触发/强制切频道时）：WAAPI 一次性动画，连触自然覆盖重播
   const flashInited = useRef(false);

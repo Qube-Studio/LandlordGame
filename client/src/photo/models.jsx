@@ -1,6 +1,6 @@
 // 拍照棚可摆放模型：全部复用真身游戏资产，保证与游戏内像素级同款（美术单一真源）。
 //  - 钞票：cards.jsx 的双面牌材质 + 同款盒体（面额 10/5/2/1、债务红变体、正/反）。
-//  - 人物：直接挂 MinecraftPlayer（六角色 + 表情 + 站/坐 + 破产）。
+//  - 人物：挂 PlayerModel（默认体素人,?art=box 回退盒子人;六角色 + 表情 + 站/坐 + 破产）。
 //  - 硬币：复用 Coin 的材质配方与尺寸常量，做成静态可变换网格（不自旋、不自定位，随坐标轴摆布）。
 import { useMemo } from 'react';
 import * as THREE from 'three';
@@ -9,7 +9,7 @@ import { coinFaceTexture, coinEdgeTexture } from '../scene/textures';
 import { COIN_R, COIN_H, COIN_SEGMENTS } from '../scene/coinSim';
 import { PROP_COLORS } from '../assets/palette';
 import { ROLE_LABEL } from '../game/roles';
-import MinecraftPlayer from '../scene/MinecraftPlayer';
+import PlayerModel from '../scene/PlayerModel';
 
 // 单张钞票牌（正面朝上=rotation.x 0，反面=π；债务=红变体）。
 export function StudioNote({ value = 10, debt = false, faceUp = true }) {
@@ -23,7 +23,7 @@ export function StudioNote({ value = 10, debt = false, faceUp = true }) {
 // 人物：站姿默认脚踩 y=0（由外层 group.position 摆放）。名牌是 DOM 浮层，不进截图（截图只含 WebGL 画面）。
 export function StudioCharacter({ role = 'landlord', expression = 'idle', seated = false, bankrupt = false, seed = 0 }) {
   const player = { role, bankrupt, online: true, name: ROLE_LABEL[role] ?? role };
-  return <MinecraftPlayer player={player} expression={expression} seed={seed} seated={seated} label={ROLE_LABEL[role] ?? role} />;
+  return <PlayerModel player={player} expression={expression} seed={seed} seated={seated} label={ROLE_LABEL[role] ?? role} />;
 }
 
 // 静态硬币（复用 Coin.jsx 的材质配方：暖金属 + 微 emissive；heads/tails 由 rotation.x 决定）。

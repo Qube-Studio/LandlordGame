@@ -49,6 +49,20 @@
   （编辑者通览），滚动容器是外壳 `.ted-preview`；预览滚动跟随改**手动算 scrollTop**（zoom 祖先下 scrollIntoView
   定位失准）。ImgResizer 把手在 zoom 下拖拽量 `/scale` 换算、标签显示逻辑宽（getBoundingClientRect/鼠标都是
   缩放后视口坐标，把手定位天然正确）。S10c 断言改「选中末块在预览可视区可见」（zoom 后内容未必超列高、不再必滚）。
+- **中栏现代化手术**（2026-07-17 晚）：
+  ① **多列自由排版**：{row} 泛化为 2-4 列 × 每列单块或**块数组（竖排堆叠）** × `widths` flex 权重数组
+    （缺省=旧语义：带宽图片列 .fixed 其余均分）；store 按 (col,idx) 寻址格子（setCell/patchCellImg/
+    addCell/removeCell/moveCell/addRowCol/removeRowCol/moveRowCol/setRowWidths；cellsOf 拷贝视图 +
+    writeCol 单格列回落单块形保字节兼容）；编辑列 RowBody=列区块堆叠 UI（＋列/列宽/对齐/每列加格）。
+  ② **版式模板**：任选块「存为版式」（右键/版式库）→ `client/tutorial.templates.json`（随 git 走，
+    插件 GET/PUT /templates + TUTORIAL_TPL_FILE env 隔离）→ 斜杠菜单/插入线/版式库一键插入
+    （pasteBlocks 深拷贝换新 uid）；重命名/删除/同名覆盖。
+  ③ **现代交互**：空文字块打「/」弹插入菜单（换型经 convertBlock）；块间悬停 ＋ 插入线
+    （insertBlocksAt 按下标落多块）；块头按钮悬停显现（安静默认态）。
+  ④ **位置微调 {dx,dy}**：任意块对象可带（translate 不占流位不挤兄弟）；预览移动把手 ✥ 拖拽写入
+    /双击复位；纯字符串块设位移→升级对象、清零→回落字符串（mkTextN=规则①完整表述，
+    setBlockText/Size 用它保位移键）。Validation 白名单同步（row/widths/valign/dx/dy + 递归格子）；
+    imgUsage 扫进格子。Esc 链加 tplGallery。块右键菜单对 input/textarea 让路是既有设计——测试要点块头。
 - **图文并排双栏**（2026-07-17 增）：`{row: [左, 右], valign}`——两栏各是一个完整段落（复用 renderBlock），
   flex 两列 align-items:flex-start **互不干扰**（不是 float 环绕，文字再长也不绕到图下）；默认左图右文
   `{row:[{img:''},'']}`。图片栏有 width → 该列按宽固定、文字栏占余。渲染器抽 `renderBlock(item,key,{aRef,aProps,top})`

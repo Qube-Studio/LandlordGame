@@ -178,8 +178,26 @@ export function writeVox(dense, palette, opts = {}) {
   return buf;
 }
 
-// 解析 .vox → { dense(y-up), palette(256×4), materials }。多模型沿场景图 _t 拼合;
+// 归一化一条 MATL 记录：运行时的贪心分桶、材质和光照烘焙统一消费这一口径；
+// matlRaw 继续保留原始字典给往返工具校验。
+export function normalizeMatl(dict) {
+  const f = (k, d) => {
+    const v = parseFloat(dict[k]);
+    return Number.isFinite(v) ? v : d;
+  };
+  const type = dict._type ?? '_diffuse';
+  const rough = Math.min(1, Math.max(0, f('_rough', 1)));
+  const metal = type === '_metal' ? Math.min(1, Math.max(0, f('_metal', f('_weight', 1)))) : 0;
+  const emitK = type === '_emit'
+    ? Math.min(8, Math.max(0, f('_emit', f('_weight', 1)) * Math.pow(2, f('_flux', 1) - 1)))
+    : 0;
+  const alpha = type === '_glass' ? Math.min(1, Math.max(0.05, 1 - f('_alpha', f('_trans', 0.5)))) : 1;
+  return { type, rough, metal, emitK, alpha };
+}
+
+// 解析 .vox → { dense(y-up), palette(256×4), materials, matlRaw }。多模型沿场景图 _t 拼合;
 // 不认识的块跳过(手修安全);场景图含旋转 _r 抛错(本项目不产,拼合语义未定义)。
+// materials = Array(256) 归一化记录；matlRaw = 原始字符串字典。
 export function parseVox(buffer) {
   const u8 = new Uint8Array(buffer);
   const dv = new DataView(buffer);
@@ -207,7 +225,7 @@ export function parseVox(buffer) {
   const models = []; // { size:{x,y,z} vox 口径, xyzi }
   let pendingSize = null;
   const palette = defaultPalette();
-  const materials = {};
+  const matlRaw = {};
   const nodes = new Map();
   while (p + 12 <= u8.length) {
     const id = tagAt(p);
@@ -223,7 +241,10 @@ export function parseVox(buffer) {
     } else if (id === 'RGBA') {
       palette.set(u8.subarray(p, p + 1024), 0);
     } else if (id === 'MATL') {
-      materials[dv.getInt32(p, true)] = readDict(p + 4).d;
+      try {
+        const mid = dv.getInt32(p, true);
+        if (mid >= 1 && mid <= 255) matlRaw[mid] = readDict(p + 4).d;
+      } catch { /* 坏 MATL 不致命 */ }
     } else if (id === 'nTRN') {
       const nid = dv.getInt32(p, true);
       let q = readDict(p + 4).next;
@@ -297,7 +318,9 @@ export function parseVox(buffer) {
       dense.data[wx + DX * (wz + DZ * tz)] = xy[k + 3];
     }
   }
-  return { dense, palette, materials };
+  const materials = new Array(256).fill(null);
+  for (const [id, d] of Object.entries(matlRaw)) materials[+id] = normalizeMatl(d);
+  return { dense, palette, materials, matlRaw };
 }
 
 // 手修安全网(docs/VOXEL_PLAN.md §5-8):MagicaVoxel 默认调色板兜底——

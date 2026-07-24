@@ -127,7 +127,7 @@ export default function TutorialEditor() {
   const lock = useTabLock(); // 多标签 BroadcastChannel 锁：后开标签只读，lock.current.seize() 夺锁
 
   // 首载（StrictMode 双跑幂等：load 只是重复 GET）
-  useEffect(() => { useTedStore.getState().load(); }, []);
+  useEffect(() => { useTedStore.getState().load(); useTedStore.getState().loadTemplates(); }, []);
 
   // 全局快捷键（§0.7 键盘纪律）：IME 合成期直通；Ctrl+S/Z/Y/F 即使焦点在输入框也接管
   // （Ctrl+F 属全局命令而非文本编辑键，legacy 同款全局拦截——浏览器查找对编辑器无意义）。
@@ -139,6 +139,7 @@ export default function TutorialEditor() {
       if (e.key === 'Escape') {
         if (st.menu) { st.closeMenu(); return; }
         if (st.picker) { st.closePicker(); return; }
+        if (st.tplGallery) { st.closeTplGallery(); return; }
         if (st.conflict) { st.dismissConflict(); return; }
         const search = document.getElementById('ted-search');
         if (document.activeElement === search && st.query) st.setQuery('');
@@ -286,10 +287,10 @@ export default function TutorialEditor() {
   const previewSnap = useMemo(() => {
     const node = selUid ? findByUid(chapters, selUid) : null;
     if (!node) return null;
-    return { title: node.title, body: node.body.map((b) => b.data), uids: node.body.map((b) => b.uid) };
+    return { title: node.title, titleSize: node.rest?.titleSize, body: node.body.map((b) => b.data), uids: node.body.map((b) => b.uid) };
   }, [chapters, selUid]);
   const shown = useDebounced(previewSnap, 100);
-  const chapterView = useMemo(() => (shown ? { title: shown.title, body: shown.body } : null), [shown]);
+  const chapterView = useMemo(() => (shown ? { title: shown.title, titleSize: shown.titleSize, body: shown.body } : null), [shown]);
 
   // 预览滚动跟随选中块 + 短暂高亮（§1.2）：selN 触发（同一块重复定位也再滚一次）；
   // 预览内容防抖落后 ~100ms，所以也依赖 shown——内容落地后再补一次定位
@@ -328,6 +329,7 @@ export default function TutorialEditor() {
         <button type="button" className="ted-btn" disabled={!canUndo || ro} onClick={() => useTedStore.getState().undo()}>撤回</button>
         <button type="button" className="ted-btn" disabled={!canRedo || ro} onClick={() => useTedStore.getState().redo()}>重做</button>
         <button type="button" className={`ted-btn${valOpen ? ' on' : ''}`} disabled={!chapters} onClick={() => setValOpen((v) => !v)}>校验</button>
+        <button type="button" className="ted-btn" title="版式库：把设计好的排版存起来，到处一键插入" onClick={() => useTedStore.getState().openTplGallery()}>版式</button>
         <span className="ted-toolbar-gap" />
         <button type="button" className="ted-btn" disabled={status === 'loading'} onClick={reload}>重新载入</button>
         <button

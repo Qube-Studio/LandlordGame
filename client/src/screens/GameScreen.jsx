@@ -6,6 +6,8 @@ import McChat from '../ui/McChat';
 import SeatBar from '../ui/SeatBar';
 import InsuranceDropLayer from '../ui/InsuranceDropLayer';
 import VictoryOverlay from '../ui/VictoryOverlay';
+import ExecOverlay from '../ui/ExecOverlay';
+import { IS_3D_INPUT } from '../game/inputMode';
 import { T } from '../text';
 
 // 掷币分镜演出（§3.4）的 UI 侧状态机：Scene3D 进 COIN_FLIP 置 'hide'（收 UI+封锁输入），
@@ -68,14 +70,19 @@ export default function GameScreen() {
   }
   const single = state.mode === 'single';
   const cineCls = cine === 'hide' ? 'cine-hide' : cine === 'enter' ? 'cine-enter' : '';
+  // 处决窗（§3.9 批次2）：exec-cine=电影画幅（黑边+收起除聊天/右上角外全部 UI，聊天锁系统频道由
+  // McChat 自管；2D 输入模式不上画幅）；exec-dead=死亡视角（左上 HUD 列与右下余额减除——破产观战全程如此）。
+  const execCls = `${!single && IS_3D_INPUT && state.phase === 'EXECUTION' ? 'exec-cine' : ''} ${state.me?.bankrupt ? 'exec-dead' : ''}`;
   return (
-    <div className={`game-screen ${hideUi ? 'ui-hidden' : ''} ${cineCls}`}>
+    <div className={`game-screen ${hideUi ? 'ui-hidden' : ''} ${cineCls} ${execCls}`}>
       <Scene3D />
       <UiLayer />
       {/* 单人：无他人可聊，聊天让位给席位条（Tab 也让给切席，§9.6） */}
       {single ? <SeatBar /> : <McChat />}
       <InsuranceDropLayer />
       <VictoryOverlay />
+      {/* 处决判决罩层（§3.9 批次2）：焦点目标的黑屏红/白字（死亡/赦免） */}
+      {!single && <ExecOverlay />}
       {/* 电影黑边（常驻挂载才有滑入/滑出过渡；分镜期滑入,出场期滑出,常态收在画外） */}
       <div className="cine-bar cine-bar-top" aria-hidden="true" />
       <div className="cine-bar cine-bar-bottom" aria-hidden="true" />

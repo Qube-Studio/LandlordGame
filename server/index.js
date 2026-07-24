@@ -12,7 +12,8 @@ import * as auth from './auth.js';
 import { ERR, SINGLE } from './text.js';
 import { SingleSession, SINGLE_INTENTS } from './single/session.js';
 
-const TEST_MODE = process.env.LLG_TEST === '1'; // 本地测试开关（任务③）：仅 npm run dev 开启
+// 双重显式门禁：只有 server 的 dev 脚本同时设置这两个值；生产环境即使误留 LLG_TEST=1 也不开测试能力。
+const TEST_MODE = process.env.NODE_ENV === 'development' && process.env.LLG_TEST === '1';
 
 const ALLOWED_ORIGINS = new Set([
   'https://landlord-game-client.vercel.app',
@@ -109,7 +110,7 @@ app.post('/api/rooms', requireAuth, (req, res) => {
   if (!modeDef) return res.status(400).json({ error: ERR.unknownMode });
   if (!modeDef.available) return res.status(400).json({ error: ERR.modeUnavailable(modeDef.label) });
   const roomId = crypto.randomBytes(3).toString('hex').toUpperCase();
-  rooms.set(roomId, new Room(roomId, name, modeDef.id, config ?? {}));
+  rooms.set(roomId, new Room(roomId, name, modeDef.id, config ?? {}, { allowExecution: TEST_MODE }));
   res.status(201).json({ roomId });
 });
 
@@ -230,6 +231,10 @@ wss.on('connection', (ws, req) => {
       case 'dev_fill': // 任务③ 本地测试：补满真实测试玩家
         if (!TEST_MODE) { send(ws, { type: 'error', message: ERR.testModeOff }); return; }
         result = room.devFill();
+        break;
+      case 'dev_execution': // §3.9 快速验证：强制处决窗（X 键=1 农民；Shift+X=2 农民+地主混合队列）
+        if (!TEST_MODE) { send(ws, { type: 'error', message: ERR.testModeOff }); return; }
+        result = room.devForceExecution({ targets: Number(msg.targets) || 1, withLandlord: !!msg.withLandlord });
         break;
       case 'dev_act_as': { // 任务③ 本地测试：附身控制某个玩家，单人玩全部角色
         if (!TEST_MODE) { send(ws, { type: 'error', message: ERR.testModeOff }); return; }

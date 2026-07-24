@@ -337,14 +337,13 @@ const FELT_W = 512, FELT_H = 512;
 const FELT_FLIP_Z = false;
 const FELT_DIMS = { w: 6.6, d: 4.0 };
 
-function drawTableFelt(ctx, w, h, spots, rnd, dims = FELT_DIMS) {
+function drawTableMarks(ctx, w, h, spots, dims = FELT_DIMS) {
   const feltU = (x) => (x / dims.w + 0.5) * FELT_W;
   const feltV = (z) => ((FELT_FLIP_Z ? -z : z) / dims.d + 0.5) * FELT_H;
   // 世界系正圆 → 纹理系椭圆的纵横比补偿:512² 铺在 dims.w×dims.d 桌面上,
   // 两向 px/单位不同,直接画圆会被拉成椭圆(玩家反馈⑦)。
   const feltRU = (r) => r * (FELT_W / dims.w);
   const feltRV = (r) => r * (FELT_H / dims.d);
-  drawFelt(ctx, w, h, P.feltTable, rnd, 4);
   // 四周金色缝线边(双线内缩)
   ctx.strokeStyle = 'rgba(202,160,78,0.5)';
   ctx.lineWidth = 2;
@@ -377,6 +376,17 @@ function drawTableFelt(ctx, w, h, spots, rnd, dims = FELT_DIMS) {
     ctx.stroke();
   }
   ctx.setLineDash([]);
+}
+
+function drawTableFelt(ctx, w, h, spots, rnd, dims = FELT_DIMS) {
+  drawFelt(ctx, w, h, P.feltTable, rnd, 4);
+  drawTableMarks(ctx, w, h, spots, dims);
+}
+
+// 体素桌专用透明贴花：只保留动态席位圈/中央币圈/缝线，不盖住 .vox 自带的毡面体素色。
+function drawTableDecal(ctx, w, h, spots, dims = FELT_DIMS) {
+  ctx.clearRect(0, 0, w, h);
+  drawTableMarks(ctx, w, h, spots, dims);
 }
 
 // 火焰 3 帧(32×48,透明底):400ms material.map 引用轮换,永不重画
@@ -415,7 +425,7 @@ function drawFlame(ctx, w, h, frame) {
 const SIZES = {
   wood: [128, 128], felt: [128, 128], fabric: [32, 32], brass: [64, 64],
   parchment: [128, 128], chalk: [64, 64], wall: [256, 256], floor: [128, 128],
-  rug: [128, 128], barrel: [64, 128], tableFelt: [FELT_W, FELT_H], flame: [32, 48],
+  rug: [128, 128], barrel: [64, 128], tableFelt: [FELT_W, FELT_H], tableDecal: [FELT_W, FELT_H], flame: [32, 48],
   abacus: [32, 24], stone: [64, 64], menu: [64, 64], dart: [64, 64],
 };
 
@@ -442,7 +452,8 @@ function canvasKey(kind, o = {}) {
     case 'felt': return `felt|${o.color ?? P.feltTable}`;
     case 'fabric': return `fabric|${o.color ?? P.wood300}|${o.pattern ?? 'plain'}`;
     case 'brass': return `brass|${o.patina ?? 0}`;
-    case 'tableFelt': return `tableFelt|${o.dims ? `${o.dims.w}x${o.dims.d}|` : ''}${(o.spots ?? []).map(s => `${s.x.toFixed(2)},${s.z.toFixed(2)}`).join(';')}`;
+    case 'tableFelt':
+    case 'tableDecal': return `${kind}|${o.dims ? `${o.dims.w}x${o.dims.d}|` : ''}${(o.spots ?? []).map(s => `${s.x.toFixed(2)},${s.z.toFixed(2)}`).join(';')}`;
     case 'flame': return `flame|${o.frame ?? 0}`;
     case 'stone': return `stone|${o.tone ?? P.stone500}`;
     default: return kind; // parchment/chalk/wall/floor/rug/barrel/menu 无参数
@@ -470,6 +481,7 @@ export function canvasFor(kind, o = {}) {
     case 'rug': drawRug(ctx, w, h, rnd); break;
     case 'barrel': drawBarrel(ctx, w, h, rnd); break;
     case 'tableFelt': drawTableFelt(ctx, w, h, o.spots ?? [], rnd, o.dims); break;
+    case 'tableDecal': drawTableDecal(ctx, w, h, o.spots ?? [], o.dims); break;
     case 'flame': drawFlame(ctx, w, h, o.frame ?? 0); break;
     case 'abacus': drawAbacus(ctx, w, h, rnd); break;
     case 'stone': drawStone(ctx, w, h, o.tone ?? P.stone500, rnd); break;
@@ -478,7 +490,7 @@ export function canvasFor(kind, o = {}) {
     default: throw new Error(`texlib: unknown kind ${kind}`);
   }
   // 透明火焰不描边;羊皮纸/黑板供 CSS 大面积平铺,描边会变成接缝格线,也不烘;镖盘自带铁环
-  if (!['flame', 'parchment', 'chalk', 'dart'].includes(kind)) edgeLine(ctx, w, h);
+  if (!['flame', 'tableDecal', 'parchment', 'chalk', 'dart'].includes(kind)) edgeLine(ctx, w, h);
   CANVAS_CACHE.set(key, c);
   return c;
 }

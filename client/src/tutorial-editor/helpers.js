@@ -15,13 +15,13 @@ export const countRender = (key) => {
 };
 
 // ---- 图片入库 + 回填块（上传按钮/拖文件/贴图共用）。withHistory=false：贴图「追加块+填图」并成一步撤回 ----
-// row=true：写双栏段的图片栏（setRowImg）；否则写普通图片块（setBlockImg）
-export async function doUpload(file, chUid, uid, withHistory = true, row = false) {
+// cell={col,idx}：写多列段的指定图片格（patchCellImg）；否则写普通图片块（setBlockImg）
+export async function doUpload(file, chUid, uid, withHistory = true, cell = null) {
   const st = useTedStore.getState();
   try {
     const { url } = await uploadImage(file.name, file);
     const s = useTedStore.getState();
-    if (row) s.setRowImg(chUid, uid, url, { history: withHistory });
+    if (cell) s.patchCellImg(chUid, uid, cell.col, cell.idx, { img: url }, { history: withHistory });
     else s.setBlockImg(chUid, uid, url, { history: withHistory });
     s.showToast('已入库 → public' + url);
   } catch (e) {

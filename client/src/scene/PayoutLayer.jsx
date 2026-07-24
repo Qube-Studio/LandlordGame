@@ -794,7 +794,7 @@ export default function PayoutLayer({ players, seats, spots, playerId, rot }) {
   const negoIdle = canNegotiate && !dir.busy && !negoCarry;
 
   return (
-    <group>
+    <group userData={{ voxBakeSkip: true }}>
       <DirectorClock dir={dir} />
       {/* 各家圆圈钱堆 + 红色债务标记（金额公开）；协商期自己的堆逐张可抓（重力枪） */}
       {Object.entries(m.piles).map(([pid, p]) => (p.notes.length > 0 || p.amount > 0) && (

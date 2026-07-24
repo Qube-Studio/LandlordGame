@@ -308,6 +308,64 @@ img, svg, canvas { -webkit-user-drag: none; user-drag: none; }
 .cine-bar-bottom { bottom: 0; transform: translateY(101%); }
 .game-screen.cine-hide .cine-bar-top,
 .game-screen.cine-hide .cine-bar-bottom { transform: translateY(0); }
+
+/* ---- 处决窗电影画幅（§3.9 批次2）：黑边滑入（复用 .cine-bar）+ 收起除**聊天区与右上角**外的全部 UI
+   （选择器集=掷币分镜 .cine-hide 同款但保留 .mc-chat；3D 浮字层也保留——行刑者价码/目标警示在其中） ---- */
+.game-screen.exec-cine .cine-bar-top,
+.game-screen.exec-cine .cine-bar-bottom { transform: translateY(0); }
+.game-screen.exec-cine .insurance-drop,
+.game-screen.exec-cine .hud > *:not(.hud-top):not(.hud-disconnect),
+.game-screen.exec-cine .hud-top > *:not(.hud-top-right),
+.game-screen.exec-cine .dev-hud {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  transition: opacity 0.35s ease, visibility 0s linear 0.35s !important;
+  pointer-events: none !important;
+}
+.game-screen.exec-cine .hud > *:not(.hud-top):not(.hud-disconnect) *,
+.game-screen.exec-cine .hud-top > *:not(.hud-top-right) * {
+  pointer-events: none !important; /* HUD 是「祖先 none/子孙 auto」——后代一并压掉 */
+}
+/* 触屏例外：行刑者的处决/赦免按钮面板（ExecutionPanel）必须可用 */
+html.touch .game-screen.exec-cine .hud > .hud-bottom {
+  opacity: 1 !important; visibility: visible !important; pointer-events: none !important;
+}
+html.touch .game-screen.exec-cine .hud > .hud-bottom .phase-panel,
+html.touch .game-screen.exec-cine .hud > .hud-bottom .phase-panel * {
+  pointer-events: auto !important;
+}
+/* 死亡视角（处决出局后全程）：左上 HUD 列与右下余额减除 */
+.game-screen.exec-dead .hud-left-stack,
+.game-screen.exec-dead .balance-hud { opacity: 0; pointer-events: none; transition: opacity 0.5s ease; }
+
+/* ---- 处决判决罩层（B 视角黑屏红/白字） ---- */
+.exec-overlay {
+  position: fixed; inset: 0; z-index: 80;
+  background: #000;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px;
+  animation: exec-black-in 0.12s ease-out both;
+  pointer-events: none; /* 罩层不吃点击：底下无可交互项，但别挡住异常时的兜底 UI */
+}
+.exec-overlay.fading { animation: exec-fade-out 0.8s ease both; }
+@keyframes exec-black-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes exec-fade-out { from { opacity: 1; } to { opacity: 0; } }
+.exec-word {
+  font-family: var(--font-cjk);
+  font-size: 88px; letter-spacing: 0.35em; text-indent: 0.35em;
+  animation: exec-word-in 0.5s ease-out both 0.15s;
+}
+.exec-word.dead { color: #d22f2f; text-shadow: 0 0 26px rgba(210, 47, 47, 0.5); }
+.exec-word.pardon { color: #ece7d6; text-shadow: 0 0 22px rgba(236, 231, 214, 0.35); }
+@keyframes exec-word-in { from { opacity: 0; transform: scale(1.12); } to { opacity: 1; transform: scale(1); } }
+.exec-hold-foot {
+  position: absolute; bottom: 12vh;
+  display: flex; gap: 12px; align-items: baseline;
+  font-family: var(--font-cjk); font-size: 14px; color: rgba(236, 231, 214, 0.55);
+}
+.exec-hold-count { color: var(--px-gold); }
+@media (prefers-reduced-motion: reduce) {
+  .exec-overlay, .exec-overlay.fading, .exec-word { animation: none; }
+}
 @media (prefers-reduced-motion: reduce) {
   .cine-bar { transition: none; }
   .game-screen.cine-hide .mc-chat,
@@ -348,12 +406,12 @@ img, svg, canvas { -webkit-user-drag: none; user-drag: none; }
 /* 尺寸档：旧值 880×660 的硬上限在 1080p 只占画面 28% 面积、1440p 仅 16%——教程框在画面里太小。
    正文里的游戏截图原生 2160×1186、无标定宽度（靠 .tut-img 的 max-width:100% 压在列宽上），
    故列宽变宽 = 截图 1:1 变大且降采样比更低（更清晰）；文字段落最长 67 字，1180 列宽下仍无一段超行。 */
-/* 教程面板满宽基准（单一真源）：教程编辑器预览读它做等比缩放，游戏改这里编辑器自动跟随、不脱钩。 */
-:root { --tut-panel-max: 1180px; }
+/* 教程面板满宽/满高基准（单一真源）：教程编辑器预览读它们复刻整框，游戏改这里编辑器自动跟随、不脱钩。 */
+:root { --tut-panel-max: 1180px; --tut-panel-h: 880px; }
 .rules-panel.goal-hud.hud-card {
   position: relative;
   width: min(var(--tut-panel-max), 92vw);
-  height: min(86vh, 880px);
+  height: min(86vh, var(--tut-panel-h));
   display: flex; flex-direction: column;
   align-items: stretch;
   transform-origin: center;
@@ -1955,3 +2013,13 @@ body {
    与 .aim 张开态互斥（className 逻辑保证），同一 difference 混合观感。 */
 .walk-crosshair { transition: transform 0.13s ease-out; }
 .walk-crosshair.deny { transform: translate(-50%, -50%) rotate(45deg); }
+/* deny 态开枪的拒绝反馈：左右弹簧衰减晃动（无文字提示）。每帧都带 rotate(45deg) 基座——
+   shake 只在叉态触发，动画 transform 必须完整覆盖否则会瞬间摆正。key 换值重挂触发重播。 */
+.walk-crosshair.deny-shake { animation: exec-deny-shake 0.34s ease-out; }
+@keyframes exec-deny-shake {
+  0%, 100% { transform: translate(-50%, -50%) rotate(45deg); }
+  15% { transform: translate(calc(-50% - 6px), -50%) rotate(45deg); }
+  38% { transform: translate(calc(-50% + 5px), -50%) rotate(45deg); }
+  60% { transform: translate(calc(-50% - 3px), -50%) rotate(45deg); }
+  80% { transform: translate(calc(-50% + 1px), -50%) rotate(45deg); }
+}

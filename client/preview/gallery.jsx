@@ -13,7 +13,7 @@ import '../src/theme.css';
 import '../src/App.css';
 import '../src/pixel.css';
 import GameScreen from '../src/screens/GameScreen';
-import MinecraftPlayer from '../src/scene/MinecraftPlayer';
+import PlayerModel from '../src/scene/PlayerModel';
 import { getArt } from '../src/assets/registry';
 import { ROLE_LABEL } from '../src/game/roles';
 import { insStackStyle } from '../src/game/notes';
@@ -380,12 +380,17 @@ const SCENES = [
 function AvatarCard({ player }) {
   return (
     <div className="gal-card">
-      <Canvas camera={{ position: [0, 0.2, 4.2], fov: 40 }} style={{ height: 260 }}>
+      <Canvas camera={{ position: [0, 0.2, 4.8], fov: 40 }} style={{ height: 260 }}>
         <ambientLight intensity={0.85} />
         <directionalLight position={[3, 6, 4]} intensity={1} />
-        <group position={[0, -1.15, 0]}><MinecraftPlayer player={player} expression="idle" /></group>
+        <group position={[-0.72, -1.15, 0]}>
+          <PlayerModel art="vox" player={player} expression="idle" />
+        </group>
+        <group position={[0.72, -1.15, 0]}>
+          <PlayerModel art="box" player={player} expression="idle" />
+        </group>
       </Canvas>
-      <div className="gal-label">{ROLE_LABEL[player.role]}（{player.role}）{player.bankrupt ? ' · 破产' : ''}</div>
+      <div className="gal-label">体素 / BOX · {ROLE_LABEL[player.role]}（{player.role}）{player.bankrupt ? ' · 破产' : ''}</div>
     </div>
   );
 }

@@ -15,12 +15,22 @@ import { IS_3D_INPUT, IS_TOUCH } from '../game/inputMode';
 import { grab } from './grab';
 import { setFeltBounds } from './carry';
 import Tickets3D from './Tickets3D';
-import MinecraftPlayer from './MinecraftPlayer';
+import PlayerModel from './PlayerModel';
+import {
+  VoxRoom, VoxFireplace, VoxBarrels, VoxDecor, VoxChandelier, VoxTable, VoxChair,
+} from './VoxelEnvironment';
+import VoxelLight from '../voxel/light/VoxelLight';
+import {
+  VOX_LOOK, VOX_FILLS, VOX_MOON, VOX_SUN,
+  useVoxelLightRig, VoxelEnvironmentBake, VoxelPostEffects,
+} from '../voxel/VoxelRenderPipeline';
 import PixelText from '../assets/pixelfont/PixelText';
 import { RoleDetailBody } from '../ui/RoleWall';
 import Coin from './Coin';
 import CineRig from './CineRig';
 import ExecutionRig from './ExecutionRig';
+import ExecCineRig from './ExecCineRig';
+import ExecReturnRig from './ExecReturnRig';
 import RevolverView from './RevolverView';
 import PayoutLayer from './PayoutLayer';
 import HandLayer from './HandLayer';
@@ -30,7 +40,7 @@ import { coinFaceTexture } from './textures';
 import { getCoinRest } from './coinSim';
 import { setProjector } from './projection';
 import { pointerNDC } from './screen';
-import { rayHitsBox } from './aim';
+import { rayHitsBox, angDiff } from './aim';
 import { clientToStage, STAGE } from '../ui/stageTransform';
 import { expressionFor } from './expression';
 import { P } from '../assets/palette';
@@ -46,6 +56,9 @@ const DEV = import.meta.env.DEV;
 const PARAMS = typeof location !== 'undefined' ? new URLSearchParams(location.search) : new URLSearchParams();
 const NO_FX = PARAMS.get('nofx') === '1';
 const NO_SHADOW = PARAMS.get('noshadow') === '1';
+const ART_OVERRIDE = PARAMS.get('art') === 'box'
+  ? 'classic'
+  : PARAMS.get('art') === 'vox' ? 'voxel' : null;
 // 减少动态:压光/金屑/镜头震直接跳终态或不演(CSS 侧由 pixel.css 的 media query 兜底)
 const REDUCED = typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 // 自适应渲染分辨率(反馈②操作延迟多为大屏掉帧感):按像素总量预算折算 DPR。
@@ -1330,6 +1343,19 @@ function SceneContents({ look, freeCam = false }) {
   // 画质设置(反馈①):阴影/光影特效由玩家档位控制;URL 排查开关仍可强制关
   const shadowsOn = useSettingsStore(s => s.shadows);
   const postfxOn = useSettingsStore(s => s.postfx);
+  const lightAnim = useSettingsStore(s => s.lightAnim);
+  const visualStyle = useSettingsStore(s => s.visualStyle);
+  const voxelRequested = (ART_OVERRIDE ?? visualStyle) === 'voxel';
+  const [voxelRun, setVoxelRun] = useState({ requested: voxelRequested, status: voxelRequested ? 'baking' : 'idle' });
+  const requestChanged = voxelRun.requested !== voxelRequested;
+  if (requestChanged) setVoxelRun({ requested: voxelRequested, status: voxelRequested ? 'baking' : 'idle' });
+  const voxelStatus = requestChanged ? (voxelRequested ? 'baking' : 'idle') : voxelRun.status;
+  // 首烘完成前保留旧灯；能力不足/烘焙失败则完整回落经典模型和管线，偏好本身不改写。
+  const voxelActive = voxelRequested && voxelStatus !== 'failed';
+  const voxelLit = voxelActive && voxelStatus === 'ready';
+  const voxelAssets = voxelRequested && voxelStatus !== 'failed';
+  const voxelLights = useVoxelLightRig(state.phase, lightAnim, REDUCED);
+  const roomRoot = useRef(null);
   // 单人模式（§9.6 交互 v2）：长桌两阵营对坐 + 自由走动/附身双态相机
   const single = !!state.single;
   const setup = state.phase === 'SINGLE_SETUP';
@@ -1356,8 +1382,30 @@ function SceneContents({ look, freeCam = false }) {
   // cine 状态机其余的推进在别处：CineRig 归位完成/卸载 → 'enter'，GameScreen 计时/任意键 → 'off'。
   const cine = useGameStore(s => s.cine);
   const cineEligible = !single && !freeCam && !REDUCED;
-  // 处决窗（§3.9）：我是行刑者（桌面 3D）→ ExecutionRig 接管相机（指针锁+准心+左轮）。
-  const execRigOn = !single && !IS_TOUCH && state.phase === 'EXECUTION' && state.execution?.executionerId === playerId;
+  // 处决窗（§3.9）相机分派：行刑者=ExecutionRig（指针锁+准心+左轮+软锁）；连发=全员第三人称锁定；
+  // 焦点目标=软锁看行刑者；已出局死者=死亡视角（CameraRig 自由环视，UI 减除由 exec-dead 类管）；
+  // 其余活人=A 运镜（REDUCED 减动效免锁）。触屏不进指针锁 rig（行刑者走面板），但 A/B 运镜可用。
+  const exPhase = !single && state.phase === 'EXECUTION' ? state.execution : null;
+  const execRigOn = !!exPhase && !IS_TOUCH && exPhase.executionerId === playerId && !exPhase.volley;
+  const execCineMode = exPhase && !REDUCED
+    ? (exPhase.volley ? 'volley'
+      : exPhase.executionerId === playerId ? null      // 行刑者：非连发时走 ExecutionRig
+        : me?.bankrupt ? null                          // 已出局死者：死亡视角（CameraRig）
+          : exPhase.targetId === playerId ? 'target'
+            : 'watcher')
+    : null;
+  // 归位段（批次2修订）：处决相机接管结束（收窗/死亡切出/身份变化）→ smootherstep 混回中性位
+  // 再交还 CameraRig——直接卸载会朝向瞬跳（被反馈「回来没有镜头过渡」）。
+  const execCamOn = execRigOn || !!execCineMode;
+  const [execReturn, setExecReturn] = useState(false);
+  const [prevExecCam, setPrevExecCam] = useState(execCamOn);
+  // 渲染期 prev 比较（React 官方 adjust-state-during-render 模式，prev 存 state）：
+  // 接管撤除瞬间开归位段；又被接管（下一焦点换身份）则归位段让位。
+  if (prevExecCam !== execCamOn) {
+    setPrevExecCam(execCamOn);
+    if (!execCamOn && !freeCam) setExecReturn(true);
+    else if (execCamOn && execReturn) setExecReturn(false);
+  }
   useEffect(() => {
     if (state.phase === 'COIN_FLIP' && cineEligible) useGameStore.getState().setCine('hide');
   }, [state.phase, cineEligible]);
@@ -1410,18 +1458,22 @@ function SceneContents({ look, freeCam = false }) {
       {/* 打烊后的酒馆账房:墙落进雾里,黑虚空消失(ART_BIBLE §1.2) */}
       <color attach="background" args={[P.sceneBg]} />
       <fog attach="fog" args={[P.sceneFog, 10, 26]} />
-      {/* 灯 rig(5 盏):环境 + 暖金主光(投影) + 吊灯唯一光池 + 炉火(闪烁) + 冷补 */}
-      <ambientLight intensity={0.38} color={P.sceneAmbient} />
-      <directionalLight
-        position={[4, 9, 3]} intensity={1.35} color={P.key}
-        castShadow={!NO_SHADOW && shadowsOn} shadow-mapSize={[1024, 1024]}
-        shadow-camera-near={1} shadow-camera-far={30}
-        shadow-camera-left={-9} shadow-camera-right={9}
-        shadow-camera-top={9} shadow-camera-bottom={-9}
-        shadow-bias={-0.0004}
-      />
-      <ChandelierLight />
-      <directionalLight position={[-6, 4, 6]} intensity={0.30} color={P.coolFill} />
+      {/* 新体积 ready 前继续用经典灯照模型；ready 回调保证体积绑定并补好当前材质。 */}
+      {!voxelLit && (
+        <>
+          <ambientLight intensity={0.38} color={P.sceneAmbient} />
+          <directionalLight
+            position={[4, 9, 3]} intensity={1.35} color={P.key}
+            castShadow={!NO_SHADOW && shadowsOn} shadow-mapSize={[1024, 1024]}
+            shadow-camera-near={1} shadow-camera-far={30}
+            shadow-camera-left={-9} shadow-camera-right={9}
+            shadow-camera-top={9} shadow-camera-bottom={-9}
+            shadow-bias={-0.0004}
+          />
+          <ChandelierLight />
+          <directionalLight position={[-6, 4, 6]} intensity={0.30} color={P.coolFill} />
+        </>
+      )}
 
       {freeCam
         ? <OrbitControls target={[0, 1.05, 0]} makeDefault />
@@ -1429,41 +1481,82 @@ function SceneContents({ look, freeCam = false }) {
           ? <SingleRig mode={possessed ? 'seat' : 'walk'} seat={possessed ? mySeat : null} shakeRef={shakeRef} />
           : execRigOn
             ? <ExecutionRig players={players} seats={seats} rot={rot} camZ={camZ} eyeY={EYE_Y} playerId={playerId} />
-            : cine === 'hide'
-              ? <CineRig camZ={camZ} eyeY={EYE_Y} lookY={LOOK_Y} rot={rot} tableTop={TABLE_TOP} />
-              : <CameraRig look={look} shakeRef={shakeRef} camZ={camZ} />}
-      {/* 处决窗行刑者的第一人称左轮（§3.9）：与 ExecutionRig 同挂同卸 */}
+            : execCineMode
+              ? <ExecCineRig mode={execCineMode} players={players} seats={seats} rot={rot} camZ={camZ} eyeY={EYE_Y} playerId={playerId} look={look} />
+              : execReturn
+                ? <ExecReturnRig camZ={camZ} eyeY={EYE_Y} lookY={LOOK_Y} onDone={() => setExecReturn(false)} />
+                : cine === 'hide'
+                  ? <CineRig camZ={camZ} eyeY={EYE_Y} lookY={LOOK_Y} rot={rot} tableTop={TABLE_TOP} />
+                  : <CameraRig look={look} shakeRef={shakeRef} camZ={camZ} />}
+      {/* 处决窗行刑者的第一人称左轮（§3.9）：与 ExecutionRig 同挂同卸（连发第三人称时收起） */}
       {execRigOn && <RevolverView />}
       <Projector />
 
       {/* 场景旋转组:把「我的座位」转到 +z 近侧——不同玩家看到自己坐在桌边不同位置(反馈⑫)。
           炉火点光跟着壁炉走(在组内);主光/环境/吊灯点光留在世界系(灯光戏剧性对所有人一致)。 */}
-      <group rotation={[0, rot, 0]}>
+      <group ref={roomRoot} rotation={[0, rot, 0]}>
+        {voxelLit && (
+          <directionalLight
+            position={VOX_MOON.pos} intensity={VOX_MOON.intensity} color={VOX_MOON.color}
+            castShadow={!NO_SHADOW && shadowsOn} shadow-mapSize={[2048, 2048]}
+            shadow-camera-near={0.5} shadow-camera-far={40}
+            shadow-camera-left={-19} shadow-camera-right={19}
+            shadow-camera-top={19} shadow-camera-bottom={-19}
+            shadow-bias={-0.0004}
+          />
+        )}
         {/* 造景:房间(墙/地/天花/梁) + 壁炉 + 酒桶 + 墙面摆设 + 吊灯 + 圆毯 */}
-        <Room />
-        <Fireplace />
-        <FireLight />
-        <Barrels />
-        <Decor />
-        <Chandelier />
+        {voxelAssets ? <VoxRoom /> : <Room />}
+        {voxelAssets ? <VoxFireplace /> : <Fireplace />}
+        {!voxelLit && <FireLight />}
+        {voxelAssets ? <VoxBarrels /> : <Barrels />}
+        {voxelAssets ? <VoxDecor /> : <Decor />}
+        {voxelAssets ? <VoxChandelier /> : <Chandelier />}
         <Rug />
 
-        <Table spots={spots} size={single ? SINGLE_TABLE : null} />
+        {voxelAssets
+          ? <VoxTable spots={spots} single={single} />
+          : <Table spots={spots} size={single ? SINGLE_TABLE : null} />}
         {single && <FactionBarriers />}
 
         {/* 入座椅子(反馈⑬:第一人称不渲染自己的椅子——与不建模自己身体同理,低头/退远也不穿帮)。
             单人:四个队伍槽位+Boss 位恒有椅子(空椅=可招募的位置);附身席位的椅子隐去。 */}
         {single
           ? [...SINGLE_TEAM_SEATS, SINGLE_BOSS_SEAT].map((seat, i) => (
-            (!possessed || seat !== mySeat) && <Chair key={`chair-${i}`} x={seat.x} z={seat.z} ry={Math.atan2(-seat.x, -seat.z)} />
+            (!possessed || seat !== mySeat) && (voxelAssets
+              ? <VoxChair key={`chair-${i}`} x={seat.x} z={seat.z} ry={Math.atan2(-seat.x, -seat.z)} />
+              : <Chair key={`chair-${i}`} x={seat.x} z={seat.z} ry={Math.atan2(-seat.x, -seat.z)} />)
           ))
           : seats.map((seat, i) => (
-            (freeCam || i !== meIdx) && <Chair key={`chair-${i}`} x={seat.x} z={seat.z} ry={Math.atan2(-seat.x, -seat.z)} />
+            (freeCam || execCineMode === 'volley' || i !== meIdx) && (voxelAssets
+              ? <VoxChair key={`chair-${i}`} x={seat.x} z={seat.z} ry={Math.atan2(-seat.x, -seat.z)} />
+              : <Chair key={`chair-${i}`} x={seat.x} z={seat.z} ry={Math.atan2(-seat.x, -seat.z)} />)
           ))}
         {players.map((p, i) => {
-          if (p.id === playerId && !freeCam && (!single || possessed)) return null;
+          // 连发第三人称（§3.9）例外：全员被锁在外部机位——自己的身体/椅子也要在画面里
+          // （行刑者超时=看自己连续开枪；平时第一人称不建模自己）
+          if (p.id === playerId && !freeCam && (!single || possessed) && execCineMode !== 'volley') return null;
           const seat = seats[i];
           const ry = Math.atan2(-seat.x, -seat.z);
+          // 行刑者外部持枪动作（§3.9 批次5）：枪指向的 yaw/pitch 在**该角色 root 局部系**算好传下去
+          // （角色组自带 ry 朝桌心,目标/自己都在同一旋转组内——直接用组内座标差）；
+          // fire=判决计数(变化即鸣枪),outcome 供赦免枪把臂甩向天。结果窗 targetId 空时枪保持指向上一目标。
+          let execFx = null;
+          if (exPhase && exPhase.executionerId === p.id) {
+            const tid = exPhase.targetId ?? exPhase.lastResult?.targetId;
+            const ti = players.findIndex(q => q.id === tid);
+            const ts = ti >= 0 ? seats[ti] : null;
+            if (ts && tid !== p.id) {
+              const dx = ts.x - seat.x, dz = ts.z - seat.z;
+              const dist = Math.hypot(dx, dz) || 1;
+              execFx = {
+                yaw: angDiff(Math.atan2(dx, dz), ry),
+                pitch: Math.atan2(1.15 - 1.32, dist), // 枪口(肩高)到目标胸口的俯角
+                fire: exPhase.results?.length ?? 0,
+                outcome: exPhase.lastResult?.outcome ?? null,
+              };
+            }
+          }
           // 点角色附身只开放给**走动视角**：落座下注时 r3f 射线会穿透手牌命中身后的队友,
           // 点牌会被误判成切席（E2E 抓出的真 bug）——落座时切席走 Tab/席位芯片/起身后准心。
           const clickable = single && p.id !== 'L' && !p.bankrupt && !setup && !possessed;
@@ -1478,13 +1571,15 @@ function SceneContents({ look, freeCam = false }) {
                 if (e.delta < 6) { e.stopPropagation(); possess(p.id); }
               } : undefined}
             >
-              <MinecraftPlayer
+              <PlayerModel
+                art={voxelAssets ? 'vox' : 'box'}
                 player={p}
                 expression={expressionFor(p, state)}
                 seed={i * 1.7}
                 look={p.id === playerId ? null : looks[p.id]}
                 seated
                 label={single ? `¥${p.balance ?? 0}` : null}
+                exec={execFx}
               />
             </group>
           );
@@ -1554,12 +1649,28 @@ function SceneContents({ look, freeCam = false }) {
 
         {/* 硬币 */}
         {showFlip && (
-          <Coin key={`flip-${state.round}`} mode="flip" result={state.coinResult ?? 'heads'} tableTop={TABLE_TOP} />
+          <Coin key={`flip-${state.round}`} mode="flip" result={state.coinResult ?? 'heads'} tableTop={TABLE_TOP} voxel={voxelAssets} />
         )}
-        {showRest && <Coin key={`rest-${state.round}`} mode="rest" result={state.coinResult} tableTop={TABLE_TOP} />}
+        {showRest && <Coin key={`rest-${state.round}`} mode="rest" result={state.coinResult} tableTop={TABLE_TOP} voxel={voxelAssets} />}
         {/* （落定的桌面扩散演出已裁——尝试过金环金屑/像素浪潮/扫描光三版，均不合意；
             落定的强调改由分镜揭示镜的「打光闪 + 币面金光脉冲」承担，见 CineRig/Coin） */}
       </group>
+
+      <VoxelLight
+        active={voxelActive}
+        lit
+        debug={DEV && PARAMS.get('voxdebug') === '1'}
+        ambient={VOX_LOOK.ambient}
+        lights={voxelLights}
+        fillLights={VOX_FILLS}
+        sun={VOX_SUN}
+        spaceRoot={roomRoot}
+        rebakeKeys={[single]}
+        onStatus={(status) => setVoxelRun((run) => (
+          run.requested === voxelRequested ? { ...run, status } : run
+        ))}
+      />
+      <VoxelEnvironmentBake active={voxelLit} triggerKey={`${single}:${rot}`} />
 
       {/* 3D 手牌层（交互 3D 化）：BETTING 期把余额捏在相机前，拖进圆圈下注。
           挂在旋转组之外（手随相机走、拖拽射线都在世界系），桌面暂存牌由它内部按 rot 对齐。 */}
@@ -1575,16 +1686,20 @@ function SceneContents({ look, freeCam = false }) {
         )}
 
       {/* 柔和接触阴影：低分辨率(够糊)，避免每帧高分重渲拖帧 */}
-      <ContactShadows position={[0, 0.02, 0]} scale={18} blur={2.6} opacity={0.5} far={4.5} resolution={256} color={P.wood900} />
+      {!NO_SHADOW && shadowsOn && (
+        <ContactShadows position={[0, 0.02, 0]} scale={18} blur={2.6} opacity={0.5} far={4.5} resolution={256} color={P.wood900} />
+      )}
 
       {/* 后处理：吊灯/金皇冠/金色¥微微发光 + 画面暗角，营造围炉灯火气(画质设置可关,反馈①)。
           对质白描边不再走这里（后处理 Outline 静默失效已弃用）——改由 MinecraftPlayer 的反向外壳承担。 */}
-      {!NO_FX && postfxOn && (
-        <EffectComposer disableNormalPass multisampling={0}>
-          <Bloom intensity={0.5} luminanceThreshold={0.72} luminanceSmoothing={0.2} mipmapBlur />
-          <Vignette eskil={false} offset={0.28} darkness={0.62} />
-        </EffectComposer>
-      )}
+      {voxelLit
+        ? (!NO_FX && <VoxelPostEffects extras={postfxOn} />)
+        : (!NO_FX && postfxOn && (
+          <EffectComposer disableNormalPass multisampling={0}>
+            <Bloom intensity={0.5} luminanceThreshold={0.72} luminanceSmoothing={0.2} mipmapBlur />
+            <Vignette eskil={false} offset={0.28} darkness={0.62} />
+          </EffectComposer>
+        ))}
     </>
   );
 }
@@ -1597,7 +1712,9 @@ export default function Scene3D() {
   const walkLocked = useGameStore(s => s.walkLocked);
   const walkAim = useGameStore(s => s.walkAim);
   // 处决窗行刑者的准心（§3.9）：ExecutionRig 挂载期间复用同一套 walk-crosshair 罩层
-  const execCrosshair = useGameStore(s => s.state?.phase === 'EXECUTION' && s.state.execution?.executionerId === s.playerId);
+  const execCrosshair = useGameStore(s => s.state?.phase === 'EXECUTION' && s.state.execution?.executionerId === s.playerId
+    && !!s.state.execution?.targetId && s.execFiredAt !== s.state.execution.targetId); // 开火后/结果窗=收枪，准心一并收起
+  const aimDenyPulse = useGameStore(s => s.aimDenyPulse); // deny 态开枪的拒绝晃动脉冲
   // 渲染分辨率档位(反馈①):auto=像素预算自适应;low/medium/high 固定 dpr。R3F 对 dpr 热应用。
   // 订阅 uiScale：界面大小换档改变有效参考尺寸(STAGE.W/H) → auto 档 dpr 须随之重算。
   const renderScale = useSettingsStore(s => s.renderScale);
@@ -1650,7 +1767,8 @@ export default function Scene3D() {
     return () => window.removeEventListener('pointermove', onMove);
   }, []);
 
-  // 本地测试快捷键：B 补满真实测试玩家，V 切换当前操控的角色（单人玩全部角色），K 自由相机
+  // 本地测试快捷键：B 补满真实测试玩家，V 切换当前操控的角色（单人玩全部角色），K 自由相机，
+  // X 强制处决窗（§3.9 快速验证：X=1 农民破产；Shift+X=2 农民+地主的混合队列，覆盖换行刑者/连发）
   // （原 C 让位给检察官·传唤 §8.9——开发键避让产品键）。
   useEffect(() => {
     if (!DEV) return undefined;
@@ -1659,6 +1777,7 @@ export default function Scene3D() {
       if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) return;
       const store = useGameStore.getState();
       if (e.key === 'b' || e.key === 'B') store.send({ type: 'dev_fill' });
+      else if (e.key === 'x' || e.key === 'X') store.send({ type: 'dev_execution', targets: e.shiftKey ? 2 : 1, withLandlord: e.shiftKey });
       else if (e.key === 'k' || e.key === 'K') setFreeCam(v => !v);
       else if (e.key === 'v' || e.key === 'V') {
         const list = store.state?.players ?? [];
@@ -1692,8 +1811,10 @@ export default function Scene3D() {
         // 四条臂独立成元素:可交互时各自向外平移+微缩短(CSS 过渡出"张开"动程)。
         // data-aim 暴露目标类型（'circle:s0'/'coin'/'seat:s1'/'exec:p1'/'deny:living'）——E2E 断言用。
         // 处决窗三态（§3.9）：exec=张开、deny:*=容器旋 45° 成斜叉、null=闭合。未锁定=系统光标。
+        // deny 态开枪的拒绝反馈：aimDenyPulse 自增 → key 换值重挂 → 弹簧晃动动画重播（无文字提示）。
         <div
-          className={`walk-crosshair ${typeof walkAim === 'string' && walkAim.startsWith('deny') ? 'deny' : walkAim ? 'aim' : ''}`}
+          key={aimDenyPulse}
+          className={`walk-crosshair ${typeof walkAim === 'string' && walkAim.startsWith('deny') ? `deny${aimDenyPulse > 0 ? ' deny-shake' : ''}` : walkAim ? 'aim' : ''}`}
           data-aim={walkAim ?? undefined}
         >
           <i className="ch-n" /><i className="ch-s" /><i className="ch-w" /><i className="ch-e" />

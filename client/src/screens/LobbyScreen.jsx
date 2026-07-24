@@ -2,8 +2,10 @@ import { useEffect, useState } from 'react';
 import { api } from '../api';
 import { useAuthStore } from '../store/authStore';
 import { useGameStore } from '../store/gameStore';
+import { useSettingsStore } from '../store/settingsStore';
 import { getArt } from '../assets/registry';
 import PixelText from '../assets/pixelfont/PixelText';
+import SettingsPanel from '../ui/SettingsPanel';
 import { T } from '../text';
 
 const Icon = getArt('icon');
@@ -20,6 +22,7 @@ export default function LobbyScreen() {
   const connected = useGameStore(s => s.connected);
   const joinRoom = useGameStore(s => s.joinRoom);
   const showToast = useGameStore(s => s.showToast);
+  const executionTestRooms = useSettingsStore(s => s.executionTestRooms);
 
   const [modes, setModes] = useState([]);
   const [rooms, setRooms] = useState([]);
@@ -44,7 +47,11 @@ export default function LobbyScreen() {
 
   const createRoom = async (mode) => {
     try {
-      const { roomId } = await api.createRoom(roomName.trim() || T.lobby.defaultRoomName(username), mode);
+      const { roomId } = await api.createRoom(
+        roomName.trim() || T.lobby.defaultRoomName(username),
+        mode,
+        { execution: { enabled: DEV && executionTestRooms } },
+      );
       joinRoom(roomId);
     } catch (err) {
       showToast(err.message);
@@ -58,6 +65,7 @@ export default function LobbyScreen() {
         <div className="lobby-header-right">
           <span className="online-chip"><Icon name="users" size={15} /> {T.lobby.online(online.count)}</span>
           <span className="dim">{username}</span>
+          <SettingsPanel allowLocalExperiments={DEV} />
           <button className="btn ghost small" onClick={logout}><Icon name="exit" size={15} /> {T.lobby.logout}</button>
         </div>
       </header>

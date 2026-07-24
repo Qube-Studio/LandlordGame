@@ -13,7 +13,7 @@
    - 服务端：`logic/`（纯函数，无 IO，可单测可仿真）与 `Room.js`（状态机、定时器、广播）分离。
    - 客户端：`scene/`（3D 画面层）与 `ui/`（2D UI 层）分离；两层都只读 store，不持有游戏逻辑。
 4. **数据在服务端**：账号、对局历史、回合记录都持久化在服务端（`server/data/`，JSON 文件存储，留出换数据库的接口）；客户端 localStorage 只存登录 token。
-5. **美术全部 SVG + 注册表**：所有美术（钱牌、硬币、玩家形象、图标、桌面纹理）以 React SVG 组件实现，统一经 `assets/registry.jsx` 引用。将来换贴图只改注册表，不改业务组件。
+5. **美术入口与双画面方案**：HUD 图标、钱牌 canvas 与共享纹理仍走 `assets/registry.jsx`；3D 场景由本地持久化设置 `visualStyle` 原子选择 `voxel`（全套 `.vox` + 体素光照/IBL/AgX）或 `classic`（旧模型 + 旧光栅管线）。两套只影响表现，不改变服务端状态、规则或协议；运行中切换不得重建 Canvas。
 6. **视觉基调**：整体偏深黑（多层次：近黑底色 + 深蓝/深紫渐变 + 细微纹理/光晕，避免单调），UI 用白色（文字、线框、按钮描边），金钱用低饱和金色点缀。
 
 ---
@@ -60,7 +60,7 @@ POST /api/auth/logout                              -> {ok}
 GET  /api/auth/me                                  -> {username}
 GET  /api/online                                   -> {count, users: [...]}
 GET  /api/modes                                    -> [{id, label, available, description}]
-POST /api/rooms         {name, mode}               -> {roomId}
+POST /api/rooms         {name, mode, config?}      -> {roomId}
 GET  /api/rooms                                    -> [{roomId, name, mode, phase, playerCount, maxPlayers}]
 ```
 
@@ -77,8 +77,8 @@ confirm_reveal     {}                    // REVEAL 阶段确认
 negotiate_transfer {toId, kind: 'take'|'debt', amount}   // NEGOTIATE，把自己的钱/债转给队友
 negotiate_confirm  {confirmed: bool}     // NEGOTIATE 确认/撤销确认
 take_payout        {}                    // FINALIZE，从桌面拿取自己的钱堆（此刻余额才入账，见 §3.8）
-execute            {}                    // EXECUTION，行刑者对破产目标开枪=处决（§3.9）
-pardon             {}                    // EXECUTION，行刑者对空鸣枪=赦免（自掏赔偿复活目标，§3.9）
+execute            {}                    // 本地实验 EXECUTION，行刑者对破产目标开枪=处决（§3.9）
+pardon             {}                    // 本地实验 EXECUTION，行刑者对空鸣枪=赦免（自掏赔偿复活目标，§3.9）
 chat               {channel: 'public'|'farmer', text}
 restart_game       {}                    // 仅房主，ENDED 内=「下一局」（回大厅重开）；默认不自动回大厅，见 §3.4
 get_state          {}
@@ -120,7 +120,8 @@ kicked   {reason}           // 顶号或被移出
 LOBBY ──房主开始──► DISCUSSION ──短喘息定时──► BETTING ──全员下注──► CHALLENGE(竞技·对质窗)
    ──指控落定/全员跳过/超时/无票自动跳过──► REVEAL ──全员确认──► COIN_FLIP ──动画定时──► SETTLE
    ──定时──► NEGOTIATE ──全部农民确认(或超时)──► FINALIZE ──全员拿取+定时──► 破产判定
-   ──有新破产者──► EXECUTION(处决窗·逐个生死判决,§3.9) ──队列清空──► 终局判定 ──► DISCUSSION(下一回合) 或 ENDED
+   ──处决实验已开启且有新破产者──► EXECUTION(逐个生死判决,§3.9) ──队列清空──► 终局判定 ──► DISCUSSION(下一回合) 或 ENDED
+   └─默认路径（处决关闭）──► 落破产标记 ──► 终局判定 ──► DISCUSSION(下一回合) 或 ENDED
 ```
 - **DISCUSSION（讨论/准备）**：游戏从讨论开始；农民可在农民频道密谈战术（频道可切公开/农民私聊；语音接口预留）。地主与农民都要点"准备"，全员准备进入下注。
 - **BETTING（下注中）**：见 3.3。已下注玩家对他人显示"已下注"（反面牌），金额保密。
@@ -222,12 +223,16 @@ step 词汇（可扩展）：
 
 **客户端**（`scene/PayoutLayer.jsx`，纯表现）：SETTLE 起接管全部桌面钱渲染（自己的堆沿用下注飞行那批牌模型，零跳变）；顺序播放脚本步骤（每步 = 一组世界坐标贝塞尔弧飞牌 + 落定重组，错峰 80ms）；播完与 `payout.piles` 对账、差额自动飞牌追平——协商实时镜像与地主的 FINALIZE 追平共用这一机制。拿取 = 自己的堆飞向手牌区（反投影）、他人的堆飞向其身体收拢。
 
-### 3.9 处决窗（EXECUTION；`logic/execution.js`）
+### 3.9 处决窗（EXECUTION；本地实验；`logic/execution.js`）
 
-FINALIZE 落破产标记之后、终局判定之前，插入处决窗：**每个新破产者由其敌对阵营中钱最多的活人持枪定夺生死**。破产不再是静默出局，而是一次全场戏眼——且**终局判定被推迟到窗后**（地主破产被赦免即续命，游戏继续）。适用 quick 与 competitive；`execution.enabled` 总开关（默认开）。
+处决实现完整保留，但当前是**默认关闭、生产环境硬关闭**的本地实验功能。只有同时满足以下条件才可启用：服务端以本地测试模式启动、开发版客户端在大厅「设置 → 本地实验」中显式开启、随后由该客户端新建房间。开关只影响之后新建的房间，不能在对局中途改变；生产服务端即使收到伪造的 `execution.enabled=true` 也必须钳制为关闭。
+
+启用后，在 FINALIZE 算出新破产名单、但尚未落破产标记和终局判定之前插入处决窗：**每个新破产者由其敌对阵营中钱最多的活人持枪定夺生死**。破产不再是静默出局，而是一次全场戏眼——且**终局判定被推迟到窗后**（地主破产被赦免即续命，游戏继续）。实验开关对 quick 与 competitive 一致生效。
 
 **规则**：
-- **触发**：`payout.newlyBankrupt` 非空（且窗口开始时仍破产）。多人同轮破产 = 一个窗内**依次**处理（`queue` 按破产名单序）；每个目标的行刑者按**当时状态**重算——上一次赦免的扣款/复活可能改变谁最富、谁活着。
+- **触发**：`payout.newlyBankrupt` 非空。多人同轮破产 = 一个窗内**依次**处理（`queue` 按破产名单序）；每个目标的行刑者按**当时状态**重算——上一次赦免的扣款/复活可能改变谁最富、谁活着（混合破产队列时行刑者跨阵营换人；先被赦免的敌方可接棒行刑）。
+- **破产标记推迟制**：FINALIZE 只算名单不置 `bankrupt`——待判目标在窗内保持正常外观/语义（不灰化不瘫倒，判决才有悬念）；`bankrupt=true` 在**处决落定**那一刻才落（含超时/无行刑者自动处决），被赦免者**从未破产过**。行刑者候选须排除本窗尚未判决的其他待判者（事实破产不能持枪）。处决窗被跳过（enabled=false）或窗内被迫终局（弃局）→ 剩余未判者按默认处决补落标。
+- **默认关闭路径**：仍完整等待 FINALIZE 的拿取闸门与 `finalizeMs` 收尾；随后一次性落下 `payout.newlyBankrupt` 的全部破产标记，直接执行终局判定或进入下一回合。全程不得短暂进入 EXECUTION，不产生处决/赦免播报，也不写 `history[].executions`。
 - **行刑者**（`pickExecutioner`）：目标敌对阵营（`factionOf` 对面）中 `!bankrupt && !spectator` 的最富者；「钱」的口径统一为 `wealthOf`——资本家=担保资金池（pool），其余=余额。并列取座位号小者。敌对阵营无活人 → 该目标自动处决跳过（SYS 播报）。
 - **处决**（`execute`）：维持出局（bankrupt 不变）。
 - **赦免**（`pardon`）：行刑者**自掏腰包赔偿目标本回合输掉的钱**（`compensationOf`：资本家=回合初池−当前池、其余=回合初余额−当前余额，快照 `roundStartBalances`/`roundStartPools` 在 BETTING 进入时截取）→ 目标复活（`bankrupt=false`、余额/池回到回合初值）。行刑者扣款口径同 wealthOf（资本家扣池、其余扣余额）。**付不起禁赦**：赔后须仍 > `bankruptcyThreshold`（不许把自己赔破产），否则 `pardon` 返回 ERR（客户端准心对空也是叉）。
@@ -236,7 +241,15 @@ FINALIZE 落破产标记之后、终局判定之前，插入处决窗：**每个
 
 **协议**：意图 `execute` / `pardon`（无参数，服务端校验行刑者身份）；`viewFor()` 顶层 `execution = {targetId, executionerId, deadline, compensation, queueLeft, results}` 全公开（赔偿额=本回合公开结算可推出，无泄密）；行刑者的 `me` 额外带 `isExecutioner / pardonCost / canPardon`。
 
-**客户端演出**（桌面 3D）：行刑者由 `scene/ExecutionRig.jsx` 接管相机——**指针锁 + 定点自由环视**（照单人 SingleRig 同款：CTRL 按住/开面板=放开鼠标，ESC 强退后任意键静默回锁）+ 第一人称左轮视模（`scene/RevolverView.jsx`，`assets/vox/props/revolver.vox`）+ **三态准心**（复用 `.walk-crosshair`，`walkAim` 词表扩展）：瞄着可处决的破产目标=**张开十字**（`exec:<pid>`）、空处=**闭合十字**（可开枪赦免）、活人或赔不起=**斜 45° 叉**（`deny:living`/`deny:poor`，开枪无效并本地提示）。左键开枪：命中目标发 `execute`、对空发 `pardon`。命中判定 = 解析式射线∩坐姿包围盒（`scene/aim.js#rayHitsBox`，多人座位乘场景旋转 rot 转世界系）。非行刑者/目标/旁观维持 CameraRig；桌面浮字（FeltPrompts）：行刑者=瞄准提示+赦免价码、目标=「X 正用枪口对着你…」、其他=「X 正在决定 Y 的生死…」，均带倒计时；触屏/`?input=2d` 走 `ExecutionPanel` 两按钮兜底。EXECUTION 期不渲染下注钱堆（相位不在 PAYOUT_PHASES、payout 已清，按 hasBet 渲染会让已收走的注凭空回桌）。后置打磨：开枪后坐/枪口火光/枪声、他人视角行刑者座位模型持枪、判决落定目标特写短分镜、赦免赔偿的飞钱演出。
+**客户端演出**（桌面 3D，批次2·电影画幅三视角）：进 EXECUTION 全员**电影画幅**（`.exec-cine`：黑边滑入 + **收起除聊天区与右上角外的全部 UI**（选择器集=掷币分镜 .cine-hide 同款但保留 .mc-chat 与 3D 浮字层；触屏例外保留 ExecutionPanel 按钮；2D 输入模式不上画幅）；聊天区锁定系统频道只读播报，McChat 自管）。相机按身份分派（Scene3D 三元链）：
+- **行刑者（C）**：`scene/ExecutionRig.jsx`——指针锁 + **软锁环视**：锥 yaw±0.30/pitch±0.16，**软边界**——鼠标越靠近锥缘灵敏度越低直到 0（`softGain` 只衰减向外分量、往回全速，不硬拦），硬 clamp 仅 1.15× 宽松兜底；锥心换焦点时 **smootherstep 缓入缓出转场**（1.5s）；判决落定的结果窗内 executionerId 保留、锥心原地不动——**行刑者开枪（含鸣枪赦免）不被切换视角**。+ 第一人称左轮视模（`scene/RevolverView.jsx`）+ **三态准心**（`.walk-crosshair`）：瞄破产目标=张开（`exec:<pid>`）、空处=闭合（开枪=赦免）、活人/赔不起=斜 45° 叉（`deny:*`，开枪无效——**叉准心左右弹簧晃动**拒绝，无文字）。命中判定=解析式射线∩坐姿包围盒（`scene/aim.js`）。运镜/软锁的所有大幅转头一律 smootherstep tween（缓入缓出），稳态只柔和跟随呼吸与目标微移。
+- **焦点破产者（B）**：`scene/ExecCineRig.jsx mode=target`——视角**软锁在行刑者身上**（读全局 look 但偏移锥极小），头部动作照常广播。开枪瞬间 `ui/ExecOverlay.jsx` **黑屏 → 红字「死亡」/白字「赦免」停 3s**：死亡→渐隐进**死亡视角**（`.exec-dead`：左上 HUD 列+右下余额减除，破产观战全程如此）；赦免→黑屏白字**滞留到处决流程结束**，页脚提示+下一焦点倒计时，判决动态由聊天系统频道播报。
+- **旁观者（A，含排队待判者）**：`ExecCineRig mode=watcher`——视角全接管+紧张呼吸/手持抖动：开窗首轮先看破产者（多人=中间点；中间点贴近自己=巡视序列：焦点→瞥行刑者→逐个其余→回行刑者）→ 快甩到行刑者微推近（fov 47，他已持枪）等开枪；**开枪打断一切阶段**→快甩焦点看生死（结果窗）；后续焦点=瞥行刑者→切新焦点→盯行刑者。
+- **超时连发**：`volley` 广播 → **全员（含行刑者）锁定第三人称中景**（行刑者侧前 45°）看连续开枪；被处决者各自黑屏红字照常。
+- 死者=死亡视角（CameraRig 自由环视+UI 减除）；REDUCED 减动效者免锁运镜；触屏/`?input=2d` 行刑者走 `ExecutionPanel` 两按钮。浮字（FeltPrompts）：行刑者=瞄准提示+赦免价码、目标=「X 正用枪口对着你…」、其他=「X 正在决定 Y 的生死…」，均带倒计时。EXECUTION 期不渲染下注钱堆（相位不在 PAYOUT_PHASES、payout 已清，按 hasBet 渲染会让已收走的注凭空回桌）。
+**快速验证入口**：真后端=先在开发版大厅「设置 → 本地实验」开启处决并新建测试房，再用 `X` 键强制处决窗（`dev_execution`：X=最穷农民 1 人；Shift+X=2 农民+地主混合队列，覆盖换行刑者/连发）；开关未启用时该指令必须被服务端拒绝。离线=`/preview.html?phase=EXECUTION&view=judge|watcher|target|dead`（静态定格）`&play=1`（完整判决剧本循环：焦点1处决→焦点2赦免→收窗）`&volley=1`（连发剧本）`&outcome=pardoned`（焦点1改赦免，看白字滞留）。
+**开枪表现**（批次3 定稿，`assets/muzzlefx.js` 素材池）：行刑者扣扳机瞬间 `gunFirePulse` 脉冲——第一人称左轮**后坐弹簧**（枪身后跳+微抬+枪口上翘，~0.22s 收回）+ **火光**（**真实感规范**：fBM 花瓣状轮廓 96px 纹理——白热过曝核→淡黄→橙→深橙红色带+火星点，3 变体每发随机+随机 roll+缩放脉冲；billboard + 沿枪管张开的**光锥**体积闪光 + 亮白主光/暖橙补光双点光，~0.09s 快攻慢衰）+ **枪口烟雾**（fBM 絮状密度×噪声扰动不规则边缘的 128px 暖灰烟纹理 4 变体；7 缕错峰喷出、锥形散布、正弦湍流上飘、快现慢散 ~0.85-1.2s、体量与透明度克制——稀薄硝烟而非云团；固定粒子池零分配）。特效纹理走 LinearFilter（真实感层豁免像素规范，设计者钦定；一版光滑径向渐变=棉花糖、二版像素簇均废）。⚠ 相机跟随组内的单面片朝向双坑：枪组绕 Y+90° 会把默认 plane 带成侧棱对相机，绕 Y+90° 修正后法线又背对相机被 FrontSide 剔除——须绕 Y **−90°** 且材质 DoubleSide。
+后置打磨：枪声（项目尚无音频系统）、他人视角行刑者座位模型持枪（随批次5骨骼动画）、赦免赔偿的飞钱演出。
 
 ---
 
@@ -355,7 +368,9 @@ data/              运行时数据（gitignore）
 | timing.takeTimeoutMs | 45000 | FINALIZE 拿取超时，到点全员自动拿取（0=不超时） |
 | timing.takeAutoDelayMs | 2600 | 进入拿取阶段后，代离线玩家自动拿取的延迟（让观众看完演出） |
 | timing.executionMs | 20000 | 处决窗每个目标的决断时限：到点默认处决（§3.9；0=不自动，调试用会卡场） |
-| execution.enabled | true | 处决窗总开关（§3.9；quick/competitive 均生效） |
+| timing.executionResultMs | 3000 | 每笔判决后的结果展示时间 |
+| timing.executionVolleyMs | 1200 | 超时连发模式相邻两枪的间隔 |
+| execution.enabled | false | 处决窗总开关；生产环境强制关闭，仅本地测试房可显式开启（§3.9） |
 | reconnectGraceSec | 0 | 断线保座；0=永久保座（永不超时降级），>0=超时降级观战 |
 | autoActForOffline | true | 离线玩家自动准备/确认 |
 | heartbeatSec | 30 | 心跳 |
@@ -371,9 +386,10 @@ data/              运行时数据（gitignore）
 5. COIN_FLIP：动画后正/反对应地主/农民胜。
 6. SETTLE→NEGOTIATE：>1 农民时可拖拽转移钱/债，全员确认生效；1 农民自动跳过。
 7. FINALIZE：余额变动正确（含缺口分摊、付不起破产）；钱留在桌上、技能调整逐条演出、按空格拿取后余额才入账（§3.8）；回合历史落盘。
-8. 循环回 DISCUSSION，round+1；地主或全部农民破产 → ENDED，房主可重开。
-9. 断线重连回原座位；顶号踢旧连接；大厅在线人数正确。
-10. `npm run build` 与 `npm run lint` 通过；经典在大厅显示但禁用（竞技见 §8）。
+8. 默认关闭处决时：FINALIZE 拿取闸门不被绕过；新破产者一次性落标且全程 `execution=null`；地主破产或全部农民破产直接 ENDED，否则 round+1 回 DISCUSSION。
+9. 本地测试显式开启处决时：才允许进入 EXECUTION；生产服务端拒绝/钳制所有启用请求。
+10. 断线重连回原座位；顶号踢旧连接；大厅在线人数正确。
+11. `npm run build` 与 `npm run lint` 通过；经典在大厅显示但禁用（竞技见 §8）。
 
 ---
 

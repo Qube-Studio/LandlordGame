@@ -4,7 +4,7 @@
   "type": "module",
   "main": "index.js",
   "scripts": {
-    "dev": "cross-env LLG_TEST=1 node --watch index.js",
+    "dev": "cross-env NODE_ENV=development LLG_TEST=1 node --watch index.js",
     "start": "node index.js"
   },
   "dependencies": {

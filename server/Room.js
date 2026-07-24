@@ -28,7 +28,7 @@ function mulberry32(seed) {
 
 // REFLIP = 竞技暴食者重掷决策窗（§8.4），夹在 COIN_FLIP 与 SETTLE 之间，仅农民输且有暴食者时出现。
 // CHALLENGE = 竞技对质窗（§8.8），夹在 BETTING 与 REVEAL 之间，仅竞技且有农民凑得齐票时出现。
-// EXECUTION = 处决窗（§3.9），夹在 FINALIZE 与终局判定之间，仅本回合有新破产者时出现。
+// EXECUTION = 本地实验处决窗（§3.9），默认/生产关闭；显式开启且本回合有新破产者时才出现。
 export const PHASES = ['LOBBY', 'DISCUSSION', 'BETTING', 'CHALLENGE', 'REVEAL', 'COIN_FLIP', 'REFLIP', 'SETTLE', 'NEGOTIATE', 'FINALIZE', 'EXECUTION', 'ENDED'];
 
 const PAYOUT_PHASES = ['SETTLE', 'NEGOTIATE', 'FINALIZE'];
@@ -44,11 +44,18 @@ function noteCount(amount) {
 }
 
 export class Room {
-  constructor(roomId, name, modeId, configOverrides = {}) {
+  constructor(roomId, name, modeId, configOverrides = {}, { allowExecution = false } = {}) {
     this.roomId = roomId;
     this.name = name || MISC.defaultRoomName;
     this.mode = getMode(modeId)?.id ?? 'quick';
     this.config = roomConfig(this.mode, configOverrides);
+    // 处决是保留的本地实验功能：配置请求和运行时能力必须同时为 true。
+    // 生产入口不授予 allowExecution，因此伪造建房 config 也无法开启。
+    this._allowExecution = allowExecution === true;
+    this.config.execution = {
+      ...(this.config.execution ?? {}),
+      enabled: this._allowExecution && this.config.execution?.enabled === true,
+    };
     this.players = new Map(); // playerId -> player
     this.hostId = null;
     this.phase = 'LOBBY';
@@ -428,6 +435,35 @@ export class Room {
     this.config.autoActForOffline = false; // 测试：不自动代离线，全部手动切换控制
     this._touch();
     this._broadcastState();
+    return { ok: true };
+  }
+
+  // 强制处决窗（§3.9 快速验证入口，仅 LLG_TEST）：伪造 n 个破产者直接开窗——
+  // 活跃农民取最穷优先；withLandlord 把地主侧也拉入（混合队列：换行刑者/被赦接棒/连发全场景）。
+  // 当前财富快照为「回合初」、余额/池打到 0 → 赔偿价码=原财富，真实为正。
+  devForceExecution({ targets = 1, withLandlord = false } = {}) {
+    if (!this._allowExecution || this.config.execution?.enabled !== true) return { error: ERR.devExecutionDisabled };
+    if (!IN_GAME_PHASES.includes(this.phase)) return { error: ERR.devExecInGameOnly };
+    const picked = this._activeFarmers()
+      .sort((a, b) => (a.balance ?? 0) - (b.balance ?? 0))
+      .slice(0, Math.max(1, Math.min(3, targets)));
+    if (withLandlord) {
+      const lord = this._landlord();
+      if (lord && !lord.bankrupt) picked.push(lord);
+    }
+    if (picked.length === 0) return { error: ERR.devExecInGameOnly };
+    for (const p of picked) {
+      if (p.role === 'capitalist') {
+        this.roundStartPools[p.id] = p.pool > 0 ? p.pool : 20;
+        p.pool = 0;
+      } else {
+        this.roundStartBalances[p.id] = p.balance > 0 ? p.balance : 8;
+        p.balance = 0;
+      }
+    }
+    // 伪造最小 payout（_maybeEnterExecution 只读 newlyBankrupt；EXECUTION 不在 PAYOUT_PHASES，不外泄）
+    this.payout = { ...(this.payout ?? {}), newlyBankrupt: picked.map(p => p.id), done: true, eligible: [], taken: new Set(), piles: {}, script: [], deadline: null };
+    this._maybeEnterExecution();
     return { ok: true };
   }
 
@@ -1056,6 +1092,13 @@ export class Room {
     // 缺口已在 settleRound 乘过乘数并扣减债；FINALIZE 直接复用其最终债额，避免重算口径分叉。
     const shortfall = this.coinResult === 'heads' ? (this.settlement.shortfall ?? 0) : 0;
     const uncovered = Math.max(0, shortfall - result.collected);
+    // 每人未偿债务（分配债 − 实付）：处决窗焦点排序键的一半（§3.9：债务=本回合损失+未偿）
+    this._roundDebtUnpaid = {};
+    for (const id of this.roundFarmerIds) {
+      const owed = this.allocation?.debts?.[id] ?? 0;
+      const paid = result.paidBy?.[id] ?? 0;
+      if (owed - paid > 0) this._roundDebtUnpaid[id] = owed - paid;
+    }
 
     // ① 债务收账：各农民实付 → 地主堆；付不起的部分（uncovered）红色债务牌就地熄灭。
     if (landlordId) {
@@ -1321,44 +1364,87 @@ export class Room {
     if (this.phase !== 'FINALIZE' || !this.payout || this.payout.done) return;
     if (this.payout.eligible.some(id => !this.payout.taken.has(id))) return;
     this.payout.done = true;
-    let bankrupted = false;
-    for (const id of this.payout.newlyBankrupt) {
-      const p = this.players.get(id);
-      if (p && !p.bankrupt) { p.bankrupt = true; bankrupted = true; this._announceBankrupt(p); }
-    }
-    if (bankrupted) this._broadcastState();
+    // 破产标记**推迟到处决落定**（§3.9）：此处只知道名单（payout.newlyBankrupt），
+    // 不置 bankrupt——目标在处决窗内保持正常外观/语义（被赦免者从未破产过）。
+    // 无处决窗路径（enabled=false / 名单空 / 弃局）在 _maybeEnterExecution/_endGame 里补落标。
     this._after(this.config.timing.finalizeMs, () => this._maybeEnterExecution());
+  }
+
+  // 把 payout.newlyBankrupt 中仍在场且未被赦免的补落破产标记（+播报）。
+  // 供处决窗被跳过（enabled=false）与 _endGame 弃局兜底复用；处决窗内的落标走 _resolveExecution。
+  _flagBankruptcies(ids) {
+    let changed = false;
+    for (const id of ids ?? []) {
+      const p = this.players.get(id);
+      if (p && !p.bankrupt) { p.bankrupt = true; changed = true; this._announceBankrupt(p); }
+    }
+    return changed;
   }
 
   // ---------- 处决窗（§3.9）：破产者的生死判决 ----------
 
-  // FINALIZE 收尾后先过处决窗：本回合有新破产者 → 开窗；否则直通 _afterRound。
+  // FINALIZE 收尾后先过处决门禁：本地实验开启且有新破产者 → 开窗；默认直通 _afterRound。
   // 终局判定被推迟到窗后——地主破产被赦免即续命（_afterRound 读的是最新 bankrupt）。
   _maybeEnterExecution() {
     const queue = (this.payout?.newlyBankrupt ?? []).filter(id => {
       const p = this.players.get(id);
-      return p && p.bankrupt && !p.spectator;
+      return p && !p.spectator; // 破产标记此刻尚未落（推迟到判决），名单本身就是「应破产」权威
     });
-    if ((this.config.execution?.enabled ?? true) === false || queue.length === 0) { this._afterRound(); return; }
+    if (!this._allowExecution || this.config.execution?.enabled !== true || queue.length === 0) {
+      // 不开窗：立即补落破产标记（旧行为），再做终局判定
+      if (this._flagBankruptcies(this.payout?.newlyBankrupt)) this._broadcastState();
+      this._afterRound();
+      return;
+    }
+    // 焦点排序（§3.9）：债务多者优先——债务 = 本回合损失（回合初财富−当前）+ 未偿债务；同值随机。
+    // 随机 tie-break 预生成（sort 比较器内直接 random 会破坏传递性）；定序一次、广播后固定。
+    const debtOf = (id) => {
+      const p = this.players.get(id);
+      const loss = p ? compensationOf(p, this.roundStartBalances[id], this.roundStartPools[id]) : 0;
+      return loss + (this._roundDebtUnpaid?.[id] ?? 0);
+    };
+    const rnd = new Map(queue.map(id => [id, Math.random()]));
+    queue.sort((a, b) => (debtOf(b) - debtOf(a)) || (rnd.get(a) - rnd.get(b)));
     this._setPhase('EXECUTION');
-    this.execution = { queue, idx: -1, targetId: null, executionerId: null, deadline: null, results: [] };
+    this.execution = { queue, idx: -1, targetId: null, executionerId: null, deadline: null, results: [], lastResult: null, volley: false, volleyJudgeId: null };
     this._advanceExecution();
   }
 
-  // 逐目标推进：每个目标按「当时状态」重算行刑者——上一次赦免可能已改变谁最富/谁活着。
+  // 逐目标推进：每个目标按「当时状态」重算行刑者——上一次赦免可能已改变谁最富/谁活着
+  // （混合破产队列时行刑者还会跨阵营换人；先被赦免的敌方也可接棒行刑）。
   _advanceExecution() {
     const ex = this.execution;
     ex.idx += 1;
+    ex.lastResult = null; // 新焦点开始，清上一笔的结果展示
     if (ex.idx >= ex.queue.length) { this._afterExecution(); return; }
     const target = this.players.get(ex.queue[ex.idx]);
-    if (!target || !target.bankrupt || target.spectator) { this._advanceExecution(); return; }
-    const judge = pickExecutioner(target, [...this.players.values()]);
+    if (!target || target.bankrupt || target.spectator) { this._advanceExecution(); return; } // bankrupt=防御（不应发生）
+    // 行刑者候选须排除本窗**尚未判决**的其他待判者（他们破产标记未落但事实破产，不能持枪）；
+    // 已被赦免者不在此列——复活的敌方可以接棒行刑。
+    const pending = new Set(ex.queue.slice(ex.idx).filter(id => !ex.results.some(r => r.targetId === id)));
+    const judge = pickExecutioner(target, [...this.players.values()].filter(p => !pending.has(p.id)));
     if (!judge) {
-      // 敌对阵营无活人行刑 → 该目标自动处决（维持出局）
+      // 敌对阵营无活人行刑 → 该目标自动处决（此刻落破产标记，推迟制 §3.9），照常给结果窗
+      target.bankrupt = true;
+      this._announceBankrupt(target);
       this._systemChat(SYS.executionNoEnemy(target.username));
-      ex.results.push({ targetId: target.id, executionerId: null, outcome: 'executed', compensation: 0, auto: true });
-      this._advanceExecution();
+      ex.targetId = target.id; ex.executionerId = null;
+      this._resolveExecution('executed', { auto: true });
       return;
+    }
+    // 超时连发模式（§3.9）：AFK 行刑者名下的后续目标不再开窗，直接连续默认处决
+    //（第三人称锁定镜头由客户端按 volley 标记演出）；换了行刑者则退出连发、正常给决断窗。
+    if (ex.volley) {
+      if (judge.id === ex.volleyJudgeId) {
+        ex.targetId = target.id;
+        ex.executionerId = judge.id;
+        ex.deadline = null;
+        this._broadcastState(); // 先广播新焦点（镜头跟焦），间隔由 executionVolleyMs 掌控
+        this._resolveExecution('executed', { auto: true });
+        return;
+      }
+      ex.volley = false;
+      ex.volleyJudgeId = null;
     }
     ex.targetId = target.id;
     ex.executionerId = judge.id;
@@ -1368,7 +1454,7 @@ export class Room {
     if (ms > 0) this._after(ms, () => this._executionTimeout(target.id));
     this._systemChat(SYS.executionStart(judge.username, ROLE_LABEL[judge.role] ?? judge.role, target.username, ROLE_LABEL[target.role] ?? target.role));
     this._broadcastState();
-    this._autoActOffline(); // 行刑者离线 → 立即默认处决，不卡场
+    this._autoActOffline(); // 行刑者离线 → 连发默认处决，不卡场
   }
 
   _pardonCost(targetId) {
@@ -1399,11 +1485,17 @@ export class Room {
 
   _executionTimeout(targetId) {
     if (this.phase !== 'EXECUTION' || this.execution?.targetId !== targetId) return;
-    this._systemChat(SYS.executionTimeout(this.players.get(this.execution.executionerId)?.username ?? ''));
+    const ex = this.execution;
+    // 进入连发模式：该行刑者名下所有剩余待判目标以 executionVolleyMs 节奏连续默认处决
+    ex.volley = true;
+    ex.volleyJudgeId = ex.executionerId;
+    this._systemChat(SYS.executionTimeout(this.players.get(ex.executionerId)?.username ?? ''));
     this._resolveExecution('executed', { auto: true });
   }
 
   // 裁决落账：赦免=行刑者自掏赔偿（资本家扣池、其余扣余额）→ 目标复活、余额/池回到回合初快照。
+  // 落定后进入**结果展示窗**（executionResultMs；连发模式用 executionVolleyMs 枪间隔）再推进下一焦点——
+  // 客户端的黑屏红/白字、旁观「看结果」镜头都靠这个窗；lastResult 随 viewFor 广播供演出。
   _resolveExecution(outcome, { auto = false } = {}) {
     const ex = this.execution;
     const target = this.players.get(ex.targetId);
@@ -1414,15 +1506,23 @@ export class Room {
       if (judge.role === 'capitalist') judge.pool -= compensation; else judge.balance -= compensation;
       if (target.role === 'capitalist') target.pool = this.roundStartPools[target.id] ?? target.pool;
       else target.balance = this.roundStartBalances[target.id] ?? target.balance;
-      target.bankrupt = false; // 复活：客户端灰皮瘫倒自动回正（MinecraftPlayer 既有插值）
+      // 破产标记推迟制（§3.9）：被赦免者从未被置过 bankrupt——余额恢复即完全体面地活着
       this._systemChat(SYS.pardoned(judge.username, target.username, compensation));
-    } else if (target) {
-      this._systemChat(SYS.executed(judge?.username ?? '', target.username));
+    } else if (target && !target.bankrupt) {
+      target.bankrupt = true; // 此刻才真正破产出局（客户端灰皮瘫倒此刻才切换）
+      this._announceBankrupt(target);
+      if (judge) this._systemChat(SYS.executed(judge.username, target.username));
     }
-    ex.results.push({ targetId: ex.targetId, executionerId: ex.executionerId, outcome, compensation, auto });
-    ex.targetId = null; ex.executionerId = null; ex.deadline = null;
+    const rec = { targetId: ex.targetId, executionerId: ex.executionerId, outcome, compensation, auto };
+    ex.results.push(rec);
+    ex.lastResult = rec;
+    // ⚠ 结果窗内保留 executionerId：行刑者的相机分派依赖它——清空会把刚开完枪的行刑者
+    // 误切到旁观运镜、下一焦点再切回来（视角猛跳）。targetId 清空即可（execute/pardon 有 targetId 硬闸）。
+    ex.targetId = null; ex.deadline = null;
     this._broadcastState();
-    this._advanceExecution();
+    const delay = ex.volley ? this.config.timing.executionVolleyMs : this.config.timing.executionResultMs;
+    if (delay > 0) this._after(delay, () => { if (this.phase === 'EXECUTION') this._advanceExecution(); });
+    else this._advanceExecution();
   }
 
   // 队列清空：结果并入本回合 history，再做被推迟的终局判定。
@@ -1456,10 +1556,16 @@ export class Room {
         if (!this.payout.taken.has(id)) this._bookTake(id);
       }
       this.payout.done = true;
-      for (const id of this.payout.newlyBankrupt) {
-        const p = this.players.get(id);
-        if (p && !p.bankrupt) { p.bankrupt = true; this._announceBankrupt(p); }
-      }
+      this._flagBankruptcies(this.payout.newlyBankrupt);
+    } else if (this.phase === 'FINALIZE') {
+      // 拿取已完成但处决窗尚未开（finalizeMs 间隙内弃局）：标记同样未落，补齐
+      this._flagBankruptcies(this.payout?.newlyBankrupt);
+    }
+    // 处决窗被迫终局（§3.9 弃局路径）：剩余未判者按默认处决落标——终局清算不能有「悬案」
+    if (this.phase === 'EXECUTION' && this.execution) {
+      const judged = new Set(this.execution.results.map(r => r.targetId));
+      this._flagBankruptcies(this.execution.queue.filter(id => !judged.has(id)));
+      this.execution = null;
     }
     this._setPhase('ENDED');
     this.winnerSide = winnerSide;
@@ -1679,8 +1785,11 @@ export class Room {
       executionerId: this.execution.executionerId,
       deadline: this.execution.deadline,
       compensation: this.execution.targetId ? this._pardonCost(this.execution.targetId) : null,
+      queue: this.execution.queue,           // 完整焦点队列（演出运镜要看所有破产者位置/中间点）
       queueLeft: Math.max(0, this.execution.queue.length - this.execution.idx),
       results: this.execution.results,
+      lastResult: this.execution.lastResult, // 结果展示窗（executionResultMs）内的判决——黑屏字/看结果镜头
+      volley: !!this.execution.volley,       // 超时连发中：全员锁第三人称连续开枪镜头
     } : null;
 
     const me = viewer ? {
@@ -1891,9 +2000,13 @@ export class Room {
         // 目标中途离场 → 该目标按处决落账（维持出局语义），推进队列
         this._resolveExecution('executed', { auto: true });
       } else if (ex?.targetId) {
-        // 行刑者掉线 → 默认处决（不能替 AFK 玩家掏腰包赔钱）
+        // 行刑者掉线 → 与超时同语义：连发默认处决其名下全部剩余目标（不能替 AFK 玩家掏钱）
         const judge = this.players.get(ex.executionerId);
-        if (judge && !judge.online) this._resolveExecution('executed', { auto: true });
+        if (judge && !judge.online) {
+          ex.volley = true;
+          ex.volleyJudgeId = ex.executionerId;
+          this._resolveExecution('executed', { auto: true });
+        }
       }
     } else if (this.phase === 'CHALLENGE') {
       if (this.accusation) {

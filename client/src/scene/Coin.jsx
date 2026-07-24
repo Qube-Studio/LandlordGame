@@ -4,20 +4,24 @@
 // mode='rest'：平放展示最终朝面。
 // useFrame 内逐帧改写材质发光强度是 r3f 既定用法(与 Scene3D 同款豁免)。
 /* eslint-disable react-hooks/immutability */
-import { useMemo, useRef, useLayoutEffect } from 'react';
+import { useCallback, useMemo, useRef, useLayoutEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { coinFaceTexture, coinEdgeTexture } from './textures';
 import { pickFlip, restTransform, setCoinRest, getCoinRest, setCoinFlightLive, consumeCoinPulse, warpTime, COIN_R, COIN_H, COIN_SEGMENTS } from './coinSim';
 import { useGameStore } from '../store/gameStore';
 import { PROP_COLORS } from '../assets/palette';
+import VoxModel from '../voxel/VoxModel';
+import coinVoxUrl from '../assets/vox/props/coin.vox?url';
 
 const _wp = new THREE.Vector3(); // 每帧发布世界位姿用的临时向量（硬币在旋转组内,分镜相机要世界系）
 const _qa = new THREE.Quaternion(); // 帧间四元数 slerp 的两个临时端点（useFrame 内零分配）
 const _qb = new THREE.Quaternion();
 
-export default function Coin({ result = 'heads', mode = 'flip', tableTop = 1.0 }) {
+export default function Coin({ result = 'heads', mode = 'flip', tableTop = 1.0, voxel = false }) {
   const ref = useRef();
+  const voxelMatsRef = useRef(null);
+  const receiveVoxelMaterials = useCallback((value) => { voxelMatsRef.current = value; }, []);
   const rest = tableTop + COIN_H; // 平放时圆心高度（最低点恰好贴桌面）
   const startRef = useRef(null);
   const restStartRef = useRef(null); // 金光脉冲起始时刻（flip 躺平后/rest 均可能承接）
@@ -32,6 +36,18 @@ export default function Coin({ result = 'heads', mode = 'flip', tableTop = 1.0 }
     const bottom = new THREE.MeshStandardMaterial({ map: coinFaceTexture('tails'), roughness: 0.4, metalness: 0.55, flatShading: true, ...e });
     return [side, top, bottom];
   }, []);
+
+  const setGlow = (glow) => {
+    const intensity = 0.25 + glow;
+    for (const m of mats) m.emissiveIntensity = intensity;
+    const voxelMats = voxelMatsRef.current;
+    if (!voxelMats) return;
+    for (const m of Object.values(voxelMats)) {
+      if (!m?.emissive) continue;
+      m.emissive.set(PROP_COLORS.coinGlow);
+      m.emissiveIntensity = intensity;
+    }
+  };
 
   // flip 模式：组件按 round 重挂，useMemo 每次**现场实时模拟**一条匹配 result 的全新轨迹。
   const anim = useMemo(() => (mode === 'flip' ? pickFlip(result, tableTop) : null), [mode, result, tableTop]);
@@ -68,7 +84,7 @@ export default function Coin({ result = 'heads', mode = 'flip', tableTop = 1.0 }
       if (restStartRef.current == null && consumeCoinPulse()) restStartRef.current = st.clock.elapsedTime;
       const rt = restStartRef.current == null ? 9 : st.clock.elapsedTime - restStartRef.current;
       const glow = rt < 0.45 ? Math.sin((rt / 0.45) * Math.PI) * 3.2 : 0;
-      for (const m of mats) m.emissiveIntensity = 0.25 + glow;
+      setGlow(glow);
       return;
     }
 
@@ -95,13 +111,30 @@ export default function Coin({ result = 'heads', mode = 'flip', tableTop = 1.0 }
     if (restStartRef.current != null) {
       const rt = st.clock.elapsedTime - restStartRef.current;
       const glow = rt < 0.45 ? Math.sin((rt / 0.45) * Math.PI) * 3.2 : 0;
-      for (const m of mats) m.emissiveIntensity = 0.25 + glow;
+      setGlow(glow);
     }
   });
 
   return (
-    <mesh ref={ref} position={[0, rest, 0]} material={mats} castShadow>
-      <cylinderGeometry args={[COIN_R, COIN_R, COIN_H * 2, COIN_SEGMENTS]} />
-    </mesh>
+    <group ref={ref} position={[0, rest, 0]} userData={{ voxBakeSkip: true }}>
+      {voxel ? (
+        // coin.vox:36×6×36，+Y=王冠(heads)、-Y=麦穗(tails)。非等比外层缩放把
+        // 视觉严格压回 coinSim 冻结的 Ø0.11m×0.012m，动画根/惯量/接触高度零改。
+        <group scale={[COIN_R / 18, COIN_H / 3, COIN_R / 18]}>
+          <VoxModel
+            url={coinVoxUrl}
+            scale={1}
+            anchor="center"
+            bake={false}
+            onMaterials={receiveVoxelMaterials}
+            castShadow
+          />
+        </group>
+      ) : (
+        <mesh material={mats} castShadow>
+          <cylinderGeometry args={[COIN_R, COIN_R, COIN_H * 2, COIN_SEGMENTS]} />
+        </mesh>
+      )}
+    </group>
   );
 }

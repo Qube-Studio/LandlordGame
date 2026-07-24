@@ -37,6 +37,8 @@ export const ERR = {
   hostOnlyRestart: '只有房主可以重新开始',
   // 测试辅助
   devFillLobbyOnly: '只能在大厅补充测试玩家',
+  devExecInGameOnly: '只能在对局中强制处决窗',
+  devExecutionDisabled: '请先在本地设置中开启处决测试，再新建房间',
   possessNoTarget: '目标玩家不存在',
   testModeOff: '测试模式未开启',
   // 准备 / 表情

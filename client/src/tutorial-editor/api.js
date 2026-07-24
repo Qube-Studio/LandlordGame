@@ -43,3 +43,12 @@ export const uploadImage = (name, blob) =>
 // 图库删除（磁盘 unlink，**不可撤回**——调用方须先 confirm 并提示引用处）。→ {ok, name}
 export const deleteImage = (name) =>
   request(`${BASE}/images?name=${encodeURIComponent(name)}`, { method: 'DELETE' });
+
+// 版式模板库（client/tutorial.templates.json，随 git 走）。→ {templates:[{name, blocks}]}
+export const getTemplates = () => request(`${BASE}/templates`);
+export const putTemplates = (templates) =>
+  request(`${BASE}/templates`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ templates }),
+  });

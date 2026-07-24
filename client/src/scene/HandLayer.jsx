@@ -92,7 +92,7 @@ function HandCard({ note, i, mid, delta, shaking, disabled, onDown, register }) 
     m.rotation.set(0, -a + jit + sh * 2, 0);
   });
   return (
-    <group>
+    <group userData={{ voxBakeSkip: true }}>
       {/* 命中代理：钉死在槽位上的透明碰撞盒负责悬停/按下——抽出动画不移动命中区，
           指针骑在两张牌交界处也不会 over/out 来回振荡（鬼畜弹跳的根源） */}
       <mesh
@@ -703,7 +703,7 @@ export default function HandLayer({ look, rot, mySpot }) {
   const line2Click = !sent && (bounds.forceAllIn || canConfirm); // 可点行才带空格键帽
 
   return (
-    <group>
+    <group userData={{ voxBakeSkip: true }}>
       {/* 相机跟随的手牌扇：扇面组内所有牌绝对平行（沿法线错层），几何上绝无穿模 */}
       <group ref={handGroup}>
         <group ref={handInner}>

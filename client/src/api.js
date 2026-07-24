@@ -33,6 +33,6 @@ export const api = {
   me: () => request('/auth/me'),
   online: () => request('/online'),
   modes: () => request('/modes'),
-  createRoom: (name, mode) => request('/rooms', { method: 'POST', body: { name, mode } }),
+  createRoom: (name, mode, config) => request('/rooms', { method: 'POST', body: { name, mode, config } }),
   listRooms: () => request('/rooms'),
 };

@@ -78,7 +78,7 @@ export function MoneyStack({ notes, faceUp, position, amount = null, labelColor 
   const shown = notes.slice(0, STACK_CAP);
   const topY = stackTopY(shown.length);
   return (
-    <group position={position}>
+    <group position={position} userData={{ voxBakeSkip: true }}>
       {shown.map((n, i) => (
         <mesh
           key={n.id ?? i}
@@ -136,7 +136,7 @@ export function ArcNote({ value, debt = false, from, to, delay = 0, duration = 0
     if (t >= 1 && !done.current) { done.current = true; onDone?.(); }
   });
   return (
-    <mesh ref={ref} material={cardMaterials(value, debt)} castShadow visible={false}>
+    <mesh ref={ref} material={cardMaterials(value, debt)} castShadow visible={false} userData={{ voxBakeSkip: true }}>
       <boxGeometry args={[CARD_W, CARD_T, CARD_D]} />
     </mesh>
   );

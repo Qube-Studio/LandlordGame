@@ -15,7 +15,7 @@ import VoxChandelier from '../voxel/VoxChandelier';
 import VoxModel, { VOXEL_SIZE } from '../voxel/VoxModel';
 import { VoxRoom, VoxTable, VoxChair } from './VoxProps';
 import { VoxFireplace, VoxBarrels, VoxDecor } from './VoxDecor';
-import VoxPlayer from './VoxPlayer';
+import VoxPlayer from '../scene/VoxPlayer';
 import { loadVox } from '../voxel/voxload';
 import { P } from '../assets/palette';
 import { ROLE_LABEL } from '../game/roles';

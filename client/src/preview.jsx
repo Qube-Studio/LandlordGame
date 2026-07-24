@@ -73,25 +73,66 @@ if (phase === 'FLIGHT') {
   base.players = [base.me, ...players.slice(1)];
 }
 if (phase === 'EXECUTION') {
-  // 处决窗（§3.9）截图核对：me=行刑者（指针锁+准心+左轮）；?wait=1 = 旁观视角；?target=1 = 目标视角。
-  const view = new URLSearchParams(location.search);
-  base.players = players.map(p => (p.id === 'p3' ? { ...p, bankrupt: true, balance: 0 } : p));
-  const execIsMe = !view.get('wait') && !view.get('target');
-  base.execution = {
-    targetId: view.get('target') === '1' ? 'p1' : 'p3',
-    executionerId: execIsMe ? 'p1' : 'p2',
-    deadline: Date.now() + 20000,
-    compensation: 5,
-    queueLeft: 1,
-    results: [],
+  // 处决窗（§3.9）快速验证入口：
+  //   ?view=judge(默认)|watcher|target|dead — 行刑者(准心+左轮+软锁)/旁观运镜/焦点目标/死亡视角
+  //   &play=1     — 播完整判决剧本（焦点1 处决 → 焦点2 赦免 → 收窗，循环）；不加=静态定格
+  //   &volley=1   — 播超时连发剧本（第三人称锁定镜头 + 连续默认处决）
+  //   &outcome=pardoned — 剧本焦点1 改为赦免（target 视角看白字滞留路径）
+  // 破产标记推迟制：待判目标 bankrupt=false（正常外观，判决落定才灰化瘫倒）。
+  const q = new URLSearchParams(location.search);
+  const view = q.get('view') ?? (q.get('wait') ? 'watcher' : q.get('target') ? 'target' : 'judge'); // 旧参数兼容
+  const meId = view === 'judge' ? 'p1' : view === 'target' ? 'p3' : view === 'dead' ? 'p3' : 'p1';
+  const judgeId = view === 'judge' ? 'p1' : 'p2';
+  const mkPlayers = (patch = {}) => players.map(p => {
+    const base2 = p.id === 'p3' ? { ...p, balance: 0 } : p.id === 'p4' ? { ...p, balance: 0 } : p;
+    return patch[p.id] ? { ...base2, ...patch[p.id] } : base2;
+  });
+  const mkExec = (over) => ({
+    targetId: 'p3', executionerId: judgeId, deadline: Date.now() + 10000,
+    compensation: 5, queue: ['p3', 'p4'], queueLeft: 2, results: [], lastResult: null, volley: false,
+    ...over,
+  });
+  const mkMe = (ps, ex) => {
+    const self = ps.find(p => p.id === meId);
+    return ex && ex.executionerId === meId && ex.targetId
+      ? { ...self, isExecutioner: true, canPardon: true, pardonCost: ex.compensation ?? 5 }
+      : { ...self };
   };
-  if (view.get('target') === '1') {
-    base.players = players.map(p => (p.id === 'p1' ? { ...p, bankrupt: true, balance: 0 } : p));
-    base.me = { ...base.players[0], spectator: true };
-  } else {
-    base.me = execIsMe
-      ? { ...base.players[0], isExecutioner: true, canPardon: true, pardonCost: 5 }
-      : base.players[0];
+  const apply = (ex, patch = {}) => {
+    const ps = mkPlayers(patch);
+    const st = { ...base, phase: ex ? 'EXECUTION' : 'DISCUSSION', players: ps, execution: ex, me: mkMe(ps, ex) };
+    useGameStore.setState({ state: st, playerId: meId });
+  };
+  //   &fallen=1 — p4 静态已破产（验中弹倒地躺姿+灰化的确定性入口,低帧机上拍运动分镜靠运气）
+  base.players = mkPlayers(view === 'dead' ? { p3: { bankrupt: true } } : q.get('fallen') ? { p4: { bankrupt: true } } : {});
+  base.execution = mkExec(view === 'dead' ? { targetId: 'p4', queue: ['p4'], queueLeft: 1 } : {});
+  base.me = mkMe(base.players, base.execution);
+
+  if (q.get('play') || q.get('volley')) {
+    const oc1 = q.get('outcome') === 'pardoned' ? 'pardoned' : 'executed';
+    const rec1 = { targetId: 'p3', executionerId: judgeId, outcome: oc1, compensation: 5, auto: false };
+    const rec2 = { targetId: 'p4', executionerId: judgeId, outcome: 'pardoned', compensation: 4, auto: false };
+    const p3After = oc1 === 'executed' ? { p3: { bankrupt: true } } : { p3: { balance: 5 } };
+    // [延时ms, 动作]：volley=连发剧本（1.2s 一枪全 executed）；play=决断→结果窗→下一焦点→收窗
+    const script = q.get('volley')
+      ? [
+        [1000, () => apply(mkExec({}))],
+        // 结果窗保留 executionerId（服务端语义：只清 targetId——相机分派/外部持枪都依赖）；results 只增不清
+        [4000, () => apply(mkExec({ targetId: null, deadline: null, volley: true, lastResult: { ...rec1, auto: true }, results: [{ ...rec1, auto: true }] }), { p3: { bankrupt: true } })],
+        [5200, () => apply(mkExec({ targetId: 'p4', deadline: null, volley: true, queueLeft: 1, results: [{ ...rec1, auto: true }] }), { p3: { bankrupt: true } })],
+        [5300, () => apply(mkExec({ targetId: null, deadline: null, volley: true, lastResult: { ...rec2, outcome: 'executed', auto: true }, results: [{ ...rec1, auto: true }, { ...rec2, outcome: 'executed', auto: true }] }), { p3: { bankrupt: true }, p4: { bankrupt: true } })],
+        [8300, () => apply(null, { p3: { bankrupt: true }, p4: { bankrupt: true } })],
+      ]
+      : [
+        [1000, () => apply(mkExec({}))],
+        [5000, () => apply(mkExec({ targetId: null, deadline: null, lastResult: rec1, results: [rec1] }), p3After)],
+        [8000, () => apply(mkExec({ targetId: 'p4', queueLeft: 1, compensation: 4, results: [rec1] }), p3After)],
+        [12000, () => apply(mkExec({ targetId: null, deadline: null, lastResult: rec2, results: [rec1, rec2], queueLeft: 1 }), { ...p3After, p4: { balance: 4 } })],
+        [15000, () => apply(null, { ...p3After, p4: { balance: 4 } })],
+      ];
+    const runOnce = () => { for (const [ms, fn] of script) setTimeout(fn, ms); };
+    setTimeout(runOnce, 800);
+    setInterval(runOnce, (script[script.length - 1][0] ?? 15000) + 2600); // 循环重播，便于反复观察
   }
 }
 if (phase === 'ENDED') {

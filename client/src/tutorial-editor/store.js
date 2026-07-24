@@ -10,7 +10,7 @@
 //   ③ 旧式属性条 {value,max} 仅在用户编辑该块时固化为 {width,fill}（setBarProps 先 fossilize）
 //   ④ 图片宽度未设/清空时删 width 键（setBlockWidth）——无 width = 原图尺寸，存量图片段零字节变动
 import { create } from 'zustand';
-import { getDoc, putDoc } from './api';
+import { getDoc, putDoc, getTemplates, putTemplates } from './api';
 
 let uidc = 1;
 const fresh = () => 'u' + uidc++;
@@ -135,17 +135,34 @@ export const sizeOf = (d) =>
   (d != null && typeof d === 'object' && !isImgData(d) && !isBarData(d) && ['s', 'l', 'xl'].includes(d.size)) ? d.size : 'm';
 // 兼容规则①：m 档存纯字符串，其余存 {text, size}
 export const mkText = (t, sz = 'm') => (sz === 'm' ? t : { text: t, size: sz });
+// 位置微调键 {dx, dy}（任意块对象可带；0/未设=删键）。文字块带位移时必须保持对象形——
+// mkTextN 是 mkText 的位移保持版：m 档且无位移才回落纯字符串（规则①的完整表述）。
+export const nudgeOf = (d) => (d != null && typeof d === 'object' ? { dx: d.dx, dy: d.dy } : {});
+const hasN = (v) => Number.isFinite(v) && Math.round(v) !== 0;
+export const mkTextN = (t, sz = 'm', n = {}) => {
+  if (sz === 'm' && !hasN(n.dx) && !hasN(n.dy)) return t;
+  const o = { text: t };
+  if (sz !== 'm') o.size = sz;
+  if (hasN(n.dx)) o.dx = Math.round(n.dx);
+  if (hasN(n.dy)) o.dy = Math.round(n.dy);
+  return o;
+};
 
 export const BAR_W = { lo: 24, hi: 400, def: 144 };
 // 图片显示宽度（px）。上下限与 TutorialContent 的防御性夹取同值——那边不能 import 本模块（纯净性铁律），
 // 属性条 width 已是同款双写先例；改这里必须同步改 TutorialContent。
 export const IMG_W = { lo: 24, hi: 1200 };
-// 某图片 URL 在全文的引用处（章节标题列表）——图库删除前提示用
+// 某图片 URL 在全文的引用处（章节标题列表）——图库删除前提示用。含多列段各格。
 export const imgUsage = (chapters, url) => {
   const hits = [];
+  const dataUses = (d) => {
+    if (isImgData(d)) return d.img === url;
+    if (isRowData(d)) return d.row.some((col) => (Array.isArray(col) ? col : [col]).some(dataUses));
+    return false;
+  };
   const walk = (list) => {
     for (const ch of list) {
-      if ((ch.body ?? []).some((b) => isImgData(b.data) && b.data.img === url)) hits.push(ch.title || '(无标题)');
+      if ((ch.body ?? []).some((b) => dataUses(b.data))) hits.push(ch.title || '(无标题)');
       walk(ch.children ?? []);
     }
   };
@@ -181,11 +198,12 @@ function fossilizeBar(d) {
 }
 export const newBar = () => ({ bar: '', width: BAR_W.def, fill: 60, color: 'gold', fade: 'both' });
 
-// ---- 双栏并排段 {row:[左,右], valign} ----
+// ---- 多列并排段 {row:[列…], widths?, valign} ----
+// 列 = 单块（旧形）或块数组（竖排堆叠）。cellsOf 返回列的数组视图**拷贝**；writeCol 写回时
+// 单格列落成单块形（旧双栏没被结构性编辑时保持原形 → 逐字节兼容）。
 export const isRowData = (d) => d != null && typeof d === 'object' && 'row' in d && Array.isArray(d.row);
-// 图片栏索引（0/1）；文字栏 = 另一个。newRow 保证一图一文，交换后仍成立。
-export const rowImgIdx = (d) => { const i = d.row.findIndex(isImgData); return i < 0 ? 0 : i; };
-export const rowTextIdx = (d) => (rowImgIdx(d) === 0 ? 1 : 0);
+export const cellsOf = (d, col) => { const v = d.row[col]; return Array.isArray(v) ? [...v] : [v]; };
+const writeCol = (d, col, cells) => { d.row[col] = cells.length === 1 ? cells[0] : cells; };
 export const newRow = () => ({ row: [{ img: '' }, ''] }); // 默认左图右文
 
 // ---- 撤回栈（photoStore 范式） ----
@@ -395,8 +413,44 @@ export const useTedStore = create((set, get) => {
         selN: ++selN,
       });
     },
-    openPicker(chUid, uid, row = false) { set({ picker: { chUid, uid, row } }); },
+    openPicker(chUid, uid, cell = null) { set({ picker: { chUid, uid, cell } }); }, // cell={col,idx}=写多列段的格
     closePicker() { set({ picker: null }); },
+
+    // ---- 版式模板（设计一种排版→保存→到处一键插入；client/tutorial.templates.json 随 git 走）----
+    templates: [],
+    tplGallery: false,
+    openTplGallery() { set({ tplGallery: true }); },
+    closeTplGallery() { set({ tplGallery: false }); },
+    loadTemplates() {
+      getTemplates()
+        .then((j) => set({ templates: Array.isArray(j.templates) ? j.templates : [] }))
+        .catch(() => { /* 文件不存在/服务未起 → 空库，保存时再报错 */ });
+    },
+    async _saveTemplates(templates) {
+      set({ templates });
+      try { await putTemplates(templates); } catch (e) { get().showToast('版式库保存失败：' + e.message, true); }
+    },
+    // 存版式：同名覆盖（迭代设计的自然语义，toast 里说明）。blocks=纯 data 数组（无 uid）。
+    saveTemplate(name, blocks) {
+      const nm = String(name || '').trim().slice(0, 40);
+      if (!nm || !blocks?.length) return;
+      const existed = get().templates.some((t) => t.name === nm);
+      const templates = [...get().templates.filter((t) => t.name !== nm), { name: nm, blocks: structuredClone(blocks) }];
+      get().showToast(existed ? `已覆盖版式「${nm}」` : `已保存版式「${nm}」（${blocks.length} 块）`);
+      return get()._saveTemplates(templates);
+    },
+    removeTemplate(name) { return get()._saveTemplates(get().templates.filter((t) => t.name !== name)); },
+    renameTemplate(name, next) {
+      const nm = String(next || '').trim().slice(0, 40);
+      if (!nm || nm === name) return;
+      return get()._saveTemplates(get().templates.map((t) => (t.name === name ? { ...t, name: nm } : t)));
+    },
+    // 插入版式：深拷贝经 pasteBlocks（换新 uid、插到 refUid 后/章末、选中新块）
+    insertTemplate(chUid, refUid, name) {
+      const tpl = get().templates.find((t) => t.name === name);
+      if (!tpl) return;
+      get().pasteBlocks(chUid, refUid, structuredClone(tpl.blocks));
+    },
     showToast(msg, err = false) { set({ toast: { msg, err: !!err, n: ++toastN } }); },
     openMenu(x, y, items) { set({ menu: { x, y, items } }); },
     closeMenu() { if (get().menu) set({ menu: null }); },
@@ -623,6 +677,35 @@ export const useTedStore = create((set, get) => {
       ch.body.splice(hit >= 0 ? hit + 1 : ch.body.length, 0, ...blocks);
       commit({ selBlks: blocks.map((b) => b.uid), selN: ++selN });
     },
+    // 章节标题字号（titleSize ∈ s/m/l/xl；m=默认删键——存于 rest，unwrap 时紧随 title 落盘）
+    setTitleSize(chUid, size) {
+      const ch = findByUid(get().chapters, chUid);
+      if (!ch) return;
+      const cur = ch.rest.titleSize ?? 'm';
+      if (cur === size) return;
+      get().pushHistory();
+      if (size === 'm') delete ch.rest.titleSize; else ch.rest.titleSize = size;
+      commit();
+    },
+    // 原地换型（斜杠菜单：空文字块 → 图片/属性条/多列…）
+    convertBlock(chUid, uid, data) {
+      const loc = blockAt(chUid, uid);
+      if (!loc) return;
+      get().pushHistory();
+      loc.block.data = structuredClone(data);
+      bump(loc.block);
+      commit({ selBlks: [uid], selN: ++selN });
+    },
+    // 按下标插入多块（＋插入线/版式模板共用；pasteBlocks 是「插到某块后」语义，这里是「插到位置」）
+    insertBlocksAt(chUid, index, datas) {
+      const ch = findByUid(get().chapters, chUid);
+      if (!ch || !Array.isArray(datas) || !datas.length) return;
+      get().pushHistory();
+      const blocks = datas.map((d) => ({ uid: fresh(), data: structuredClone(d) }));
+      const at = Math.max(0, Math.min(ch.body.length, index));
+      ch.body.splice(at, 0, ...blocks);
+      commit({ selBlks: blocks.map((b) => b.uid), selN: ++selN });
+    },
     moveBlock(chUid, from, to) { // ↑↓ 与拖拽排序共用；越界忽略
       const ch = findByUid(get().chapters, chUid);
       if (!ch || to < 0 || to >= ch.body.length || from === to) return;
@@ -636,7 +719,7 @@ export const useTedStore = create((set, get) => {
       const loc = blockAt(chUid, uid);
       if (!loc || textOf(loc.block.data) === null) return;
       get().pushHistory(key);
-      loc.block.data = mkText(text, sizeOf(loc.block.data)); // 规则①：m 档回落纯字符串
+      loc.block.data = mkTextN(text, sizeOf(loc.block.data), nudgeOf(loc.block.data)); // 规则①（保位移键）
       bump(loc.block);
       commit();
     },
@@ -644,7 +727,7 @@ export const useTedStore = create((set, get) => {
       const loc = blockAt(chUid, uid);
       if (!loc || textOf(loc.block.data) === null || sizeOf(loc.block.data) === size) return;
       get().pushHistory();
-      loc.block.data = mkText(textOf(loc.block.data) ?? '', size);
+      loc.block.data = mkTextN(textOf(loc.block.data) ?? '', size, nudgeOf(loc.block.data));
       bump(loc.block);
       commit();
     },
@@ -679,6 +762,26 @@ export const useTedStore = create((set, get) => {
       bump(loc.block);
       commit();
     },
+    // 位置微调（预览拖拽移动把手写入；任意顶层块）。dx/dy=0 删键；纯文字块无位移无字号回落字符串。
+    setBlockNudge(chUid, uid, dx, dy, opts = {}) {
+      const loc = blockAt(chUid, uid);
+      if (!loc) return;
+      const d = loc.block.data;
+      const nx = Math.round(Number(dx) || 0), ny = Math.round(Number(dy) || 0);
+      if (typeof d === 'string' && !nx && !ny) return; // 字符串块清零位移=无操作
+      get().pushHistory(opts.key ?? null);
+      if (typeof d === 'string') {
+        loc.block.data = mkTextN(d, 'm', { dx: nx, dy: ny });
+      } else {
+        if (nx) d.dx = nx; else delete d.dx;
+        if (ny) d.dy = ny; else delete d.dy;
+        if (!isImgData(d) && !isBarData(d) && !isRowData(d)) {
+          loc.block.data = mkTextN(String(d.text ?? ''), sizeOf(d), nudgeOf(d)); // 可能回落字符串
+        }
+      }
+      bump(loc.block);
+      commit();
+    },
     setBarProps(chUid, uid, patch, key = null) {
       const loc = blockAt(chUid, uid);
       if (!loc || !isBarData(loc.block.data)) return;
@@ -691,59 +794,94 @@ export const useTedStore = create((set, get) => {
       bump(loc.block);
       commit();
     },
-    // ---- 双栏并排段（作用于 data.row 的图片栏 / 文字栏；标准三步）----
-    // 图片栏：URL（原地变异保未知键）、alt（空删键，同规则②）、宽度（同规则④ on/off）
-    setRowImg(chUid, uid, url, opts = {}) {
+    // ---- 多列并排段（泛化：2-4 列 × 每列竖排堆叠 × 列宽权重）。全部按 (col, idx) 寻址格子。----
+    // rowAt：定位 row 块并把第 col 列规范成数组视图返回（不落盘规范化——只有真编辑该列时才把
+    // 单块列固化成数组，未动的旧双栏保持原形 → 逐字节兼容）。
+    // 内部助手：对 row 块做一次标准三步变异
+    _rowEdit(chUid, uid, fn, opts = {}) {
       const loc = blockAt(chUid, uid);
       if (!loc || !isRowData(loc.block.data)) return;
       if (opts.history !== false) get().pushHistory(opts.key ?? null);
-      const col = loc.block.data.row[rowImgIdx(loc.block.data)];
-      col.img = url;
+      fn(loc.block.data, loc);
       bump(loc.block); commit();
     },
-    setRowAlt(chUid, uid, alt) {
-      const loc = blockAt(chUid, uid);
-      if (!loc || !isRowData(loc.block.data)) return;
-      get().pushHistory('rowalt:' + uid);
-      const col = loc.block.data.row[rowImgIdx(loc.block.data)];
-      if (alt) col.alt = alt; else delete col.alt;
-      bump(loc.block); commit();
+    // 整格替换（CellText 的 mkText 归一在调用方做——规则①由 mkText 保证）
+    setCell(chUid, uid, col, idx, data, opts = {}) {
+      get()._rowEdit(chUid, uid, (d) => {
+        const cells = cellsOf(d, col);
+        if (idx < 0 || idx >= cells.length) return;
+        cells[idx] = data;
+        writeCol(d, col, cells);
+      }, opts);
     },
-    setRowImgWidth(chUid, uid, width, opts = {}) {
-      const loc = blockAt(chUid, uid);
-      if (!loc || !isRowData(loc.block.data)) return;
-      const col = loc.block.data.row[rowImgIdx(loc.block.data)];
-      const n = Math.round(Number(width));
-      const on = width !== null && width !== '' && Number.isFinite(n) && n > 0;
-      if (!on && col.width === undefined) return;
-      get().pushHistory(opts.key ?? null);
-      if (on) col.width = clampNum(n, IMG_W.lo, IMG_W.hi); else delete col.width;
-      bump(loc.block); commit();
+    // 图片格增量（img 原地变异保未知键；alt 空删键=规则②；width 非正删键=规则④）
+    patchCellImg(chUid, uid, col, idx, patch, opts = {}) {
+      get()._rowEdit(chUid, uid, (d) => {
+        const cells = cellsOf(d, col);
+        const cell = cells[idx];
+        if (!isImgData(cell)) return;
+        if ('img' in patch) cell.img = patch.img;
+        if ('alt' in patch) { if (patch.alt) cell.alt = patch.alt; else delete cell.alt; }
+        if ('width' in patch) {
+          const n = Math.round(Number(patch.width));
+          if (patch.width !== null && patch.width !== '' && Number.isFinite(n) && n > 0) cell.width = clampNum(n, IMG_W.lo, IMG_W.hi);
+          else delete cell.width;
+        }
+        writeCol(d, col, cells);
+      }, opts);
     },
-    // 文字栏：整栏替换成 mkText（规则①：m 档回落纯字符串）
-    setRowText(chUid, uid, text, opts = {}) {
-      const loc = blockAt(chUid, uid);
-      if (!loc || !isRowData(loc.block.data)) return;
-      get().pushHistory(opts.key ?? null);
-      const i = rowTextIdx(loc.block.data);
-      loc.block.data.row[i] = mkText(text, sizeOf(loc.block.data.row[i]));
-      bump(loc.block); commit();
+    addCell(chUid, uid, col, data, atIdx = null) {
+      get()._rowEdit(chUid, uid, (d) => {
+        const cells = cellsOf(d, col);
+        cells.splice(atIdx ?? cells.length, 0, data);
+        writeCol(d, col, cells);
+      });
     },
-    setRowSize(chUid, uid, size) {
-      const loc = blockAt(chUid, uid);
-      if (!loc || !isRowData(loc.block.data)) return;
-      const i = rowTextIdx(loc.block.data);
-      if (sizeOf(loc.block.data.row[i]) === size) return;
-      get().pushHistory();
-      loc.block.data.row[i] = mkText(textOf(loc.block.data.row[i]) ?? '', size);
-      bump(loc.block); commit();
+    removeCell(chUid, uid, col, idx) {
+      get()._rowEdit(chUid, uid, (d) => {
+        const cells = cellsOf(d, col);
+        if (cells.length <= 1) return; // 列至少留一格（删空列走 removeRowCol）
+        cells.splice(idx, 1);
+        writeCol(d, col, cells);
+      });
     },
-    swapRow(chUid, uid) {
-      const loc = blockAt(chUid, uid);
-      if (!loc || !isRowData(loc.block.data)) return;
-      get().pushHistory();
-      loc.block.data.row.reverse();
-      bump(loc.block); commit();
+    moveCell(chUid, uid, col, from, to) {
+      get()._rowEdit(chUid, uid, (d) => {
+        const cells = cellsOf(d, col);
+        if (to < 0 || to >= cells.length) return;
+        const [x] = cells.splice(from, 1);
+        cells.splice(to, 0, x);
+        writeCol(d, col, cells);
+      });
+    },
+    addRowCol(chUid, uid, data = '') {
+      get()._rowEdit(chUid, uid, (d) => {
+        if (d.row.length >= 4) return;
+        d.row.push(data);
+        if (Array.isArray(d.widths)) d.widths.push(1);
+      });
+    },
+    removeRowCol(chUid, uid, col) {
+      get()._rowEdit(chUid, uid, (d) => {
+        if (d.row.length <= 2) return; // 少于两列就不叫并排了（整块可删）
+        d.row.splice(col, 1);
+        if (Array.isArray(d.widths)) { d.widths.splice(col, 1); }
+      });
+    },
+    moveRowCol(chUid, uid, col, dir) {
+      get()._rowEdit(chUid, uid, (d) => {
+        const to = col + dir;
+        if (to < 0 || to >= d.row.length) return;
+        [d.row[col], d.row[to]] = [d.row[to], d.row[col]];
+        if (Array.isArray(d.widths)) [d.widths[col], d.widths[to]] = [d.widths[to], d.widths[col]];
+      });
+    },
+    // 列宽权重：null=均分（删键，回落旧语义）；数组按列序（1-9 整数权重）
+    setRowWidths(chUid, uid, weights) {
+      get()._rowEdit(chUid, uid, (d) => {
+        if (weights == null) delete d.widths;
+        else d.widths = d.row.map((_, c) => clampNum(weights[c] ?? 1, 1, 9));
+      });
     },
     setRowValign(chUid, uid, v) {
       const loc = blockAt(chUid, uid);

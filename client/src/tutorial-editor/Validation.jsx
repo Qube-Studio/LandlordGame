@@ -2,12 +2,15 @@
 // 未知块字段。点击问题行 → store.reveal 定位（展开祖先+清搜索+选中章/块；树、编辑列、预览
 // 三处 scrollIntoView 由各自订阅 selN 的 effect 消费）。
 import { useEffect, useState } from 'react';
-import { useTedStore, isImgData, isBarData } from './store';
+import { useTedStore, isImgData, isBarData, isRowData } from './store';
 
-// 已知字段白名单（与 TutorialContent 的渲染约定一致；bar 的 value/max 是旧段式，规则③容忍不算未知）
-const KNOWN_TEXT = new Set(['text', 'size']);
-const KNOWN_IMG = new Set(['img', 'alt']);
-const KNOWN_BAR = new Set(['bar', 'width', 'fill', 'color', 'fade', 'value', 'max']);
+// 已知字段白名单（与 TutorialContent 的渲染约定一致；bar 的 value/max 是旧段式，规则③容忍不算未知；
+// dx/dy=位置微调，任意块可带）
+const NUDGE = ['dx', 'dy'];
+const KNOWN_TEXT = new Set(['text', 'size', ...NUDGE]);
+const KNOWN_IMG = new Set(['img', 'alt', 'width', ...NUDGE]);
+const KNOWN_BAR = new Set(['bar', 'width', 'fill', 'color', 'fade', 'value', 'max', ...NUDGE]);
+const KNOWN_ROW = new Set(['row', 'widths', 'valign', ...NUDGE]);
 // 图片探活缓存（模块级：面板反复开合、章节增删不重测同一 URL；「重新检查」清掉它）
 const imgCache = new Map(); // url → 'ok' | 'bad'
 const probing = new Set(); // 探活在途去重：面板每次渲染都重扫，别为同一 URL 反复 new Image()
@@ -38,22 +41,33 @@ function scan(chapters) {
       if (!n.body.length && !n.children.length) {
         issues.push({ kind: '空章节', chUid: n.uid, blkUid: null, text: p });
       }
-      n.body.forEach((b, i) => {
-        const d = b.data, at = `${p} · 第${i + 1}段`;
+      // 单块校验（多列段的格子复用：at 带列/格定位，问题仍锚到宿主 row 块）
+      const checkOne = (d, at, chUid, blkUid, allowRow) => {
         if (typeof d === 'string') return;
         if (d == null || typeof d !== 'object' || Array.isArray(d)) {
-          issues.push({ kind: '坏块', chUid: n.uid, blkUid: b.uid, text: `${at} —— 段落不是文字/图片/属性条` });
+          issues.push({ kind: '坏块', chUid, blkUid, text: `${at} —— 段落不是文字/图片/属性条/多列` });
+          return;
+        }
+        if (isRowData(d)) {
+          if (!allowRow) { issues.push({ kind: '坏块', chUid, blkUid, text: `${at} —— 多列段不可嵌套` }); return; }
+          const bad = Object.keys(d).filter((k) => !KNOWN_ROW.has(k));
+          if (bad.length) issues.push({ kind: '未知字段', chUid, blkUid, text: `${at} —— ${bad.join('、')}` });
+          d.row.forEach((col, c) => {
+            const cells = Array.isArray(col) ? col : [col];
+            cells.forEach((cell, k) => checkOne(cell, `${at} 第${c + 1}列格${k + 1}`, chUid, blkUid, false));
+          });
           return;
         }
         const known = isImgData(d) ? KNOWN_IMG : isBarData(d) ? KNOWN_BAR : KNOWN_TEXT;
         const bad = Object.keys(d).filter((k) => !known.has(k));
-        if (bad.length) issues.push({ kind: '未知字段', chUid: n.uid, blkUid: b.uid, text: `${at} —— ${bad.join('、')}` });
+        if (bad.length) issues.push({ kind: '未知字段', chUid, blkUid, text: `${at} —— ${bad.join('、')}` });
         if (isImgData(d) && d.img) {
           const c = imgCache.get(d.img);
-          if (c === 'bad') issues.push({ kind: '坏图', chUid: n.uid, blkUid: b.uid, text: `${at} —— ${d.img}` });
+          if (c === 'bad') issues.push({ kind: '坏图', chUid, blkUid, text: `${at} —— ${d.img}` });
           else if (!c) pending.add(d.img);
         }
-      });
+      };
+      n.body.forEach((b, i) => checkOne(b.data, `${p} · 第${i + 1}段`, n.uid, b.uid, true));
       rec(n.children, p);
     }
   };

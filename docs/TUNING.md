@@ -2,7 +2,7 @@
 
 > 本文档用于**手动微调游戏性**。所有数值都集中在 `server/config.js` 的 `DEFAULT_CONFIG`，
 > 是服务端权威、零硬编码（见 `CLAUDE.md` 架构原则 2）。改这里即可调整全局默认；
-> 也可在建房时用 `configOverrides` 按房间覆盖（`mergeConfig` 深合并）。
+> 也可在建房 REST 请求的 `config` 字段中按房间覆盖（进入 `Room` 后作为 `configOverrides` 由 `mergeConfig` 深合并）。
 >
 > 规则细节以 `docs/GAME_SPEC.md` 为准；本文只讲“每个旋钮怎么拧、拧了会怎样”。
 
@@ -11,7 +11,7 @@
 ## 怎么改
 
 - **改全局默认**：编辑 `server/config.js` 里 `DEFAULT_CONFIG` 对应字段，重启服务端（`npm run dev` 会自动重载）。
-- **只改某局**：建房时传 `configOverrides`，例如 `{ initialBalance: { farmer: 10 }, landlordFundMultiplier: 2 }`。
+- **只改某局**：建房时传 `config`，例如 `{ initialBalance: { farmer: 10 }, landlordFundMultiplier: 2 }`。处决开关例外：生产服务端始终强制关闭。
 - **嵌套对象**深合并：只写要改的字段即可，其余沿用默认（如只改 `timing.coinAnimMs`）。
 - 改完用 `node --experimental-vm-modules` 不必要——纯逻辑可直接 `node server/test/logic.test.mjs` 跑边界测试自检（见末尾）。
 
@@ -105,9 +105,11 @@
 
 | 键 | 默认 | 说明 |
 |----|------|------|
-| `execution.enabled` | `true` | 处决窗总开关（quick/competitive 均生效）。关掉 = 破产直接出局、终局判定不推迟（旧行为）。 |
+| `execution.enabled` | `false` | 处决窗总开关（quick/competitive 均生效）。生产环境强制关闭；仅本地测试服务端接受开发版大厅设置对新房的显式开启请求。关闭时破产直接出局、终局判定不推迟。 |
+| `timing.executionResultMs` | `3000` | 每笔判决落定后的结果展示窗。 |
+| `timing.executionVolleyMs` | `1200` | 超时连发模式相邻两枪的间隔。 |
 
-调参心法：处决窗的价值在「赦免的代价感」——赔偿=目标本回合全部损失，行刑者要真金白银掏（资本家掏池）。若实测赦免率过高（拖局），可考虑给赔偿加成数（未实装，需改 `compensationOf`）；若几乎没人赦免，先检查 `executionMs` 是否太短（没时间纠结就默认处决了）。
+本节参数只在本地实验房启用处决后生效。调参心法：处决窗的价值在「赦免的代价感」——赔偿=目标本回合全部损失，行刑者要真金白银掏（资本家掏池）。若实测赦免率过高（拖局），可考虑给赔偿加成数（未实装，需改 `compensationOf`）；若几乎没人赦免，先检查 `executionMs` 是否太短（没时间纠结就默认处决了）。
 
 ## 对质 / 指控（accusation，§8.11）
 

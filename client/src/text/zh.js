@@ -406,7 +406,7 @@ const guide = {
 const execution = {
   aimHint: '瞄准破产者开枪处决 · 对空鸣枪赦免',
   pardonHint: (cost) => `赦免需自掏 ¥${cost} 赔偿`,
-  denyLiving: '不许对活人开枪',
+  // deny 态开枪不再有文字提示（叉准心弹簧晃动代替）；denyPoor 仍用于浮字/面板的「付不起」常驻说明
   denyPoor: (cost) => `资金不足，无法赦免（需赔偿 ¥${cost}）——只能处决`,
   targetWaiting: (name) => `${name} 正用枪口对着你…`,
   watching: (judge, target) => `${judge} 正在决定 ${target} 的生死…`,
@@ -415,6 +415,10 @@ const execution = {
   pardonBtn: (cost) => `赦免（自付 ¥${cost}）`,
   autoSuffix: '后默认处决',
   relockHint: '按任意键回到瞄准',
+  deathWord: '死亡',
+  pardonWord: '赦免',
+  holdHint: '处决仍在继续…',
+  holdCountdown: (s) => `${s}s`,
 };
 
 // ---- 2D 协商板（NegotiationBoard，仅 ?input=2d）----
@@ -468,6 +472,10 @@ const settings = {
   title: '设置',
   roomId: (roomId) => `房间号 ${roomId}`,
   copy: '复制',
+  visualStyle: '素材与渲染',
+  visualStyleNote: '体素光照首次启用需短暂烘焙',
+  styleVoxel: '新版体素',
+  styleClassic: '经典版',
   renderScale: '渲染分辨率',
   renderScaleNote: '卡顿请调低',
   uiScale: '界面大小',
@@ -475,7 +483,10 @@ const settings = {
   uiScaleOption: (v) => (v === 1 ? '标准' : `${Math.round(v * 100)}%`),
   catDisplay: '画面',
   catEffects: '光影',
+  catLocal: '本地实验',
   catRoom: '房间',
+  executionTestRooms: '处决测试',
+  executionTestRoomsNote: '仅影响之后新建的本地测试房；生产环境始终关闭',
 };
 
 // ---- 教程面板（RulesPanel 章节模式；**…** 为高亮标记）----
@@ -816,7 +827,7 @@ const single = {
 
 // ---- 开发/测试专用（仅 import.meta.env.DEV 可见）----
 const dev = {
-  hud: (freeCamOn) => `测试模式 · B 补满玩家 · V 切换操控角色 · K 自由相机(${freeCamOn ? common.on : common.off})`,
+  hud: (freeCamOn) => `测试模式 · B 补满玩家 · V 切换操控角色 · X 处决窗(须在大厅设置开启；Shift 混合) · K 自由相机(${freeCamOn ? common.on : common.off})`,
 };
 
 export default {

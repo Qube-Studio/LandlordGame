@@ -27,7 +27,10 @@ export const useGameStore = create((set, get) => ({
   cine: 'off',       // 掷币分镜演出（§3.4）：'hide' 分镜播放中(UI 收起+输入封锁) | 'enter' UI 出场(≤500ms,任意键打断,不触发操作) | 'off' 常态
   singleCam: 'walk', // 单人相机（§9.6 交互 v2）：'walk' 全局走动 | 'seat' 附身当前席位（纯表现状态）
   walkLocked: false, // 走动模式指针锁（MC 心智）：锁定=鼠标直接转视角+中央准心；ESC 释放后可点 UI
-  walkAim: null,     // 准心指向的可交互目标（'circle:s0'|'coin'|'seat:s1'|'sheet:slot0'|null）→ 十字张开;也供 E2E 断言
+  walkAim: null,     // 准心指向的可交互目标（'circle:s0'|'coin'|'seat:s1'|'exec:p1'|'deny:living'|null）→ 十字张开/斜叉;也供 E2E 断言
+  aimDenyPulse: 0,   // 处决窗 deny 态开枪的拒绝反馈脉冲（§3.9）：自增触发叉准心弹簧晃动（无文字提示）
+  gunFirePulse: 0,   // 处决窗开枪脉冲（§3.9 批次3）：行刑者扣扳机瞬间自增——第一人称后坐+枪口火光
+  execFiredAt: null, // 处决窗开火闩锁（§3.9）：本焦点已开过枪的 targetId——开火后禁再开火,左轮收枪;新焦点自然解锁
 
   connect(token) {
     connectSocket(token);
@@ -36,7 +39,7 @@ export const useGameStore = create((set, get) => ({
   disconnect() {
     disconnectSocket();
     sessionStorage.removeItem('llg_room');
-    set({ connected: false, joining: false, roomId: null, playerId: null, state: null, chat: [], chatTab: 'all', chatFlash: 0, insuranceDrops: [], betFlight: null, myStack: null, looks: {}, panel: null, cine: 'off', walkLocked: false, walkAim: null });
+    set({ connected: false, joining: false, roomId: null, playerId: null, state: null, chat: [], chatTab: 'all', chatFlash: 0, insuranceDrops: [], betFlight: null, myStack: null, looks: {}, panel: null, cine: 'off', walkLocked: false, walkAim: null, execFiredAt: null });
   },
 
   joinRoom(roomId) {
@@ -55,11 +58,14 @@ export const useGameStore = create((set, get) => ({
   setSingleCam(v) { set(s => (s.singleCam === v ? {} : { singleCam: v })); },
   setWalkLocked(v) { set(s => (s.walkLocked === v ? {} : { walkLocked: v })); },
   setWalkAim(v) { set(s => (s.walkAim === v ? {} : { walkAim: v })); },
+  bumpAimDeny() { set(s => ({ aimDenyPulse: s.aimDenyPulse + 1 })); },
+  bumpGunFire() { set(s => ({ gunFirePulse: s.gunFirePulse + 1 })); },
+  setExecFiredAt(v) { set(s => (s.execFiredAt === v ? {} : { execFiredAt: v })); },
 
   leaveRoom() {
     sendMsg({ type: get().roomId === 'SINGLE' ? 'single_quit' : 'leave_room' });
     sessionStorage.removeItem('llg_room');
-    set({ roomId: null, playerId: null, state: null, chat: [], chatTab: 'all', chatFlash: 0, joining: false, insuranceDrops: [], betFlight: null, myStack: null, looks: {}, panel: null, balanceFreeze: null, singleCam: 'walk', cine: 'off', walkLocked: false, walkAim: null });
+    set({ roomId: null, playerId: null, state: null, chat: [], chatTab: 'all', chatFlash: 0, joining: false, insuranceDrops: [], betFlight: null, myStack: null, looks: {}, panel: null, balanceFreeze: null, singleCam: 'walk', cine: 'off', walkLocked: false, walkAim: null, execFiredAt: null });
   },
 
   send(msg) {

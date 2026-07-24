@@ -203,7 +203,25 @@ textarea.ted-input { resize: vertical; min-height: 46px; }
 .ted-drag-handle:active { cursor: grabbing; }
 .ted-quick { opacity: 0; } /* 快速插入按钮：悬停块时显现 */
 .ted-block:hover .ted-quick { opacity: 1; }
+/* 块头整排按钮悬停显现（现代编辑器安静默认态）；类型标签常显 */
+.ted-block-head .ted-btn { opacity: 0; transition: opacity 0.12s; }
+.ted-block:hover .ted-block-head .ted-btn, .ted-block.primary .ted-block-head .ted-btn { opacity: 1; }
 .ted-block-body { padding: 7px; display: flex; flex-direction: column; gap: 6px; }
+
+/* 块间插入线：悬停显现细线+＋钮，点击弹插入菜单（与斜杠菜单同款） */
+.ted-insline {
+  position: relative; height: 8px; margin: -2px 0; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+.ted-insline::before {
+  content: ''; position: absolute; left: 0; right: 0; top: 50%; height: 1px;
+  background: #e8c96a; opacity: 0; transition: opacity 0.12s;
+}
+.ted-insline-btn {
+  position: relative; z-index: 1; padding: 0 6px; font-size: 11px; line-height: 1;
+  color: #101216; background: #e8c96a; opacity: 0; transition: opacity 0.12s;
+}
+.ted-insline:hover::before, .ted-insline:hover .ted-insline-btn { opacity: 1; }
 
 /* 图片块 */
 .ted-img-row { display: flex; gap: 8px; align-items: flex-start; }
@@ -223,14 +241,38 @@ textarea.ted-input { resize: vertical; min-height: 46px; }
 .ted-lab { color: #8b919e; font-size: 11px; flex: none; }
 .ted-dim { color: #6c7280; font-size: 10.5px; flex: none; }
 
-/* 图文并排编辑：两栏编辑格**上下堆叠**、各占全宽（编辑列放不下两个并列的图片编辑器 → 挤成多行）。
-   预览里才是真正的左右并排；编辑格靠标签「左栏/右栏」标明对应预览的哪一侧。 */
+/* 多列并排编辑：列编辑格**上下堆叠**、各占全宽（编辑列放不下并列的图片编辑器 → 挤成多行）。
+   预览里才是真正的左右并排；编辑格靠「第N列」标签对应预览列序。 */
 .ted-rowedit { display: flex; flex-direction: column; gap: 8px; }
 .ted-row2col { display: flex; flex-direction: column; gap: 8px; }
 .ted-row2col .ted-subcol { display: flex; flex-direction: column; gap: 6px;
   padding: 8px; border: 1px solid #2a2f3a; background: rgba(0, 0, 0, 0.18); }
 .ted-subcol-h { color: #e8c96a; font-size: 11px; }
+.ted-subcol-head { border-bottom: 1px dashed #2a2f3a; padding-bottom: 4px; }
+.ted-cell { display: flex; flex-direction: column; gap: 5px; padding: 6px; border: 1px dashed #232833; }
+.ted-cell-head { min-height: 18px; }
+.ted-cell .ted-cell-head .ted-btn { opacity: 0; transition: opacity 0.12s; }
+.ted-cell:hover .ted-cell-head .ted-btn { opacity: 1; }
 .ted-rowtext { min-height: 76px; resize: vertical; }
+
+/* 版式库 */
+.ted-tpl { width: min(560px, 90vw); }
+.ted-tpl-list { display: flex; flex-direction: column; gap: 4px; padding: 10px; max-height: 52vh; overflow: auto; }
+.ted-tpl-row { display: flex; align-items: center; gap: 8px; padding: 5px 6px; border: 1px solid #232833; }
+.ted-tpl-row:hover { border-color: #3a4150; }
+.ted-tpl-name { color: #e8e2d2; font-size: 12.5px; }
+.ted-tpl-foot { padding: 8px 10px; border-top: 1px solid #2a2f3a; }
+
+/* 预览移动把手（✥ 任意主选块左上角） */
+.ted-movres {
+  position: absolute; z-index: 30;
+  width: 16px; height: 16px; margin: -8px 0 0 -8px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; line-height: 1; color: #101216;
+  background: #e8c96a; border: 1px solid #101216;
+  cursor: move; touch-action: none; user-select: none;
+}
+.ted-movres:hover, .ted-movres.on { background: #fff0bb; }
 /* 宽度步进组：−[框]+px 绑成一体，永不被 flex-wrap 拆散 */
 .ted-stepgroup { display: inline-flex; align-items: center; gap: 4px; flex: none; }
 
@@ -260,12 +302,15 @@ textarea.ted-input { resize: vertical; min-height: 46px; }
    （transform 缩放后仍按原尺寸占位、会横向溢出）。zoom 广泛支持（Chromium/Safari/新 Firefox），
    老浏览器忽略=退化为原尺寸+滚动，不崩。 */
 .ted-stage { flex: none; }
-/* 预览里的面板：固定游戏满宽（换行所见即所得），高度按内容全展开、不模拟游戏的内部滚动（编辑者要通览）。 */
+/* 预览里的面板：固定游戏满宽（换行所见即所得）；高度=游戏满高打底（短章节也显示完整面板框，
+   与游戏观感一致），内容超长时再自动加高（编辑者通览、不模拟内部滚动）。 */
 .ted-preview .rules-panel.goal-hud.hud-card {
   width: var(--tut-panel-max, 1180px);
   height: auto; max-height: none;
+  min-height: var(--tut-panel-h, 880px);
 }
-.ted-preview .tut-split { flex: none; }
+/* 分栏撑满整框（nav 分隔线通到底=游戏观感）；不带 min-height:0，内容超 880 时按内容推高面板而非溢出 */
+.ted-preview .tut-split { flex: 1 1 auto; }
 .ted-preview .tut-content { overflow: visible; }
 /* 缩放比徽标：右下角常驻，提示当前不是 1:1 */
 .ted-preview-scale {
