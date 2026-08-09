@@ -339,7 +339,7 @@ export class SingleSession {
         } : {}),
       } : null,
       pot: betting ? null : pot,
-      betDeadline: null, revealDeadline: null,   // 单机不限时（多人下注/确认倒计时字段，形状对齐）
+      betDeadline: null, revealDeadline: null, reflipDeadline: null,   // 单机不限时（多人下注/确认/重掷倒计时字段，形状对齐）
       coinResult: ['COIN_FLIP', 'REFLIP', 'NEGOTIATE'].includes(phase) ? this.coinResult : null,
       settlement: null,
       allocation: phase === 'NEGOTIATE' && plan
@@ -350,7 +350,7 @@ export class SingleSession {
         ? { script: [], piles: { ...plan.takes }, taken: [], eligible: alive.map(s => s.id), deadline: null }
         : null,
       roundFarmerIds: alive.map(s => s.id),
-      landlordGoal: null, capitalist: null, challenge: null, lastAccusation: null,
+      landlordGoal: null, capitalist: null, challenge: null, lastAccusation: null, execution: null,   // 单机无处决窗（§9）
       lastSummon: t.summon.pendingPenalty > 0 ? { byId: this.seatId, targetId: 'L', cost: singleSummonCost(alive.length, t.config), round: t.round } : null,
       history: [],
       winnerSide: t.winner ? (t.winner === 'team' ? 'farmers' : 'landlord') : null,
@@ -401,9 +401,9 @@ export class SingleSession {
       config: this.baseConfig,
       players,
       me: null,
-      pot: null, betDeadline: null, revealDeadline: null, coinResult: null, settlement: null, allocation: null, payout: null,
+      pot: null, betDeadline: null, revealDeadline: null, reflipDeadline: null, coinResult: null, settlement: null, allocation: null, payout: null,
       roundFarmerIds: [],
-      landlordGoal: null, capitalist: null, challenge: null, lastAccusation: null, lastSummon: null,
+      landlordGoal: null, capitalist: null, challenge: null, lastAccusation: null, lastSummon: null, execution: null,
       history: [],
       winnerSide: null, endReason: null, endedReturnAt: null,
       single: {
