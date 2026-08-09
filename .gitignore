@@ -7,3 +7,15 @@ server/data/
 # art-review artifacts (generated montages)
 /art-bakeoff.png
 /art-tavern-polished.png
+
+# screenshots from agent/harness verification runs — reviewed, then discarded
+.claude-shots/
+/shots/
+/shots$*.png
+client/tools/*-e2e.png
+
+# scratch probes: throwaway one-off debug scripts, never part of a release
+client/tools/tmp-*
+
+# file inventories dumped while exploring the tree
+/filelist*.txt
