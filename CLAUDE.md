@@ -8,14 +8,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **The authoritative design document is `docs/GAME_SPEC.md`** — all rules, parameters, protocol, and architecture decisions live there. Update the spec first, then the code.
 
+**Version numbers, git tags, branch policy and commit-message format live in `docs/VERSIONING.md`** — follow it for every commit.
+
 ## Commands
 
 Run from the repo root (npm workspaces: `server`, `client`).
 
 - `npm run dev` — server (`node --watch index.js`, port 3001) + client (Vite, port 5173) concurrently
 - `npm run build` — builds the client
-- `npm run lint` — run from `client/`: `cd client && npx eslint .`
-- No test suite. The pure logic in `server/logic/` is designed to be unit-testable with plain `node -e` scripts.
+- `npm run lint` — ESLint over the client (delegates to the `client` workspace)
+- `npm test` — runs every `server/test/*.test.mjs` suite (auto-discovered by `server/test/all.mjs`); must be green before you commit. The pure logic in `server/logic/` needs no harness, so single cases are also runnable with plain `node -e` scripts.
 
 Vite proxies `/api` and `/ws` to `http://localhost:3001` (`client/vite.config.js`). The WS path is `/ws` with `?token=` auth.
 
